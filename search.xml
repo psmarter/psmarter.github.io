@@ -87,7 +87,67 @@ import pygameclass Ship:    def __init__(self, game):        self.game = game   
   <entry>
     <title>Python实战之外星人入侵《二》</title>
     <url>/2025/07/05/Python%E5%AE%9E%E6%88%98%E4%B9%8B%E5%A4%96%E6%98%9F%E4%BA%BA%E5%85%A5%E4%BE%B5%E3%80%8A%E4%BA%8C%E3%80%8B/</url>
-    <content><![CDATA[]]></content>
+    <content><![CDATA[创建Alien类创建一个alien.py文件，并把书中源码的alien.bmp图片拷贝到我们的imgs文件夹中，代码如下
+import pygamefrom pygame.sprite import Spriteclass Alien(Sprite):    def __init__(self, game):        super().__init__()        self.game = game        # 加载外星人图片        self.image = pygame.image.load(&#x27;imgs/alien.bmp&#x27;)        self.rect = self.image.get_rect()        # 设置外星人初始位置        self.rect.x = self.rect.width        self.rect.y = self.rect.height        # 外星人当前的x轴位置        self.x = float(self.rect.x)
+
+创建Alien实例由于外星人通常是成批次出现，因此我们也要通过Sprite管理，如self.aliens = pygame.sprite.Group()，这里我们单独创建一个函数用于外星人的生成
+def _create_fleet(self):    &quot;&quot;&quot;创建外星人舰队&quot;&quot;&quot;    alinen = Alien(self)    self.aliens.add(alinen)
+
+然后在更新屏幕的函数中添加如下代码用于外星人在屏幕上的显示
+self.aliens.draw(self.screen)
+
+运行
+
+此时在屏幕的左上角已经出现了一个外星人
+创建Alien舰队上述我们在_create_fleet中只生成了一个外星人，下面进行修改来生成多行外星人，代码如下
+def _create_fleet(self):    &quot;&quot;&quot;创建外星人舰队&quot;&quot;&quot;    alinen = Alien(self)    alien_width = alinen.rect.width    alien_height = alinen.rect.height    current_x, current_y = alien_width, alien_height    # 计算屏幕可以容纳多少个外星人    while current_y &lt; (self.settings.screen_height - 3 * alien_height):        while current_x &lt; (self.settings.screen_width - 2 * alien_width):            self._create_alien(current_x, current_y)            current_x += 2 * alien_width        # 重置当前x位置，移动到下一行        current_y += 2 * alien_height        current_x = alien_widthdef _create_alien(self, current_x, current_y):    &quot;&quot;&quot;创建一个外星人&quot;&quot;&quot;    alien = Alien(self)    alien.x = current_x    alien.rect.x = current_x    alien.rect.y = current_y    self.aliens.add(alien)
+
+这里我们先生成一个实例，然后获取到它的宽度和高度并赋值为当前的x轴位置和y轴位置，内层循环用来生成一行外星人，从距离屏幕一个外星人的宽度开始，每隔一个外星人宽度创建一个实例，直到屏幕宽度不满足两个外星人的宽度为止，外层循环首先更新y轴位置，将其下移两个外星人的高度，然后初始化当前的x轴位置，再次创建一行，直到屏幕高度不满足三个外星人的高度位置为止，运行如下
+
+此时我们已经创建了一个外星人的舰队
+移动舰队在Setting中添加如下代码
+# 外星人设置self.alien_speed = 1self.alien_drop_speed = 10self.alien_direction = 1  # 1表示向右移动，-1表示向左移动
+
+分别表示外星人的水平速度、下降速度、水平方向
+然后在Alien中添加更新位置的函数
+def update(self):    &quot;&quot;&quot;更新外星人位置&quot;&quot;&quot;    self.x += self.game.settings.alien_speed * self.game.settings.alien_direction    self.rect.x = self.x
+
+通过alien_direction来决定水平方向的移动，但这样只会让舰队朝着一个方向不停移动直到超出屏幕范围，在舰队即将到达屏幕边缘时，我们应该改变它的方向，让它朝着相反的方向移动，并下降一段距离。先添加边缘检测函数，如下
+def check_edges(self):    &quot;&quot;&quot;检查外星人是否到达屏幕边缘&quot;&quot;&quot;    screen_rect = self.game.screen.get_rect()    if self.rect.right &gt;= screen_rect.right or self.rect.left &lt;= 0:        return True    return False
+
+先获取屏幕大小，然后根据外星人所在的位置判断是否超出了屏幕边界，超了就返回True，否则返回就False
+随后我们在主程序添加检测函数，并在到达边缘时使其下降一段距离
+def _check_fleet_edges(self):    &quot;&quot;&quot;检查外星人是否到达屏幕边缘&quot;&quot;&quot;    for alien in self.aliens.sprites():        if alien.check_edges():            self._change_fleet_direction()            breakdef _change_fleet_direction(self):    &quot;&quot;&quot;改变外星人舰队的方向&quot;&quot;&quot;    for alien in self.aliens.sprites():        alien.rect.y += self.settings.alien_drop_speed    self.settings.alien_direction *= -1
+
+对于每一个外星人我们都检测其是否超出了屏幕范围，然后改变所有外星人其移动方向，并下降一段距离，此时我们在更新外星人位置的函数中调用检测边界函数，运行结果如下
+
+射击外星人此时我们发射子弹，子弹并不能击落外星人，而是会直接穿过外星人，因为我们还没有做子弹和外星人的碰撞检测，下面我们来逐步实现这一过程
+检测子弹和外星人的碰撞要实现这个功能非常简单，我们只需要利用pygame.sprite.groupcollide(self.bullets, self.aliens, True, True)这个函数即可，前两个参数分别表示子弹群组和外星人群组，后面两个参数表示碰撞后是否消失，True表明碰撞后子弹和外星人均消失。但这样还有个缺陷，就是我们把外星人全部击落之后，屏幕将没有外星人了，我们应该在打完所有外星人之后重新生成新的外星人舰队，代码如下
+def _update_bullets(self):    &quot;&quot;&quot;更新子弹位置&quot;&quot;&quot;    self.bullets.update()    for bullet in self.bullets.copy():        if bullet.rect.bottom &lt;= 0:            self.bullets.remove(bullet)                self._check_bullet_alien_collisions()def _check_bullet_alien_collisions(self):    &quot;&quot;&quot;检查子弹与外星人碰撞&quot;&quot;&quot;    collisions = pygame.sprite.groupcollide(self.bullets, self.aliens, True, True)    if not self.aliens:        # 如果没有外星人了，重新创建外星人舰队        self._create_fleet()        self.bullets.empty()
+
+我们在更新子弹的后面加入了调用检测碰撞的函数，并在所有外星人消失后重新生成新的外星人舰队，同时清除所有子弹，从而使我们继续游戏
+检测飞船和外星人的碰撞如果按照上述的逻辑，那么这个游戏将没有终止的时候，为此应该加入游戏结束的一些条件，比如我们的飞船和外星人发生了碰撞，在更新外星人的函数中添加代码如下
+# 检测外星人和飞船的碰撞if pygame.sprite.spritecollideany(self.ship, self.aliens):    print(&quot;飞船被外星人撞了！&quot;)
+
+spritecollideany(self.ship, self.aliens)函数接收一个精灵和一个编组，用于检测飞船是否有和外星人碰撞，如果发生碰撞，将打印”飞船被外星人撞了！”。通常来讲，我们不应当在飞船撞毁之后直接结束游戏，而是应该给予玩家多次机会，下面我们创建一个game_status.py文件，用于记录游戏信息，内容如下
+class GameStatus:    def __init__(self, game):        &quot;&quot;&quot;初始化游戏状态&quot;&quot;&quot;        self.ships_left = None        self.game = game        self.reset_status()            def reset_status(self):        &quot;&quot;&quot;重置游戏状态&quot;&quot;&quot;        self.ships_left = self.game.settings.ship_limit
+
+同时在Settings中添加self.ship_limit = 3，表明飞船最多只有三次，ships_left则用来记录剩余的飞船数量
+下面我们对主程序进行修改，添加一个用于游戏状态表示的实例：self.status = GameStatus(self)，然后创建撞击后的响应函数，如下
+def _ship_hit(self):    &quot;&quot;&quot;响应飞船被外星人撞击的事件&quot;&quot;&quot;    if self.status.ships_left &gt; 0:        # 减少剩余飞船数量        self.status.ships_left -= 1        # 清空子弹和外星人        self.bullets.empty()        self.aliens.empty()        # 重新创建外星人舰队        self._create_fleet()        # 重置飞船位置        self.ship.center_ship()        # 暂停一段时间        sleep(1)    else:        print(&quot;游戏结束！&quot;)
+
+如果被撞击并且飞船数量大于0，则减少一个飞船数量并清空子弹和外星人，从而生成新的外星人和飞船。删除碰撞函数里print()函数，替换为_ship_hit()，并在Ship中添加如下函数
+def center_ship(self):    &quot;&quot;&quot;将飞船放在屏幕底部中央&quot;&quot;&quot;    self.rect.midbottom = self.game.screen.get_rect().midbottom    self.x = float(self.rect.x)
+
+使新生成的飞船位于屏幕底部中心
+到达屏幕底部边缘如果外星人到达屏幕底部，我们同样应该跟碰撞一样响应，添加屏幕下边缘检测函数
+def _check_alien_bottom(self):    &quot;&quot;&quot;检查外星人是否到达屏幕底部&quot;&quot;&quot;    for alien in self.aliens.sprites():        if alien.rect.bottom &gt;= self.settings.screen_height:            self._ship_hit()            break
+
+检查每个外星人的底部是否超过了屏幕的高度，如果超过则调用_ship_hit()函数。在更新外星人的最后添加self._check_alien_bottom()，此时当外星人到达屏幕底部游戏也将重置
+GameOver细心一点可能会注意到，当我们死亡超过三次时，游戏仍然没有结束，事实上它永远也不会结束，因为我们在_ship_hit()函数中，当ships_left小于0时，只是调用了print(&quot;游戏结束！&quot;)，其他什么也没有做，因此ships_left只会越来越小，我们应该为其添加一个游戏标识，如果标识为False则终止某些部分的运行，从而实现游戏的结束。在主程序添加self.game_active = True，并将print(&quot;游戏结束！&quot;)替换为self.game_active = False，同时修改主循环如下
+# 游戏主循环while True:    # 监听事件    self._check_events()    if self.game_active:        # 更新飞船位置        self.ship.update()        # 更新子弹位置        self._update_bullets()        # 更新外星人位置        self._update_aliens()    # 更新屏幕    self._update_screen()    # 控制游戏帧率    self.clock.tick(self.settings.FPS)
+
+]]></content>
       <categories>
         <category>Python实战之外星人入侵</category>
       </categories>
