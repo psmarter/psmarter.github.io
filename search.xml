@@ -1,6 +1,90 @@
 <?xml version="1.0" encoding="utf-8"?>
 <search>
   <entry>
+    <title>Python实战之外星人入侵《一》</title>
+    <url>/2025/07/04/Python%E5%AE%9E%E6%88%98%E4%B9%8B%E5%A4%96%E6%98%9F%E4%BA%BA%E5%85%A5%E4%BE%B5%E3%80%8A%E4%B8%80%E3%80%8B/</url>
+    <content><![CDATA[由于不经常用Python写程序，最近在用Python写一个可视化工具时，惊觉发现自己的Python水平严重下滑，因此又重新拿起了《Python编程-从入门到实践》这本书。经过简单的复习，觉得还是有必要把书中的项目给练习一遍，同时也通过Blog记录一下我的实现过程，该篇文章以及后续系列将会讲解这本书中的“外星人入侵”项目，经过第十二、十三、十四章的阅读，我觉得在开始编程之前有必要先分析一下要实现的功能以及项目的整体架构，姑且就按照书上的顺序来吧。
+武装飞船这里我们需要四个类，分别是主程序类AlienInvasion、子弹类Bullet、设置类Settings、飞船类Ship，主程序类主要用于初始化游戏界面，然后通过循环来更新游戏，子弹类和飞船类主要用于自身属性的初始化、显示和更新位置，设置类主要包含游戏的界面大小、飞船和子弹的移动速度等。整体结构大致如下
+
+游戏入口我的IDE是Pycharm，首先创建一个名为 Alien-Invasion-Project 并初始化了git仓库的项目，后续的所有开发代码都将放到我的Gitghub Alien-Invasion-Project 同名仓库中，有兴趣可以访问查看。这里我们首先安装开发需要用到的模块pygame，使用命令pip instal pygame即可，如下
+
+提示“Successfully ……”表明安装成功，也可使用书中的命令python -m pip install --user pygame来安装
+初步实现界面先创建一个alien_invasion.py文件，用来实现界面的初始化，然后创建AlienInvasion类，添加如下代码
+import  pygameclass AlienInvasion:    # 初始化界面    def __init__(self):        pygame.init()        self.screen = pygame.display.set_mode((800, 600))        pygame.display.set_caption(&quot;外星人来喽&quot;)    def run_game(self):        # 游戏主循环        while True:            passif __name__ == &#x27;__main__&#x27;:    # 实例化AlienInvasion类并运行游戏    alien_invasion = AlienInvasion()    alien_invasion.run_game()
+
+这里我们通过pygame.init()来实现游戏环境的初始化，然后设置了一个800*600的游戏界面，再通过pygame.display.set_caption(&quot;外星人来喽&quot;)来设置游戏界面的Title，同时我们定义一个run_game函数用来进入游戏，这里添加了一个while的死循环，通过pass占位符来保持界面的显示，并在main里面完成游戏类的实例化和进入游戏中的循环，运行程序，如下图
+
+大致就是一个黑框框，里面什么都没有，由于我们只初始化了游戏界面的大小和标题，因此不会有其他的内容，同时各位应该也能注意到运行之后电脑很卡，这是因为我们在程序中添加了一个死循环，下面我们来对程序进行优化
+优化界面我们在其中添加事件处理程序来监听事件，首先导入系统模块sys，然后删除pass，在循环中添加如下代码
+for event in pygame.event.get():    if event.type == pygame.QUIT:        pygame.quit()        sys.exit()
+
+这段程序表明我们一直在监听事件，如果有退出的事件发生，我们将调用pygame和系统的退出函数来结束游戏的运行，这时候运行代码，就不会卡了，同时点击X号也能正常退出
+下一步我们对游戏界面填充背景色，同时控制游戏的刷新的帧率
+添加成员变量bg_color，并在while循环中通过screen.fill()来绘制屏幕，然后使用pygame.display.flip()来使屏幕显示出来，运行结果如下
+
+帧率的控制主要通过限制循环中屏幕刷新的时间来实现，添加成员变量clock来定义时钟，然后在循环的末尾启动计时，我们这里设个90帧，代码如下
+class AlienInvasion:    # 初始化界面    def __init__(self):        pygame.init()        self.clock = pygame.time.Clock()        ……    def run_game(self):        # 游戏主循环        while True:            ……            # 控制游戏帧率            self.clock.tick(90)
+
+封装Settings类为了方便，我们可以把游戏设置相关的内容统一组织起来，放入单独的类中，比如屏幕大小，背景颜色等
+创建settings.py文件，并在其中添加Settings类，将屏幕大小，背景颜色甚至帧率等添加到类中，如下
+class Settings:    def __init__(self):        self.screen_width = 800        self.screen_height = 600        self.bg_color = (230, 230, 230)        self.FPS = 90        self.TITLE = &quot;外星人来喽&quot;
+
+在主程序创建Settings的实例，并用其中的属性替换掉原来的硬编码行为，这样便于我们理解和组织代码以及后续拓展开发
+创建Ship类这里我们要在游戏界面创建一个飞船，首先需要准备一张照片，创建文件夹imgs，将书中源码位置的图片复制到imgs下，并添加新文件ship.py，Ship类要加载图片显示，初始位置应当位于屏幕中心底部，并且支持左右移动，代码如下
+import pygameclass Ship:    def __init__(self, game):        self.game = game        # 加载图片        self.image = pygame.image.load(&#x27;imgs/ship.bmp&#x27;)        self.rect = self.image.get_rect()        # 显示图片在底部        self.rect.midbottom = self.game.screen.get_rect().midbottom        # 图片当前所在的x轴位置        self.x = float(self.rect.x)        # 移动标识        self.moving_right = False        self.moving_left = False    def update(self):        &quot;&quot;&quot;更新飞船位置&quot;&quot;&quot;        if self.moving_right and self.rect.right &lt; self.game.settings.screen_width:            self.x += 3        if self.moving_left and self.rect.left &gt; 0:            self.x -= 3        # 更新rect对象的位置        self.rect.x = self.x    def draw(self):        &quot;&quot;&quot;绘制飞船&quot;&quot;&quot;        self.game.screen.blit(self.image, self.rect)
+
+突然发现写博客还是比较费时间的，这里就不过多解释了，完成Ship类之后就需要对主程序进行更改了，我们对原来的代码进行重构，因为要添加左右移动的消息，所以将while循环中的内容简化，尽可能的封装为函数模块，大致分为事件检测、事件执行、飞船更新、屏幕更新等
+事件检测：
+def _check_events(self):    &quot;&quot;&quot;响应按键和鼠标事件&quot;&quot;&quot;    for event in pygame.event.get():        if event.type == pygame.QUIT:            pygame.quit()            sys.exit()        elif event.type == pygame.KEYDOWN:            self._check_keydown_events(event)        elif event.type == pygame.KEYUP:            self._check_keyup_events(event)
+
+判断消息类型，如果是退出，就结束游戏，如果是键盘按键按下或者是键盘按键松开，则执行对应的函数
+事件执行：
+def _check_keydown_events(self, event):    &quot;&quot;&quot;响应按键按下事件&quot;&quot;&quot;    if event.key == pygame.K_RIGHT:        self.ship.moving_right = True    elif event.key == pygame.K_LEFT:        self.ship.moving_left = True    elif event.key == pygame.K_q:        pygame.quit()        sys.exit()
+
+如果键盘按下，则判断按下的是哪一个键，右键激活飞船的右移动标识，左键则激活左移动标识，如果是q键，同样执行退出，这是为了方便用户结束游戏而不用每次都点击右上角X号
+def _check_keyup_events(self, event):    &quot;&quot;&quot;响应按键松开事件&quot;&quot;&quot;    if event.key == pygame.K_RIGHT:        self.ship.moving_right = False    elif event.key == pygame.K_LEFT:        self.ship.moving_left = False
+
+如果键盘松开，则根据松开的按键来结束对应的移动标识
+屏幕更新：
+def _update_screen(self):    &quot;&quot;&quot;更新屏幕&quot;&quot;&quot;    self.screen.fill(self.settings.bg_color)    self.ship.draw()    pygame.display.flip()
+
+综上，while循环目前应该包含的内容如下
+while True:    # 监听事件    self._check_events()    # 更新飞船位置    self.ship.update()    # 更新屏幕    self._update_screen()    # 控制游戏帧率    self.clock.tick(self.settings.FPS)
+
+运行
+
+这个时候我们的飞船就可以正常移动了
+创建Bullet类首先创建bullet.py文件，在其中创建Bullet类，为了便于管理子弹，我们采用群组的方式将其继承Sprite，Bullet类应当包含颜色、大小、速度等，同时绘制自身并更新位置，代码如下
+import pygamefrom pygame.sprite import Spriteclass Bullet(Sprite):    def __init__(self, game):        super().__init__()        self.game = game        self.color = (60, 60, 60)        self.rect = pygame.Rect(0, 0, 3, 15)               self.speed = 4        self.rect.midtop = self.game.ship.rect.midtop()        self.y = float(self.rect.y)    def update(self):        self.y -= self.speed        self.rect.y = self.y    def draw(self):        pygame.draw.rect(self.game.screen, self.color, self.rect)
+
+更改主程序代码，以pygame.sprite.Group()的方式创建子弹群组，在按下键盘事件中添加空格的侦听，并添加发射子弹的函数，然后在主循环中添加更新子弹的函数，用于更新子弹的位置并删除超出屏幕的子弹，最后在刷新屏幕的函数中添加显示子弹的代码，主要添加内容如下
+def _update_bullets(self):    &quot;&quot;&quot;更新子弹位置&quot;&quot;&quot;    self.bullets.update()    for bullet in self.bullets.copy():        if bullet.rect.bottom &lt;= 0:            self.bullets.remove(bullet)            def _fire_bullet(self):    &quot;&quot;&quot;发射子弹&quot;&quot;&quot;    if len(self.bullets) &lt; 6:        new_bullet = Bullet(self)        self.bullets.add(new_bullet)
+
+运行如下
+
+这样就可以正常发射子弹了。下面我们还需要对代码进行简单的修改，将子弹的相关配置放入Settings中
+代码优化跟设置相关的内容我们应该放在Settings类当中，同时尽可能的减少硬编码的行为，优化后的完整代码如下
+alien_invasion.py
+import  pygameimport sysfrom settings import Settingsfrom ship import Shipfrom bullet import Bulletclass AlienInvasion:    # 初始化界面    def __init__(self):        pygame.init()        self.settings = Settings()        self.clock = pygame.time.Clock()        self.screen = pygame.display.set_mode((self.settings.screen_width, self.settings.screen_height))        pygame.display.set_caption(self.settings.TITLE)        self.ship = Ship(self)        self.bullets = pygame.sprite.Group()    def run_game(self):        # 游戏主循环        while True:            # 监听事件            self._check_events()            # 更新飞船位置            self.ship.update()            # 更新子弹位置            self._update_bullets()            # 更新屏幕            self._update_screen()            # 控制游戏帧率            self.clock.tick(self.settings.FPS)    def _check_events(self):        &quot;&quot;&quot;响应按键和鼠标事件&quot;&quot;&quot;        for event in pygame.event.get():            if event.type == pygame.QUIT:                pygame.quit()                sys.exit()            elif event.type == pygame.KEYDOWN:                self._check_keydown_events(event)            elif event.type == pygame.KEYUP:                self._check_keyup_events(event)    def _check_keydown_events(self, event):        &quot;&quot;&quot;响应按键按下事件&quot;&quot;&quot;        if event.key == pygame.K_RIGHT:            self.ship.moving_right = True        elif event.key == pygame.K_LEFT:            self.ship.moving_left = True        elif event.key == pygame.K_q:            pygame.quit()            sys.exit()        elif event.key == pygame.K_SPACE:            self._fire_bullet()    def _check_keyup_events(self, event):        &quot;&quot;&quot;响应按键松开事件&quot;&quot;&quot;        if event.key == pygame.K_RIGHT:            self.ship.moving_right = False        elif event.key == pygame.K_LEFT:            self.ship.moving_left = False    def _update_screen(self):        &quot;&quot;&quot;更新屏幕&quot;&quot;&quot;        self.screen.fill(self.settings.bg_color)        for bullet in self.bullets.sprites():            bullet.draw()        self.ship.draw()        pygame.display.flip()    def _update_bullets(self):        &quot;&quot;&quot;更新子弹位置&quot;&quot;&quot;        self.bullets.update()        for bullet in self.bullets.copy():            if bullet.rect.bottom &lt;= 0:                self.bullets.remove(bullet)    def _fire_bullet(self):        &quot;&quot;&quot;发射子弹&quot;&quot;&quot;        if len(self.bullets) &lt; self.settings.bullet_limit:            new_bullet = Bullet(self)            self.bullets.add(new_bullet)if __name__ == &#x27;__main__&#x27;:    # 实例化AlienInvasion类并运行游戏    alien_invasion = AlienInvasion()    alien_invasion.run_game()
+
+bullet.py
+import pygamefrom pygame.sprite import Spriteclass Bullet(Sprite):    def __init__(self, game):        super().__init__()        self.game = game        # 设置子弹的属性        self.color = self.game.settings.bullet_color        self.rect = pygame.Rect(0, 0, self.game.settings.bullet_width, self.game.settings.bullet_height)        # 将子弹放在飞船的顶部        self.rect.midtop = self.game.ship.rect.midtop		        # 子弹的y轴位置        self.y = float(self.rect.y)    def update(self):        &quot;&quot;&quot;更新子弹位置&quot;&quot;&quot;        self.y -= self.game.settings.bullet_speed        self.rect.y = self.y    def draw(self):        &quot;&quot;&quot;绘制子弹&quot;&quot;&quot;        pygame.draw.rect(self.game.screen, self.color, self.rect)
+
+settings.py
+class Settings:    def __init__(self):        &quot;&quot;&quot;初始化游戏的设置&quot;&quot;&quot;        self.screen_width = 1600        self.screen_height = 600        self.bg_color = (230, 230, 230)        self.FPS = 90        self.TITLE = &quot;外星人来喽&quot;        # 飞船设置        self.ship_image_path = &#x27;imgs/ship.bmp&#x27;        self.ship_speed = 3        # 子弹设置        self.bullet_color = (60, 60, 60)        self.bullet_speed = 4        self.bullet_width = 3        self.bullet_height = 15        self.bullet_limit = 10
+
+ship.py
+import pygameclass Ship:    def __init__(self, game):        self.game = game        # 加载图片        self.image = pygame.image.load(self.game.settings.ship_image_path)        self.rect = self.image.get_rect()        # 显示图片在底部        self.rect.midbottom = self.game.screen.get_rect().midbottom        # 图片当前所在的x轴位置        self.x = float(self.rect.x)        # 移动标识        self.moving_right = False        self.moving_left = False    def update(self):        &quot;&quot;&quot;更新飞船位置&quot;&quot;&quot;        if self.moving_right and self.rect.right &lt; self.game.settings.screen_width:            self.x += self.game.settings.ship_speed        if self.moving_left and self.rect.left &gt; 0:            self.x -= self.game.settings.ship_speed        # 更新rect对象的位置        self.rect.x = self.x    def draw(self):        &quot;&quot;&quot;绘制飞船&quot;&quot;&quot;        self.game.screen.blit(self.image, self.rect)
+
+]]></content>
+      <categories>
+        <category>Python实战之外星人入侵</category>
+      </categories>
+      <tags>
+        <tag>Python</tag>
+      </tags>
+  </entry>
+  <entry>
     <title>创建VS Code插件一</title>
     <url>/2025/07/02/%E5%88%9B%E5%BB%BAVS-Code%E6%8F%92%E4%BB%B6%E4%B8%80/</url>
     <content><![CDATA[本人打算创建一个VS Code插件用于调试代码，拟结合AI用于生成测试用例，分析代码等
@@ -64,11 +148,11 @@ F5运行插件，会启动扩展宿主环境，打开任意文件夹，按下ctr
 先到这吧，累了😮‍💨
 ]]></content>
       <categories>
-        <category>VS Code插件</category>
+        <category>VSCode插件</category>
       </categories>
       <tags>
         <tag>插件</tag>
-        <tag>VS Code</tag>
+        <tag>VSCode</tag>
       </tags>
   </entry>
 </search>
