@@ -241,6 +241,236 @@ GameOver细心一点可能会注意到，当我们死亡超过三次时，游戏
       </tags>
   </entry>
   <entry>
+    <title>Simulink调用外部工具仿真《一》</title>
+    <url>/2025/07/08/Simulink%E8%B0%83%E7%94%A8%E5%A4%96%E9%83%A8%E5%B7%A5%E5%85%B7%E4%BB%BF%E7%9C%9F%E3%80%8A%E4%B8%80%E3%80%8B/</url>
+    <content><![CDATA[创建m文件该项目旨在使用Simulink来完成某些计算和仿真，计算工具采用自己的求解器，因此Simulink在这里的作用主要为模拟输入输出接口和触发信号，后续可能会引入优化器来对参数进行优化，本篇作为开头，主要介绍如何使用Simulink调用外部工具。
+首先打开Matlab，指定工作路径，在命令行窗口输入edit sfun_callXXX从而在当前路径下创建sfun_callXXX.m文件，输入下述代码
+function sfun_callXXX(block)% Level-2 MATLAB S-Function: 可多次触发执行 XXX.exe，并做路径检查setup(block);endfunction setup(block)    % 一个输入端口：触发信号（1 表示触发执行）    block.NumInputPorts = 1;    block.SetPreCompInpPortInfoToDynamic;    block.InputPort(1).Dimensions        = 1;    block.InputPort(1).DatatypeID        = 0;    block.InputPort(1).Complexity        = &#x27;Real&#x27;;    block.InputPort(1).DirectFeedthrough = true;    % 一个输出端口：执行状态    block.NumOutputPorts = 1;    block.SetPreCompOutPortInfoToDynamic;    block.OutputPort(1).Dimensions   = 1;    block.OutputPort(1).DatatypeID   = 0;    block.OutputPort(1).Complexity   = &#x27;Real&#x27;;    % 一个 Dwork 变量：用于保存上一个输入（用于边沿检测）    block.NumDworks = 1;    block.Dwork(1).Name            = &#x27;prevInput&#x27;;    block.Dwork(1).Dimensions      = 1;    block.Dwork(1).DatatypeID      = 0;    block.Dwork(1).Complexity      = &#x27;Real&#x27;;    block.Dwork(1).UsedAsDiscState = true;    % 每 1 秒调用一次    block.SampleTimes = [1.0 0.0];    block.SimStateCompliance = &#x27;DefaultSimState&#x27;;    block.InitializeConditions = @InitConditions;    block.Outputs              = @Output;endfunction InitConditions(block)    block.Dwork(1).Data = 0;  % 初始值：输入未触发endfunction Output(block)    u = block.InputPort(1).Data;    prev = block.Dwork(1).Data;    % 只在输入从 0 → 1 的跳变时执行    if u == 1 &amp;&amp; prev == 0        % 配置路径        exePath = &#x27;I:\XXX.exe&#x27;;        paramPath = &#x27;C:\Users\pc\Desktop\XXX&#x27;;        % 检查 EXE 是否存在        if ~isfile(exePath)            warning(&#x27;[XXX] EXE 路径不存在: %s&#x27;, exePath);            block.OutputPort(1).Data = -2;            block.Dwork(1).Data = u;            return;        end        % 检查参数路径是否存在        if ~isfolder(paramPath)            warning(&#x27;[XXX] 参数路径不存在: %s&#x27;, paramPath);            block.OutputPort(1).Data = -3;            block.Dwork(1).Data = u;            return;        end        % 构造命令        exePathQuoted = [&#x27;&quot;&#x27; exePath &#x27;&quot;&#x27;];        paramPathQuoted = [&#x27;&quot;&#x27; paramPath &#x27;&quot;&#x27;];        args = [&#x27;1|1|&#x27; paramPathQuoted];        cmd = [exePathQuoted &#x27; &#x27; args];        disp([&#x27;[XXX] 正在执行: &#x27; cmd]);        % 执行命令        status = system(cmd);        if status == 0            block.OutputPort(1).Data = 1;  % 成功        else            block.OutputPort(1).Data = -1; % 执行失败        end    else        block.OutputPort(1).Data = 0;  % 无触发    end    % 更新 Dwork 状态    block.Dwork(1).Data = u;end
+
+该函数的主要作用是在 Simulink 中通过输入触发器调用外部程序 XXX.exe，实现如下特性：
+
+支持多次触发执行，但只在输入信号从 0 到 1 的上升沿执行
+执行结果通过输出端口返回状态码：
+1 → 执行成功；
+-1 → 执行失败；
+-2 → EXE 路径不存在；
+-3 → 参数路径不存在；
+0 → 没有触发。
+
+
+
+主函数部分function sfun_callXXX(block)% Level-2 MATLAB S-Function: 可多次触发执行 XXX.exe，并做路径检查setup(block);end
+
+这是主入口函数，Simulink 在加载该 S-Function 时会调用这个函数。block 是代表这个 S-Function 块的对象，包含输入输出、状态等所有接口
+function setup(block)
+
+block.NumInputPorts = 1;block.SetPreCompInpPortInfoToDynamic;block.InputPort(1).Dimensions        = 1;block.InputPort(1).DatatypeID        = 0;  % doubleblock.InputPort(1).Complexity        = &#x27;Real&#x27;;block.InputPort(1).DirectFeedthrough = true;
+
+设置只有 1 个输入端口，类型为 double 实数，输入数据是一个触发信号，为 1 表示要执行 XXX.exe
+block.NumOutputPorts = 1;block.SetPreCompOutPortInfoToDynamic;block.OutputPort(1).Dimensions   = 1;block.OutputPort(1).DatatypeID   = 0;block.OutputPort(1).Complexity   = &#x27;Real&#x27;;
+
+也只有 1 个输出端口，用于输出执行状态
+block.NumDworks = 1;block.Dwork(1).Name            = &#x27;prevInput&#x27;;block.Dwork(1).Dimensions      = 1;block.Dwork(1).DatatypeID      = 0;block.Dwork(1).Complexity      = &#x27;Real&#x27;;block.Dwork(1).UsedAsDiscState = true;
+
+Dwork 是 S-Function 中的离散状态变量，在仿真期间保留，这里用来保存上一时刻的输入值，从而判断是否出现了 0→1 的跳变（上升沿）
+block.SampleTimes = [1.0 0.0];block.SimStateCompliance = &#x27;DefaultSimState&#x27;;block.InitializeConditions = @InitConditions;block.Outputs              = @Output;
+
+SampleTimes = [1.0 0.0] → 每 1 秒调用一次 Output 函数，注册初始化函数和主输出函数
+初始化函数 InitConditionsfunction InitConditions(block)    block.Dwork(1).Data = 0;  % 初始值设为0，表示“未触发”end
+
+初始化 Dwork 状态变量，表示开始时没有任何触发信号
+主执行函数 Outputfunction Output(block)
+
+u = block.InputPort(1).Data;prev = block.Dwork(1).Data;
+
+u 是当前输入值，prev 是上一个采样时刻的输入值，用于检测跳变
+if u == 1 &amp;&amp; prev == 0
+
+
+只有从 0 → 1 的跳变，才执行外部命令
+如果持续为 1，不会重复执行
+
+exePath = &#x27;...XXX.exe&#x27;;paramPath = &#x27;...指定输入&#x27;;
+
+exePath 是要调用的外部可执行文件路径，paramPath 是输入数据或配置文件的路径
+if ~isfile(exePath)    warning(&#x27;[XXX] EXE 路径不存在: %s&#x27;, exePath);    block.OutputPort(1).Data = -2;    block.Dwork(1).Data = u;    return;endif ~isfolder(paramPath)    warning(&#x27;[XXX] 参数路径不存在: %s&#x27;, paramPath);    block.OutputPort(1).Data = -3;    block.Dwork(1).Data = u;    return;end
+
+
+如果 EXE 不存在 → 返回 -2
+如果参数目录不存在 → 返回 -3
+
+exePathQuoted = [&#x27;&quot;&#x27; exePath &#x27;&quot;&#x27;];paramPathQuoted = [&#x27;&quot;&#x27; paramPath &#x27;&quot;&#x27;];args = [&#x27;1|1|&#x27; paramPathQuoted];cmd = [exePathQuoted &#x27; &#x27; args];disp([&#x27;[XXX] 正在执行: &#x27; cmd]);
+
+
+把路径加引号是为了防止路径中有空格报错
+
+执行命令类似于（根据自己的可执行文件进行修改，这里的1|1|是参数需要）
+&quot;I:\...\XXX.exe&quot; 1|1|&quot;C:\Users\...\指定输入&quot;
+
+status = system(cmd);if status == 0    block.OutputPort(1).Data = 1;  % 成功else    block.OutputPort(1).Data = -1; % 失败end
+
+
+system(cmd) 用于调用系统命令
+如果返回值为 0，表示执行成功 → 输出 1
+否则 → 输出 -1
+
+else    block.OutputPort(1).Data = 0;  % 无触发，不执行end
+
+
+输入无变化或不是上升沿时，输出 0
+
+block.Dwork(1).Data = u;
+
+
+用当前输入值覆盖 Dwork，供下一次仿真调用使用
+
+
+
+
+输出值
+含义
+
+
+
+1
+成功执行 XXX.exe
+
+
+-1
+执行失败
+
+
+-2
+找不到 EXE
+
+
+-3
+参数目录不存在
+
+
+0
+无触发（未上升沿）
+
+
+代码流程概览
+
+
+阶段
+Simulink 触发
+函数
+功能描述
+
+
+
+模块加载时
+Simulink 加载模型
+sfun_callXXX() → setup()
+初始化输入输出端口、采样时间、Dwork 状态变量等
+
+
+仿真开始时
+点击仿真按钮 Run
+InitializeConditions()
+将 prevInput 初始化为 0
+
+
+每个仿真步
+每秒调用一次
+Output()
+检测输入信号是否跳变为 1，如果是就执行 XXX.exe
+
+
+在Simulink中使用S Function在命令行窗口输入simulink或直接点击菜单面板“Simulink”来打开Simulink仿真工具，新建空白模型
+
+将该模型保存到当前目录下（与上述.m文件相同），在库浏览器中依次将Constant、Level-2 MATLAB S-Function（不能直接选S-Function，因为我们的代码是针对Level 2的）、Display模块拖入，并连接如下
+
+双击S-Function模块，将 S-function name 设为 sfun_callXXX，确认之后提示出错。
+这里的主要原因为MATLAB Level-2 S-Function 的 Dwork 区只能在 PostPropagationSetup() 阶段设置，而目前把 NumDworks 和 Dwork 配置写在了 setup() 里，这是不允许的，修改如下
+function sfun_callXXX(block)% Level-2 MATLAB S-Function：检测 0→1 边沿并调用 XXX.exe    setup(block);end%-----------------------------------------------------------%function setup(block)%% 1. 端口block.NumInputPorts  = 1;block.NumOutputPorts = 1;block.SetPreCompInpPortInfoToDynamic;block.SetPreCompOutPortInfoToDynamic;block.InputPort(1).Dimensions        = 1;block.InputPort(1).DatatypeID        = 0;   % doubleblock.InputPort(1).Complexity        = &#x27;Real&#x27;;block.InputPort(1).DirectFeedthrough = true;block.OutputPort(1).Dimensions = 1;block.OutputPort(1).DatatypeID = 0;block.OutputPort(1).Complexity = &#x27;Real&#x27;;%% 2. 采样时间（每 1 s 执行一次）block.SampleTimes = [1 0];%% 3. S-Function 状态机合规block.SimStateCompliance = &#x27;DefaultSimState&#x27;;%% 4. 注册回调 —— 用 RegBlockMethod（关键）block.RegBlockMethod(&#x27;PostPropagationSetup&#x27;, @PostPropSetup);block.RegBlockMethod(&#x27;InitializeConditions&#x27;, @InitConditions);block.RegBlockMethod(&#x27;Outputs&#x27;,              @Output);end%-----------------------------------------------------------%function PostPropSetup(block)%% Dwork 在此阶段声明block.NumDworks = 1;block.Dwork(1).Name            = &#x27;prevInput&#x27;;block.Dwork(1).Dimensions      = 1;block.Dwork(1).DatatypeID      = 0;  % doubleblock.Dwork(1).Complexity      = &#x27;Real&#x27;;block.Dwork(1).UsedAsDiscState = true;end%-----------------------------------------------------------%function InitConditions(block)%% 仿真开始时：prevInput 置零block.Dwork(1).Data = 0;end%-----------------------------------------------------------%function Output(block)%% 边沿检测 + 执行外部 EXEu    = block.InputPort(1).Data;prev = block.Dwork(1).Data;if u == 1 &amp;&amp; prev == 0    % 路径设定    exePath   = &#x27;I:\XXX.exe&#x27;;    paramPath = &#x27;C:\Users\pc\Desktop\XXX&#x27;;    % -------- 路径检查（兼容旧版 MATLAB：用 exist） --------    if exist(exePath,&#x27;file&#x27;) ~= 2        warning(&#x27;[XXX] EXE 不存在: %s&#x27;, exePath);        block.OutputPort(1).Data = -2;    elseif exist(paramPath,&#x27;dir&#x27;) ~= 7        warning(&#x27;[XXX] 参数路径不存在: %s&#x27;, paramPath);        block.OutputPort(1).Data = -3;    else        % 构造命令        cmd = [&#x27;&quot;&#x27; exePath &#x27;&quot; 1|1|&quot;&#x27; paramPath &#x27;&quot;&#x27;];        disp([&#x27;[XXX] 执行: &#x27; cmd]);        status = system(cmd);        block.OutputPort(1).Data = double(status == 0) * 2 - 1;  % 1 成功 /-1 失败    endelse    block.OutputPort(1).Data = 0;                                % 未触发end% 更新上周期输入block.Dwork(1).Data = u;end
+
+运行仿真，观察到Display显示为1表明正确调用执行，为了方便截图，我把Display换为Scope，观察如下
+
+第一秒，输入从0→1 调用exe成功并输出1，第二秒没有跳变发生，输出为0
+Simulink 对该 S-Function 模块的调用时序如下
+
+
+
+时间
+执行
+来自 S-Function 的函数调用
+说明
+
+
+
+0s
+初始化
+setup() → InitializeConditions()
+初始化端口、状态变量（prevInput&#x3D;0）
+
+
+每秒
+仿真步
+Output() 被调用一次
+判断输入信号是否从 0→1 变化，若是就调用 EXE
+
+
+假设输入信号如下
+
+
+
+步数
+输入 u
+prevInput
+是否执行 EXE？
+输出值
+
+
+
+1
+0
+0
+否
+0
+
+
+2
+1
+0
+是（跳变）
+1 &#x2F; -1
+
+
+3
+1
+1
+否
+0
+
+
+4
+0
+1
+否
+0
+
+
+5
+1
+0
+是（跳变）
+1 &#x2F; -1
+
+
+]]></content>
+      <categories>
+        <category>Simulink仿真</category>
+      </categories>
+      <tags>
+        <tag>Simulink</tag>
+        <tag>Matlab</tag>
+      </tags>
+  </entry>
+  <entry>
     <title>创建VS Code插件一</title>
     <url>/2025/07/02/%E5%88%9B%E5%BB%BAVS-Code%E6%8F%92%E4%BB%B6%E4%B8%80/</url>
     <content><![CDATA[本人打算创建一个VS Code插件用于调试代码，拟结合AI用于生成测试用例，分析代码等
