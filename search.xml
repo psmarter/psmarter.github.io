@@ -471,7 +471,127 @@ prevInput
       </tags>
   </entry>
   <entry>
-    <title>创建VS Code插件一</title>
+    <title>VSCode插件开发-文件统计功能</title>
+    <url>/2025/07/09/VSCode%E6%8F%92%E4%BB%B6%E5%BC%80%E5%8F%91-%E6%96%87%E4%BB%B6%E7%BB%9F%E8%AE%A1%E5%8A%9F%E8%83%BD/</url>
+    <content><![CDATA[修改package.json在开发 VS Code 插件时，package.json 是整个插件的“说明书”。这里以一个简单的功能为例进行测试
+&quot;activationEvents&quot;: [&quot;onCommand:code-auto-test.getFileState&quot;],&quot;main&quot;: &quot;./out/extension.js&quot;,&quot;contributes&quot;: &#123;  &quot;commands&quot;: [    &#123;      &quot;command&quot;: &quot;code-auto-test.getFileState&quot;,      &quot;title&quot;: &quot;File State&quot;,      &quot;category&quot;: &quot;Code Auto Test&quot;    &#125;  ],  &quot;menus&quot;: &#123;    &quot;editor/context&quot;: [      &#123;        &quot;when&quot;: &quot;editorFocus&quot;,        &quot;command&quot;: &quot;code-auto-test.getFileState&quot;,        &quot;group&quot;: &quot;navigation&quot;      &#125;    ],    &quot;explorer/context&quot;: [      &#123;        &quot;command&quot;: &quot;code-auto-test.getFileState&quot;,        &quot;group&quot;: &quot;navigation&quot;      &#125;    ]  &#125;&#125;
+
+&quot;activationEvents&quot;: [&quot;onCommand:code-auto-test.getFileState&quot;]
+
+
+意义：插件不会在 VS Code 启动时就加载，而是在用户执行命令 code-auto-test.getFileState 时激活。
+优势：提升启动性能，遵循 VS Code 插件的延迟加载机制。
+
+指定插件的主入口&quot;main&quot;: &quot;./out/extension.js&quot;
+
+
+指向插件的主模块，通常是 TypeScript 编译后的文件。
+extension.js 中通常包含 activate(context) 和 deactivate() 函数，用于插件的生命周期管理。
+
+注册自定义命令&quot;commands&quot;: [  &#123;    &quot;command&quot;: &quot;code-auto-test.getFileState&quot;,    &quot;title&quot;: &quot;File State&quot;,    &quot;category&quot;: &quot;Code Auto Test&quot;  &#125;]
+
+
+command：命令的唯一标识符，供代码调用。
+title：在命令面板（Ctrl+Shift+P）中的显示名称。
+category：命令分类，显示为 &quot;Code Auto Test: File State&quot;。
+
+执行位置包括：
+
+命令面板
+上下文菜单（通过 menus 配置）
+
+集成到右键菜单中编辑器右键菜单&quot;editor/context&quot;: [  &#123;    &quot;when&quot;: &quot;editorFocus&quot;,    &quot;command&quot;: &quot;code-auto-test.getFileState&quot;,    &quot;group&quot;: &quot;navigation&quot;  &#125;]
+
+
+插入位置：当编辑器中有焦点时，在右键菜单的“导航”区域显示。
+when: 上下文条件，这里为 editorFocus 表示编辑器有焦点时才显示。
+
+资源管理器右键菜单&quot;explorer/context&quot;: [  &#123;    &quot;command&quot;: &quot;code-auto-test.getFileState&quot;,    &quot;group&quot;: &quot;navigation&quot;  &#125;]
+
+
+插入位置：资源管理器（文件树）右键菜单中。
+可用于对选中的文件&#x2F;文件夹执行操作。
+
+通过这段简单的配置，我们实现了一个功能完整的 VS Code 插件功能点：
+
+
+
+功能
+实现方式
+
+
+
+延迟激活
+activationEvents 指定命令触发激活
+
+
+注册命令
+contributes.commands
+
+
+集成编辑器右键菜单
+menus.editor/context
+
+
+集成资源管理器右键菜单
+menus.explorer/context
+
+
+这套模式是编写 VS Code 插件的基础，适用于各种需要通过右键或命令面板触发逻辑的场景，比如自动测试、代码分析、格式化工具等。
+修改extension.ts查看文件状态的命令实现（extension.ts）我们前面在 package.json 中注册了命令 code-auto-test.getFileState，接下来在插件主入口文件中进行具体实现。
+文件路径：src/extension.ts// 引入 VS Code 扩展 APIimport * as vscode from &#x27;vscode&#x27;;import * as fs from &#x27;fs&#x27;;// 插件激活时触发export function activate(context: vscode.ExtensionContext) &#123;	console.log(&#x27;插件已激活：code-auto-test&#x27;);	// 注册 getFileState 命令	const disposable = vscode.commands.registerCommand(&#x27;code-auto-test.getFileState&#x27;, (uri: vscode.Uri) =&gt; &#123;		// 获取文件路径		const filePath = uri.fsPath;		// 异步获取文件信息		fs.stat(filePath, (err, stats) =&gt; &#123;			if (err) &#123;				vscode.window.showErrorMessage(`获取文件信息失败: $&#123;err.message&#125;`);				return;			&#125;			// 判断是否为文件夹			if (stats.isDirectory()) &#123;				vscode.window.showWarningMessage(&#x27;检测的是文件夹，不是文件，请重新选择！&#x27;);				return;			&#125;			// 若是普通文件，显示基本信息			if (stats.isFile()) &#123;				const size = stats.size;				const createTime = stats.birthtime.toLocaleString();				const modifyTime = stats.mtime.toLocaleString();				vscode.window.showInformationMessage(					` 文件大小: $&#123;size&#125; 字节\n 创建时间: $&#123;createTime&#125;\n 修改时间: $&#123;modifyTime&#125;`,					&#123; modal: true &#125;				);			&#125;		&#125;);		// 调试用：同步读取 stat 信息输出日志		try &#123;			const statsSync = fs.statSync(filePath);			console.log(&#x27;statSync:&#x27;, statsSync);			console.log(&#x27;isFile:&#x27;, statsSync.isFile());		&#125; catch (err) &#123;			console.error(&#x27;statSync 读取失败:&#x27;, err);		&#125;	&#125;);	// 将命令加入插件上下文中	context.subscriptions.push(disposable);&#125;// 插件被卸载时触发export function deactivate() &#123;&#125;
+
+
+
+
+功能点
+说明
+
+
+
+vscode.Uri
+命令参数自动传入，支持从资源管理器中点击文件触发命令。
+
+
+fs.stat()
+异步获取文件状态，包含文件大小、创建时间、修改时间等。
+
+
+fs.statSync()
+同步版本，用于调试或日志输出。
+
+
+vscode.window.showInformationMessage(..., &#123; modal: true &#125;)
+使用模态窗口展示信息，确保用户注意查看。
+
+
+在编辑器中右键文件：
+显示：File State
+点击后弹出文件大小、创建时间、修改时间
+
+在资源管理器中右键文件：
+同样支持显示该命令
+若选中文件夹则给出提示
+
+
+通过 package.json + extension.ts，我们构建了一个结构完整、功能清晰的 VS Code 插件，具备以下特征：
+
+延迟激活（按需加载）
+支持右键菜单调用
+使用原生 Node.js 文件系统 API 获取信息
+弹出信息提示（用户交互友好）
+
+]]></content>
+      <categories>
+        <category>VSCode插件</category>
+      </categories>
+      <tags>
+        <tag>VSCode</tag>
+        <tag>插件</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>创建VS Code插件</title>
     <url>/2025/07/02/%E5%88%9B%E5%BB%BAVS-Code%E6%8F%92%E4%BB%B6%E4%B8%80/</url>
     <content><![CDATA[本人打算创建一个VS Code插件用于调试代码，拟结合AI用于生成测试用例，分析代码等
 环境准备安装Node.isVS Code 插件开发使用 JavaScript &#x2F; TypeScript 编写，需要 Node.js 来运行开发脚本和构建流程
@@ -537,8 +657,8 @@ F5运行插件，会启动扩展宿主环境，打开任意文件夹，按下ctr
         <category>VSCode插件</category>
       </categories>
       <tags>
-        <tag>插件</tag>
         <tag>VSCode</tag>
+        <tag>插件</tag>
       </tags>
   </entry>
 </search>
