@@ -1,6 +1,278 @@
 <?xml version="1.0" encoding="utf-8"?>
 <search>
   <entry>
+    <title>Python实战之Web开发</title>
+    <url>/2025/07/10/Python%E5%AE%9E%E6%88%98%E4%B9%8BWeb%E5%BC%80%E5%8F%91/</url>
+    <content><![CDATA[创建Django项目我使用Pycharm来创建Django项目，也可以自己手动创建虚拟环境等，配置如下，所有代码可点击这里查看
+
+运行，在浏览器输入http://localhost:8000/，显示如下表明项目创建正确
+
+创建应用程序终端输入python manage.py migrate创建数据库，用于将项目相关的信息存储，然后输入python manage.py startapp learning_log来创建应用程序，项目结构如下
+
+.venv/
+Python 虚拟环境目录。
+包含你项目安装的所有依赖（如 Django）。
+通常会在 .gitignore 中忽略它。
+
+manage.py
+管理工具脚本，用于执行各种 Django 命令，如：
+python manage.py runserver      # 启动开发服务器python manage.py makemigrations # 创建迁移python manage.py migrate        # 应用迁移到数据库python manage.py createsuperuser # 创建管理员账户
+
+__init__.py
+让该目录成为 Python 包可为空
+
+settings.py
+Django 项目的配置文件
+包含数据库设置、应用注册、模板路径、静态文件配置、安全设置等
+
+urls.py
+项目级URL 路由入口
+
+将不同的 URL 请求分发给对应的 app 处理
+
+通常写法：
+from django.urls import path, includeurlpatterns = [    path(&#x27;admin/&#x27;, admin.site.urls),    path(&#x27;&#x27;, include(&#x27;learning_log.urls&#x27;)),  # 指向 app 的 url]
+
+wsgi.py
+用于部署到 WSGI 服务器
+生产环境使用
+
+asgi.py
+用于部署到 ASGI 服务器
+用于支持 WebSocket、异步视图
+
+__init__.py
+表示这是一个 Python 包
+
+admin.py
+用于注册模型到 Django 管理后台（admin site）
+
+示例：
+from django.contrib import adminfrom .models import Entryadmin.site.register(Entry)
+
+apps.py
+定义 app 的元信息，通常不需修改
+当你在 INSTALLED_APPS 中注册 app 时，这里也会用到
+
+models.py
+定义数据模型（Model）类
+每个模型对应数据库中的一张表
+
+views.py
+视图函数，用来处理用户请求并返回响应
+例如返回 HTML 页面、JSON 数据等
+
+tests.py
+单元测试文件，可编写自动化测试
+Django 内建测试框架基于 Python 的 unittest
+
+migrations/
+自动生成的数据库迁移文件
+
+每当你修改模型（models.py）并运行：
+python manage.py makemigrations
+
+就会在此生成一个迁移脚本，用于记录数据库变更
+
+
+templates/
+存放 HTML 模板文件的目录
+用于 Django 的模板引擎渲染页面
+
+例如： 你可以在 templates/ 中创建 index.html，然后在视图中渲染：
+from django.shortcuts import renderdef index(request):    return render(request, &#x27;index.html&#x27;)
+
+db.sqlite3
+默认使用的 SQLite 数据库文件
+存储了你项目所有模型的数据内容
+
+
+
+
+文件&#x2F;文件夹
+作用说明
+
+
+
+.venv/
+虚拟环境，包含依赖
+
+
+manage.py
+管理命令脚本
+
+
+DjangoProject/settings.py
+项目配置
+
+
+DjangoProject/urls.py
+URL 路由入口
+
+
+DjangoProject/wsgi.py
+部署用 WSGI 接口
+
+
+learning_log/
+自定义 app
+
+
+models.py
+定义数据库模型
+
+
+views.py
+编写视图函数
+
+
+admin.py
+注册后台模型
+
+
+migrations/
+数据库变更记录
+
+
+templates/
+HTML 模板目录
+
+
+db.sqlite3
+SQLite 数据库文件
+
+
+应用设置修改models.py文件如下
+from django.db import models# Create your models here.class Topic(models.Model):    &quot;&quot;&quot;A topic the user is learning about.&quot;&quot;&quot;    text = models.CharField(max_length=200)    date_added = models.DateTimeField(auto_now_add=True)    def __str__(self):        &quot;&quot;&quot;Return a string representation of the model.&quot;&quot;&quot;        return self.text
+
+在settings.py的INSTALLED_APPS中添加learning_log，然后执行数据库迁移，如下
+python manage.py makemigrationspython manage.py migrate 
+
+
+创建超级用户输入python manage.py createsuperuser来创建管理者，账户名、密码、邮箱自行设置，其中密码会被隐藏
+
+随后在admin.py文件中修改代码如下
+from django.contrib import adminfrom learning_log.models import Topic# Register your models here.admin.site.register(Topic)
+
+这段代码用于向管理网站注册Topic
+由于我在创建项目时没有勾选“启用Django admin”，因此这里需要对项目进行简单的更改
+
+将urls.py中注释的部分取消
+# from django.contrib import adminfrom django.urls import pathurlpatterns = [    #    path(&#x27;admin/&#x27;, admin.site.urls),]
+
+在settings.py的INSTALLED_APPS中添加django.contrib.admin
+
+
+访问http://localhost:8000/admin/，显示如下
+
+输入账户和密码，登录进去界面显示如下
+
+User和Group是Django自动在管理网站添加的模型，而Topic是我们刚刚自己添加的。此时可以点击Topic，添加任意的主题
+定义Entry在models.py中添加如下代码
+class Entry(models.Model):    &quot;&quot;&quot;Something specific learned about a topic.&quot;&quot;&quot;    topic = models.ForeignKey(Topic, on_delete=models.CASCADE)    text = models.TextField()    date_added = models.DateTimeField(auto_now_add=True)    class Meta:        verbose_name_plural = &#x27;entries&#x27;    def __str__(self):        &quot;&quot;&quot;Return a string representation of the model.&quot;&quot;&quot;        if len(self.text) &gt; 50:            return f&quot;&#123;self.text[:50]&#125;...&quot;        else:            return self.text
+
+这里主要说一下两个地方
+
+topic = models.ForeignKey(Topic, on_delete=models.CASCADE)是将每一条 Entry 都关联一个 Topic，形成多对一的关系
+
+元信息配置（Meta）：默认 Django 会把模型名称小写加 “s” 做复数，这句是为了告诉 Django这个模型的复数名称设置为 entries，而不是默认的 Entrys
+
+
+由于修改了模型文件，因此我们需要再次迁移数据库，执行
+python manage.py makemigrations learning_logpython manage.py migrate 
+
+然后在管理网站注册Entry：admin.site.register(Entry)（有关模型导入的问题这里不做叙述）
+进入管理网站后会发现多出了一个Entries条目，进入该条目，点击下拉框就可以选择对应的主题，如下图
+
+这时候我们就可以创建条目并将其与对应的主题相关联。不过，目前除了后台管理界面，我们还没任何可供用户访问的界面，下一步我们将尝试创建一个网页来让其他人访问
+创建网页使用Django创建网页主要分为三个步骤，定义URL、编写视图、编写模板，完成这三个部分的顺序通常无关紧要，每个人都可以按照个人喜好来实现
+映射URL当前http://localhost:8000返回默认的Django网站，下面进行修改，打开urls.py文件，在`urlpatterns`中添加`path(‘’, include(‘learning_log.urls’)),&#96;表示我们导入应用learning_log中的url。然后在应用learning_log中添加urls.py文件，内容如下
+from django.urls import pathfrom . import viewsapp_name = &#x27;learning_log&#x27;urlpatterns = [    # Home page    path(&#x27;&#x27;, views.index, name=&#x27;index&#x27;),]
+
+这段代码主要为当前 app 即（learning_log）配置 URL 路由，其中app_name = &#39;learning_log&#39;，给这个 app 的 URL 配置一个命名空间，防止与其他 app 中的 URL 名称冲突，在模板中使用 &#123;% url 'learning_log:index' %&#125; 就能明确地调用这个 URL。urlpatterns 是 Django 查找 URL 的核心列表，每一个 path() 定义了一个 URL 与视图的映射。path(&#39;&#39;, views.index, name=&#39;index&#39;),第一个参数是一个字符串用于正确的路由请求，这里表示匹配根路径，第二个参数表示当匹配到 / 时，调用 views.py 中的 index() 函数，第三个参数给这个 URL 取了一个名字叫 &#39;index&#39;，在模板中可以用 &#123;% url 'learning_log:index' %&#125; 来反向生成地址
+编写视图视图函数接受请求中的信息，准备好生成网页所需的数据，然后将其发送给浏览器。在前面我们调用了 views.py 中的 index() 函数，但该函数还未编写，打开views.py文件，添加代码如下
+from django.shortcuts import render# Create your views here.def index(request):    return render(request, &#x27;learning_log/index.html&#x27;)
+
+它接受一个 request 对象作为参数，这是 Django 在用户访问网页时自动传入的请求信息对象。函数的返回值是 render(request, &#39;learning_log/index.html&#39;)，表示让 Django 去找一个路径为 learning_log/index.html 的模板文件，并渲染它，默认的模板查找路径为app/templates/app_name/文件名.html 
+编写模板模板定义网页的外观，每当访问网页时，Django都将填入相关的数据用于显示，我们的template文件夹位于根目录，所以无需在app目录中重新创建，但需要在settings.py的TEMPLATES中检查是否存在&#39;DIRS&#39;: [BASE_DIR / &#39;templates&#39;]，以便正确检索html文件
+在template文件夹中创建learning_log文件夹并在其中创建index.html，添加代码如下
+&lt;p&gt;Learning Log&lt;/p&gt;&lt;p&gt;Learning Log is a tool for tracking your learning progress.     It allows you to create entries for each topic you are studying,     including notes, resources, and reflections.     You can also categorize your entries by subject or skill level.&lt;/p&gt;
+
+这里添加了两个段落，运行访问界面如下
+
+创建其他网页创建父模板在index.html所在的目录中，创建一个base.html文件，这个模板将包含所有页面的通用元素，并将所有子模板都继承它，添加内容如下
+&lt;p&gt;    &lt;a href=&quot;&#123;% url &#x27;learning_log:index&#x27; %&#125;&quot;&gt;Learning Log&lt;/a&gt;&lt;/p&gt;&#123;% block content %&#125;&#123;% endblock content %&#125;
+
+&lt;p&gt;    &lt;a href=&quot;&#123;% url &#x27;learning_log:index&#x27; %&#125;&quot;&gt;Learning Log&lt;/a&gt;&lt;/p&gt;
+
+这段表示页面顶部的一个链接，点击后会跳转到名为 &#39;learning_log:index&#39; 的 URL 对应的页面。
+
+&#123;% url 'learning_log:index' %&#125; 是 Django 模板语言提供的 URL 反向解析标签。
+&#39;learning_log&#39; 是在 learning_log/urls.py 中定义的 app_name。
+&#39;index&#39; 是在 urlpatterns 中为首页设置的 name。
+
+所以最终这个标签会被渲染为：
+&lt;a href=&quot;/&quot;&gt;Learning Log&lt;/a&gt;
+
+如果将 index 页面映射到 /，那么这个链接就是返回首页的作用。
+&#123;% block content %&#125;&#123;% endblock content %&#125;
+
+这是 Django 模板语言中非常关键的部分，称为 模板块（template block），它用于定义“可扩展区域”。
+解释如下：
+
+&#123;% block content %&#125;` 是定义一个名为 `content` 的内容区块。
+- `&#123;% endblock content %&#125; 表示这个区块的结束。
+
+换句话说，子模板可以继承这个模板，并用自己的内容替换掉这个 block 区域，例如：
+&#123;% extends &quot;learning_log/base.html&quot; %&#125;&#123;% block content %&#125;  &lt;h2&gt;This is the home page!&lt;/h2&gt;&#123;% endblock content %&#125;
+
+创建子模板重写index.html文件，使其继承base.html，如下
+&#123;% extends &#x27;learning_log/base.html&#x27; %&#125;&#123;% block content %&#125;    &lt;p&gt;Learning Log is a tool for tracking your learning progress.     It allows you to create entries for each topic you are studying,     including notes, resources, and reflections.     You can also categorize your entries by subject or skill level.    &lt;/p&gt;&#123;% endblock content %&#125;
+
+这里将index从base继承下来，使用&#123;% block content %&#125;`定义一个`content`并插入内容，使用`&#123;% endblock content %&#125;结束content块，里面内容将显示在界面上，此时通过修改父模板将修改所有继承它的界面，方便统一管理
+显示所有主题的页面首先定义URL，添加path(&#39;topics/&#39;,  views.topics, name=&#39;topics&#39;)，在视图中定义topics函数如下
+def topics(request):    &quot;&quot;&quot;Show all topics.&quot;&quot;&quot;    topics = Topic.objects.order_by(&#x27;date_added&#x27;)    context = &#123;&#x27;topics&#x27;: topics&#125;    return render(request, &#x27;learning_log/topics.html&#x27;, context)
+
+将所有主题按照时间顺序排序并返回，然后创建topics.html，内容如下
+&#123;% extends &#x27;learning_log/base.html&#x27; %&#125;&#123;% block content %&#125;    &lt;p&gt;Topics&lt;/p&gt;    &lt;ul&gt;        &#123;% for topic in topics %&#125;            &lt;li&gt;&#123;&#123; topic.text &#125;&#125;&lt;/li&gt;        &#123;% empty %&#125;            &lt;li&gt;No topics have been created yet.&lt;/li&gt;        &#123;% endfor %&#125;    &lt;/ul&gt;&#123;% endblock content %&#125;
+
+这里主要将topics中的内容通过无序列表的方式呈现出来。随后在base.html中添加连字符以及代码&lt;a href=&quot;&#123;% url 'learning_log:topics' %&#125;&quot;&gt;Topics&lt;/a&gt;，这将产生一个与Topics匹配的URL链接，访问http://localhost:8000/topics/，如下![image-20250712114413813](https://cdn.jsdelivr.net/gh/psmarter/blog-imgs/Python%E5%AE%9E%E6%88%98%E4%B9%8BWeb%E5%BC%80%E5%8F%91%2F2025-07-12-23-47-46-91b35a.png)
+显示特定主题我们已经创建了两次页面，对其基本流程应该有所了解了，后续关于URL、视图、模板相关的内容将进行简略，我们再次创建一个页面用于显示特定的主题及其所有的条目
+# URLpath(&#x27;topics/&lt;int:topic_id&gt;/&#x27;, views.topic, name=&#x27;topic&#x27;)# topic函数def topic(request, topic_id):    &quot;&quot;&quot;Show a single topic and all its entries.&quot;&quot;&quot;    topic = Topic.objects.get(id=topic_id)    entries = topic.entry_set.order_by(&#x27;-date_added&#x27;)    context = &#123;&#x27;topic&#x27;: topic, &#x27;entries&#x27;: entries&#125;    return render(request, &#x27;learning_log/topic.html&#x27;, context)
+
+&#123;# 模板 #&#125;&#123;% extends &#x27;learning_log/base.html&#x27; %&#125;&#123;% block content %&#125;    &lt;p&gt;Topic:&#123;&#123; topic.text &#125;&#125;&lt;/p&gt;        &lt;p&gt;Entries:&lt;/p&gt;    &lt;ul&gt;            &#123;% for entry in entries %&#125;            &lt;li&gt;                &lt;p&gt;&#123;&#123; entry.date_added|date:&#x27;M d, Y H:i&#x27; &#125;&#125;&lt;/p&gt;                &lt;p&gt;&#123;&#123; entry.text|linebreaks &#125;&#125;&lt;/p&gt;            &lt;/li&gt;        &#123;% empty %&#125;            &lt;li&gt;No entries have been created for this topic yet.&lt;/li&gt;        &#123;% endfor %&#125;    &lt;/ul&gt;    &#123;% endblock content %&#125;
+
+在topic函数中先通过id获取到特定的主题，然后将主题中的条目降序排列，最后将Topic和Entries返回。模板主要把entries按照特定的格式显示，“|”表示过滤符，也就是将时间按照：January 1, 2025 23:00格式。linebreaks是将文本中的换行符转变为浏览器理解的内容。
+然后修改topics.html，将每个主题都映射为对应的链接
+&#123;% for topic in topics %&#125;    &lt;li&gt;        &lt;a href=&quot;&#123;% url &#x27;learning_log:topic&#x27; topic.id %&#125;&quot;&gt;&#123;&#123; topic.text &#125;&#125;&lt;/a&gt;    &lt;/li&gt;
+
+运行之后在Topic页面点击主题，显示如下
+
+用户账户用户添加主题在learning_log目录中创建forms.py文件，添加
+from django import formsfrom .models import Topicclass TopicForm(forms.ModelForm):    &quot;&quot;&quot;A form for creating and updating topics.&quot;&quot;&quot;    class Meta:        model = Topic        fields = [&#x27;text&#x27;]        labels = &#123;&#x27;text&#x27;: &#x27;&#x27;&#125;  # No label for the text field
+
+添加URL：path(&#39;new_topic/&#39;, views.new_topic, name=&#39;new_topic&#39;)
+创建视图函数new_topic
+def new_topic(request):    &quot;&quot;&quot;Add a new topic.&quot;&quot;&quot;    if request.method != &#x27;POST&#x27;:        # No data submitted; create a blank form.        form = TopicForm()    else:        # POST data submitted; process data.        form = TopicForm(data=request.POST)        if form.is_valid():            new_topic = form.save()            return redirect(&#x27;learning_log:topic&#x27;, topic_id=new_topic.id)    # Display a blank or invalid form.    context = &#123;&#x27;form&#x27;: form&#125;    return render(request, &#x27;learning_log/new_topic.html&#x27;, context)
+
+创建模板new_topic.html
+&#123;% extends &#x27;learning_log/base.html&#x27; %&#125;&#123;% block content %&#125;    &lt;p&gt;Add a new topic:&lt;/p&gt;    &lt;form action=&quot;&#123;% url &#x27;learning_log:new_topic&#x27; %&#125;&quot; method=&quot;post&quot;&gt;        &#123;% csrf_token %&#125;        &#123;&#123; form.as_div &#125;&#125;        &lt;button type=&quot;submit&quot;&gt;Add Topic&lt;/button&gt;    &lt;/form&gt;&#123;% endblock content %&#125;
+
+链接到页面：&lt;a href = &quot;&#123;% url 'learning_log:new_topic' %&#125;&quot;&gt;Add a new topic&lt;/a&gt;
+代码解释：当用户在网页中点击 &lt;a href=&quot;&#123;% url 'learning_log:new_topic' %&#125;&quot;&gt;Add a new topic&lt;/a&gt; 这个链接时，浏览器会跳转到 /new_topic/。这个路径在 urls.py 中由 path(&#39;new_topic/&#39;, views.new_topic, name=&#39;new_topic&#39;) 映射到 views.new_topic 函数。
+当请求被送到这个视图函数时，Django 会调用 new_topic(request) 来处理。这个视图首先判断请求的方法是不是 POST。如果用户只是点击链接，还没提交表单，那么请求方法是 GET，程序会创建一个空的表单对象 form = TopicForm()，此时这个表单中没有预填数据，只是用于初次显示在网页上。
+如果用户已经在表单中输入了内容并点击了提交按钮，那么浏览器发送的是 POST 请求，此时视图就会执行 form = TopicForm(data=request.POST) 来从用户提交的数据构造一个表单实例。接着通过 form.is_valid() 检查数据是否合法（比如字段有没有漏填，格式是否正确）。如果验证通过，就执行 form.save()，这会自动创建一条新的 Topic 记录并保存到数据库中。接着用 redirect(&#39;learning_log:topic&#39;, topic_id=new_topic.id) 跳转到刚创建的主题详情页。
+不论是初次打开页面，还是提交失败（例如空表单或非法输入），视图最后都会调用 render(request, &#39;learning_log/new_topic.html&#39;, context) 来渲染模板，把表单对象传入 context 变量中。
+这个模板 new_topic.html 继承自 base.html，并在 &#96;
+]]></content>
+      <categories>
+        <category>Diango开发</category>
+      </categories>
+      <tags>
+        <tag>Python</tag>
+      </tags>
+  </entry>
+  <entry>
     <title>Python实战之外星人入侵《一》</title>
     <url>/2025/07/04/Python%E5%AE%9E%E6%88%98%E4%B9%8B%E5%A4%96%E6%98%9F%E4%BA%BA%E5%85%A5%E4%BE%B5%E3%80%8A%E4%B8%80%E3%80%8B/</url>
     <content><![CDATA[武装飞船由于不经常用Python写程序，最近在用Python写一个可视化工具时，惊觉发现自己的Python水平严重下滑，因此又重新拿起了《Python编程-从入门到实践》这本书。
