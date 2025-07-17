@@ -1,6 +1,106 @@
 <?xml version="1.0" encoding="utf-8"?>
 <search>
   <entry>
+    <title>Python实战之Web开发-续</title>
+    <url>/2025/07/17/Python%E5%AE%9E%E6%88%98%E4%B9%8BWeb%E5%BC%80%E5%8F%91-%E7%BB%AD/</url>
+    <content><![CDATA[用户账户用户添加主题在learning_log目录中创建forms.py文件，添加
+from django import formsfrom .models import Topicclass TopicForm(forms.ModelForm):    &quot;&quot;&quot;A form for creating and updating topics.&quot;&quot;&quot;    class Meta:        model = Topic        fields = [&#x27;text&#x27;]        labels = &#123;&#x27;text&#x27;: &#x27;&#x27;&#125;  # No label for the text field
+
+添加URL：path(&#39;new_topic/&#39;, views.new_topic, name=&#39;new_topic&#39;)
+创建视图函数new_topic
+def new_topic(request):    &quot;&quot;&quot;Add a new topic.&quot;&quot;&quot;    if request.method != &#x27;POST&#x27;:        # No data submitted; create a blank form.        form = TopicForm()    else:        # POST data submitted; process data.        form = TopicForm(data=request.POST)        if form.is_valid():            new_topic = form.save()            return redirect(&#x27;learning_log:topic&#x27;, topic_id=new_topic.id)    # Display a blank or invalid form.    context = &#123;&#x27;form&#x27;: form&#125;    return render(request, &#x27;learning_log/new_topic.html&#x27;, context)
+
+创建模板new_topic.html
+&#123;% extends &#x27;learning_log/base.html&#x27; %&#125;&#123;% block content %&#125;    &lt;p&gt;Add a new topic:&lt;/p&gt;    &lt;form action=&quot;&#123;% url &#x27;learning_log:new_topic&#x27; %&#125;&quot; method=&quot;post&quot;&gt;        &#123;% csrf_token %&#125;        &#123;&#123; form.as_div &#125;&#125;        &lt;button type=&quot;submit&quot;&gt;Add Topic&lt;/button&gt;    &lt;/form&gt;&#123;% endblock content %&#125;
+
+链接到页面：&lt;a href = &quot;&#123;% url 'learning_log:new_topic' %&#125;&quot;&gt;Add a new topic&lt;/a&gt;
+代码解释：当用户在网页中点击 &lt;a href=&quot;&#123;% url 'learning_log:new_topic' %&#125;&quot;&gt;Add a new topic&lt;/a&gt; 这个链接时，浏览器会跳转到 /new_topic/。这个路径在 urls.py 中由 path(&#39;new_topic/&#39;, views.new_topic, name=&#39;new_topic&#39;) 映射到 views.new_topic 函数。
+当请求被送到这个视图函数时，Django 会调用 new_topic(request) 来处理。这个视图首先判断请求的方法是不是 POST。如果用户只是点击链接，还没提交表单，那么请求方法是 GET，程序会创建一个空的表单对象 form = TopicForm()，此时这个表单中没有预填数据，只是用于初次显示在网页上。
+如果用户已经在表单中输入了内容并点击了提交按钮，那么浏览器发送的是 POST 请求，此时视图就会执行 form = TopicForm(data=request.POST) 来从用户提交的数据构造一个表单实例。接着通过 form.is_valid() 检查数据是否合法（比如字段有没有漏填，格式是否正确）。如果验证通过，就执行 form.save()，这会自动创建一条新的 Topic 记录并保存到数据库中。接着用 redirect(&#39;learning_log:topic&#39;, topic_id=new_topic.id) 跳转到刚创建的主题详情页。
+不论是初次打开页面，还是提交失败（例如空表单或非法输入），视图最后都会调用 render(request, &#39;learning_log/new_topic.html&#39;, context) 来渲染模板，把表单对象传入 context 变量中。
+这个模板 new_topic.html 继承自 base.html，并在 &#123;% block content %&#125; 中放入了一段 HTML 表单。&lt;form action=&quot;&#123;% url 'learning_log:new_topic' %&#125;&quot; method=&quot;post&quot;&gt; 声明了该表单提交回自己；&#123;% csrf_token %&#125; 是 Django 要求添加的防跨站攻击标记；&#123;&#123; form.as_div &#125;&#125; 是将表单对象渲染为 HTML 元素。最后 &lt;button type=&quot;submit&quot;&gt;Add Topic&lt;/button&gt; 是提交按钮。
+添加条目代码如下
+# 新建formclass EntryForm(forms.ModelForm):    &quot;&quot;&quot;A form for creating and updating entries.&quot;&quot;&quot;    class Meta:        model = Entry        fields = [&#x27;text&#x27;]        labels = &#123;&#x27;text&#x27;: &#x27;&#x27;&#125;  # No label for the text field        widgets = &#123;&#x27;text&#x27;: forms.Textarea(attrs=&#123;&#x27;cols&#x27;: 80&#125;)&#125;  # Wider text area        # 添加URLpath(&#x27;new_entry/&lt;int:topic_id&gt;/&#x27;, views.new_entry, name=&#x27;new_entry&#x27;)# 添加视图def new_entry(request, topic_id):    &quot;&quot;&quot;Add a new entry for a particular topic.&quot;&quot;&quot;    topic = Topic.objects.get(id=topic_id)    if request.method != &#x27;POST&#x27;:        # No data submitted; create a blank form.        form = EntryForm()    else:        # POST data submitted; process data.        form = EntryForm(data=request.POST)        if form.is_valid():            new_entry = form.save(commit=False)            new_entry.topic = topic            new_entry.save()            return redirect(&#x27;learning_log:topic&#x27;, topic_id=topic_id)    # Display a blank or invalid form.    context = &#123;&#x27;topic&#x27;: topic, &#x27;form&#x27;: form&#125;    return render(request, &#x27;learning_log/new_entry.html&#x27;, context)
+
+&#123;# 新建模板 #&#125;&#123;% extends &#x27;learning_log/base.html&#x27; %&#125;&#123;% block content %&#125;    &lt;p&gt;&lt;a href=&quot;&#123;% url &#x27;learning_log:topic&#x27; topic.id %&#125;&quot;&gt;&#123;&#123; topic &#125;&#125;&lt;/a&gt; &lt;/p&gt;    &lt;p&gt;Add a new entry:&lt;/p&gt;    &lt;form action=&quot;&#123;% url &#x27;learning_log:new_entry&#x27; topic.id %&#125;&quot; method=&quot;post&quot;&gt;        &#123;% csrf_token %&#125;        &#123;&#123; form.as_div &#125;&#125;        &lt;button type=&quot;submit&quot;&gt;Add Entry&lt;/button&gt;    &lt;/form&gt;&#123;% endblock content %&#125;&#123;# 链接 #&#125;    &lt;p&gt;        &lt;a href=&quot;&#123;% url &#x27;learning_log:new_entry&#x27; topic.id %&#125;&quot;&gt;Add a new entry&lt;/a&gt;    &lt;/p&gt;
+
+代码解释：这一套代码实现了在某个具体主题（Topic）下添加新学习内容（Entry）的功能。它包括一个基于模型的表单 EntryForm，用于生成输入框，主要针对 Entry 模型中的 text 字段，并通过 widgets 设置了一个宽一些的多行文本区域。URL 配置中使用了路径参数 &lt;int:topic_id&gt; 来标识具体主题，这样不同主题就能通过不同链接添加各自的学习记录。视图函数 new_entry 首先获取对应的 Topic 实例，然后根据请求方法判断是初次访问还是表单提交。如果是提交请求，就根据提交内容构造表单并校验，若通过验证，就先创建一个未保存的 Entry 实例，手动指定其 topic 属性，然后保存到数据库，并跳转回该主题的详情页。
+模板部分继承自基础模板 base.html，显示了当前主题的名称，并提供一个表单用于输入新条目。提交按钮下方还包含一个返回原主题页面的链接。最后那段 HTML 链接代码负责在主题详情页中显示“Add a new entry”按钮，点击即可跳转到添加页面。
+
+编辑条目代码如下
+# 添加URLpath(&#x27;edit_entry/&lt;int:entry_id&gt;/&#x27;, views.edit_entry, name=&#x27;edit_entry&#x27;)# 添加edit_entry函数def edit_entry(request, entry_id):    &quot;&quot;&quot;Edit an existing entry.&quot;&quot;&quot;    entry = Entry.objects.get(id=entry_id)    topic = entry.topic    if request.method != &#x27;POST&#x27;:        # Initial request; pre-fill form with the current entry.        form = EntryForm(instance=entry)    else:        # POST data submitted; process data.        form = EntryForm(instance=entry, data=request.POST)        if form.is_valid():            form.save()            return redirect(&#x27;learning_log:topic&#x27;, topic_id=topic.id)    # Display a blank or invalid form.    context = &#123;&#x27;entry&#x27;: entry, &#x27;topic&#x27;: topic, &#x27;form&#x27;: form&#125;    return render(request, &#x27;learning_log/edit_entry.html&#x27;, context)
+
+&#123;# 添加html #&#125;&#123;% extends &#x27;learning_log/base.html&#x27; %&#125;&#123;% block content %&#125;    &lt;p&gt;&lt;a href=&quot;&#123;% url &#x27;learning_log:topic&#x27; topic.id %&#125;&quot;&gt;&#123;&#123; topic &#125;&#125;&lt;/a&gt; &lt;/p&gt;    &lt;p&gt;Edit entry:&lt;/p&gt;    &lt;form action=&quot;&#123;% url &#x27;learning_log:edit_entry&#x27; entry.id %&#125;&quot; method=&quot;post&quot;&gt;        &#123;% csrf_token %&#125;        &#123;&#123; form.as_div &#125;&#125;        &lt;button type=&quot;submit&quot;&gt;Save Changes&lt;/button&gt;    &lt;/form&gt;&#123;% endblock content %&#125;&#123;# 链接 #&#125;&lt;li&gt;    &lt;p&gt;&#123;&#123; entry.date_added|date:&#x27;M d, Y H:i&#x27; &#125;&#125;&lt;/p&gt;    &lt;p&gt;&#123;&#123; entry.text|linebreaks &#125;&#125;&lt;/p&gt;    &lt;p&gt;        &lt;a href=&quot;&#123;% url &#x27;learning_log:edit_entry&#x27; entry.id %&#125;&quot;&gt;Edit entry&lt;/a&gt;    &lt;/p&gt;&lt;/li&gt;
+
+创建用户首先创建一个新的应用程序来管理账户相关的内容
+python .\manage.py startapp accounts
+
+在INSTALLED_APPS中添加accounts，并包含accounts的URL：path(&#39;accounts/&#39;, include(&#39;accounts.urls&#39;))
+在accounts中新建urls.py，添加以下内容
+from django.urls import path, includeapp_name = &#x27;accounts&#x27;urlpatterns = [    # Include the default auth URLs    path(&#x27;&#x27;, include(&#x27;django.contrib.auth.urls&#x27;)),]
+
+在templates中新建registration文件夹，添加login.html文件
+&#123;% extends &#x27;learning_log/base.html&#x27; %&#125;&#123;% block content %&#125;  &#123;% if form.errors %&#125;    &lt;p&gt;Your username and password didn&#x27;t match. Please try again.&lt;/p&gt;  &#123;% endif %&#125;  &lt;form action=&quot;&#123;% url &#x27;accounts:login&#x27; %&#125;&quot; method=&#x27;post&#x27;&gt;    &#123;% csrf_token %&#125;    &#123;&#123; form.as_div &#125;&#125;    &lt;button name=&quot;submit&quot;&gt;Log in&lt;/button&gt;  &lt;/form&gt;&#123;% endblock content %&#125;
+
+随后在settings中添加成功登录后的重定向地址：LOGIN_REDIRECT_URL = &#39;learning_log:index&#39;
+修改base.html如下
+&lt;p&gt;    &lt;a href=&quot;&#123;% url &#x27;learning_log:index&#x27; %&#125;&quot;&gt;Learning Log&lt;/a&gt; -    &lt;a href=&quot;&#123;% url &#x27;learning_log:topics&#x27; %&#125;&quot;&gt;Topics&lt;/a&gt; -     &#123;% if user.is_authenticated %&#125;        Hello, &#123;&#123; user.username &#125;&#125;! -        &#123;% else %&#125;        &lt;a href=&quot;&#123;% url &#x27;accounts:login&#x27; %&#125;&quot;&gt;Log in&lt;/a&gt; -        &#123;% endif %&#125;&lt;/p&gt;&#123;% block content %&#125;&#123;% endblock content %&#125;
+
+此时就可以通过http://localhost:8000/accounts/login/来登录了，可以使用我们的管理员账号来测试（提前在管理界面退出）
+
+注销和注册用户注销账户在base.html中添加注销表单
+&#123;% if user.is_authenticated %&#125;  &lt;hr /&gt;  &lt;form action=&quot;&#123;% url &#x27;accounts:logout&#x27; %&#125;&quot; method=&#x27;post&#x27;&gt;    &#123;% csrf_token %&#125;    &lt;button name=&#x27;submit&#x27;&gt;Log out&lt;/button&gt;  &lt;/form&gt;&#123;% endif %&#125;
+
+如果账户登录，那么则在最下方显示一个注销按钮用于注销账户，注销后将页面链接到主页：LOGOUT_REDIRECT_URL = &#39;learning_log:index&#39;
+注册账户# 添加URLpath(&#x27;register/&#x27;, views.register, name=&#x27;register&#x27;)# 创建视图函数def register(request):    &quot;&quot;&quot;Register a new user.&quot;&quot;&quot;    if request.method != &#x27;POST&#x27;:        # Display blank registration form.        form = UserCreationForm()    else:        # Process completed form.        form = UserCreationForm(data=request.POST)        if form.is_valid():            new_user = form.save()            # Log the user in and then redirect to home page.            login(request, new_user)            return redirect(&#x27;learning_log:index&#x27;)    # Display a blank or invalid form.    context = &#123;&#x27;form&#x27;: form&#125;    return render(request, &#x27;registration/register.html&#x27;, context)
+
+&#123;# 创建模板 #&#125;&#123;% extends &quot;learning_log/base.html&quot; %&#125;&#123;% block content %&#125;  &lt;form action=&quot;&#123;% url &#x27;accounts:register&#x27; %&#125;&quot; method=&#x27;post&#x27;&gt;    &#123;% csrf_token %&#125;    &#123;&#123; form.as_div &#125;&#125;    &lt;button name=&quot;submit&quot;&gt;Register&lt;/button&gt;  &lt;/form&gt;&#123;% endblock content %&#125;&#123;# 链接注册界面 #&#125;&lt;a href=&quot;&#123;% url &#x27;accounts:register&#x27; %&#125;&quot;&gt;Register&lt;/a&gt; -
+
+当用户登录后，base.html 会显示一个“注销”按钮，它触发的是 accounts:logout 路由（即 Django 默认的登出视图），并通过 LOGOUT_REDIRECT_URL = &#39;learning_log:index&#39; 设置注销后跳转回主页。
+对于注册功能，定义了一个新的 URL 路由 /accounts/register/，并在对应视图函数 register() 中使用 Django 提供的 UserCreationForm 构建注册表单。如果请求为 POST，则处理表单提交并保存用户数据，注册成功后自动登录该用户，并重定向到主页。否则显示一个空白或验证失败的注册表单。
+前端模板继承自 base.html，通过 &#123;% csrf_token %&#125; 加入安全标记，表单本体使用 &#123;&#123; form.as_div &#125;&#125; 渲染输入字段，点击“Register”按钮即可提交注册。
+创建用户数据在未登录的状态下，learning_log中的内容除了主页外，其余内容应该均不可访问，对此我们通过装饰器@login_required来限制未登录用户的访问，如果用户未登录，我们将其重定向到登录界面，在settings中添加LOGIN_URL = &#39;accounts:login&#39;即可
+对于不同的用户，除了主页外，其他的内容应该只能访问自己的部分，我们将数据关联到用户，在Topic中添加owner = models.ForeignKey(User, on_delete=models.CASCADE)，将主题与用户关联。然后把数据库中的内容进行迁移，由于我们新增了owner字段，迁移时会提示我们选择哪一种方式，我们选择“1”让系统自动给我们添加一个默认值，然后将所有的内容迁移到管理账户中，即ID“1”
+
+虽然把主题全部与管理账户进行了关联，但是目前任何用户登录均可访问所有主题，在topics中添加topics = Topic.objects.filter(owner=request.user).order_by(&#39;date_added&#39;)，将不属于当前用户的所有Topic过滤掉，然后在topic和edit_entry中添加以下代码
+if topic.owner != request.user:    raise Http404
+
+从而防止用户通过网址直接访问他人的数据
+最后将新的topic关联到当前用户中，添加代码如下
+new_topic = form.save(commit=False)new_topic.owner = request.usernew_topic.save()
+
+此时任何用户都可创建自己的账号并拥有自己独立的数据了
+样式更改我们的web已经具备基本的功能了，如创建主题、创建与之关联的条目，并且每个用户都有自己的数据而不必担心被其他人访问，但我们的界面还过于简陋，无法吸引用户，因此接下来我们将更改它的布局，使其更加美观
+首先安装django-bootstrap5，我们将使用其中的模板
+pip install django-bootstrap5
+
+然后在INSTALLED_APPS中我们的应用和默认应用之间添加django_bootstrap5，接下来修改base.html
+&lt;!doctype html&gt;&lt;html lang=&quot;en&quot;&gt;&lt;head&gt;  &lt;meta charset=&quot;utf-8&quot;&gt;  &lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot;&gt;  &lt;title&gt;Learning Log&lt;/title&gt;  &#123;% load django_bootstrap5 %&#125;  &#123;% bootstrap_css %&#125;  &#123;% bootstrap_javascript %&#125;&lt;/head&gt;&lt;body&gt;  &lt;nav class=&quot;navbar navbar-expand-md navbar-light bg-light mb-4 border&quot;&gt;    &lt;div class=&quot;container-fluid&quot;&gt;      &lt;a class=&quot;navbar-brand&quot; href=&quot;&#123;% url &#x27;learning_log:index&#x27; %&#125;&quot;&gt;          Learning Log&lt;/a&gt;      &lt;button class=&quot;navbar-toggler&quot; type=&quot;button&quot; data-bs-toggle=&quot;collapse&quot;        data-bs-target=&quot;#navbarCollapse&quot; aria-controls=&quot;navbarCollapse&quot;        aria-expanded=&quot;false&quot; aria-label=&quot;Toggle navigation&quot;&gt;        &lt;span class=&quot;navbar-toggler-icon&quot;&gt;&lt;/span&gt;      &lt;/button&gt;      &lt;div class=&quot;collapse navbar-collapse&quot; id=&quot;navbarCollapse&quot;&gt;        &lt;ul class=&quot;navbar-nav me-auto mb-2 mb-md-0&quot;&gt;          &lt;li class=&quot;nav-item&quot;&gt;            &lt;a class=&quot;nav-link&quot; href=&quot;&#123;% url &#x27;learning_log:topics&#x27; %&#125;&quot;&gt;              Topics&lt;/a&gt;&lt;/li&gt;        &lt;/ul&gt; &lt;!-- End of links on left side of navbar --&gt;        &lt;!-- Account-related links --&gt;        &lt;ul class=&quot;navbar-nav ms-auto mb-2 mb-md-0&quot;&gt;          &#123;% if user.is_authenticated %&#125;            &lt;li class=&quot;nav-item&quot;&gt;              &lt;span class=&quot;navbar-text me-2&quot;&gt;Hello, &#123;&#123; user.username &#125;&#125;.                &lt;/span&gt;&lt;/li&gt;          &#123;% else %&#125;            &lt;li class=&quot;nav-item&quot;&gt;              &lt;a class=&quot;nav-link&quot; href=&quot;&#123;% url &#x27;accounts:register&#x27; %&#125;&quot;&gt;                  Register&lt;/a&gt;&lt;/li&gt;            &lt;li class=&quot;nav-item&quot;&gt;              &lt;a class=&quot;nav-link&quot; href=&quot;&#123;% url &#x27;accounts:login&#x27; %&#125;&quot;&gt;                  Log in&lt;/a&gt;&lt;/li&gt;          &#123;% endif %&#125;        &lt;/ul&gt; &lt;!-- End of account-related links --&gt;        &#123;% if user.is_authenticated %&#125;          &lt;form action=&quot;&#123;% url &#x27;accounts:logout&#x27; %&#125;&quot; method=&#x27;post&#x27;&gt;            &#123;% csrf_token %&#125;            &lt;button name=&#x27;submit&#x27; class=&#x27;btn btn-outline-secondary btn-sm&#x27;&gt;              Log out&lt;/button&gt;          &lt;/form&gt;        &#123;% endif %&#125;      &lt;/div&gt; &lt;!-- Closes collapsible parts of navbar --&gt;    &lt;/div&gt; &lt;!-- Closes navbar&#x27;s container --&gt;  &lt;/nav&gt; &lt;!-- End of navbar --&gt;  &lt;main class=&quot;container&quot;&gt;    &lt;div class=&quot;pb-2 mb-2 border-bottom&quot;&gt;      &#123;% block page_header %&#125;&#123;% endblock page_header %&#125;    &lt;/div&gt;    &lt;div&gt;      &#123;% block content %&#125;&#123;% endblock content %&#125;    &lt;/div&gt;  &lt;/main&gt;&lt;/body&gt;&lt;/html&gt;
+
+修改主页index.html的样式
+&#123;% extends &#x27;learning_log/base.html&#x27; %&#125;&#123;% block page_header %&#125;  &lt;div class=&quot;p-3 mb-4 bg-light border rounded-3&quot;&gt;    &lt;div class=&quot;container-fluid py-4&quot;&gt;      &lt;h1 class=&quot;display-3&quot;&gt;Track your learning.&lt;/h1&gt;            &lt;p class=&quot;lead&quot;&gt;Make your own Learning Log, and keep a list of the      topics you&#x27;re learning about. Whenever you learn something new      about a topic, make an entry summarizing what you&#x27;ve learned.&lt;/p&gt;      &lt;a class=&quot;btn btn-primary btn-lg mt-1&quot;          href=&quot;&#123;% url &#x27;accounts:register&#x27; %&#125;&quot;&gt;Register &amp;raquo;&lt;/a&gt;    &lt;/div&gt;  &lt;/div&gt;&#123;% endblock page_header %&#125;
+
+修改登录界面login.html的样式
+&#123;% extends &#x27;learning_log/base.html&#x27; %&#125;&#123;% load django_bootstrap5 %&#125;&#123;% block page_header %&#125;  &lt;h2&gt;Log in to your account.&lt;/h2&gt;&#123;% endblock page_header %&#125;&#123;% block content %&#125;  &lt;form action=&quot;&#123;% url &#x27;accounts:login&#x27; %&#125;&quot; method=&#x27;post&#x27;&gt;    &#123;% csrf_token %&#125;    &#123;% bootstrap_form form %&#125;    &#123;% bootstrap_button button_type=&quot;submit&quot; content=&quot;Log in&quot; %&#125;  &lt;/form&gt;&#123;% endblock content %&#125;
+
+修改页面topics的样式
+&#123;% extends &#x27;learning_log/base.html&#x27; %&#125;&#123;% block page_header %&#125;  &lt;h1&gt;Topics&lt;/h1&gt;&#123;% endblock page_header %&#125;&#123;% block content %&#125;  &lt;ul class=&quot;list-group border-bottom pb-2 mb-4&quot;&gt;    &#123;% for topic in topics %&#125;      &lt;li class=&quot;list-group-item border-0&quot;&gt;        &lt;a href=&quot;&#123;% url &#x27;learning_log:topic&#x27; topic.id %&#125;&quot;&gt;          &#123;&#123; topic.text &#125;&#125;&lt;/a&gt;      &lt;/li&gt;    &#123;% empty %&#125;      &lt;li class=&quot;list-group-item border-0&quot;&gt;No topics have been added yet.&lt;/li&gt;    &#123;% endfor %&#125;  &lt;/ul&gt;  &lt;a href=&quot;&#123;% url &#x27;learning_log:new_topic&#x27; %&#125;&quot;&gt;Add a new topic&lt;/a&gt;&#123;% endblock content %&#125;
+
+修改页面topic条目的样式
+&#123;% extends &#x27;learning_log/base.html&#x27; %&#125;&#123;% block page_header %&#125;  &lt;h1&gt;&#123;&#123; topic.text &#125;&#125;&lt;/h1&gt;&#123;% endblock page_header %&#125;&#123;% block content %&#125;  &lt;p&gt;    &lt;a href=&quot;&#123;% url &#x27;learning_log:new_entry&#x27; topic.id %&#125;&quot;&gt;Add new entry&lt;/a&gt;  &lt;/p&gt;  &#123;% for entry in entries %&#125;    &lt;div class=&quot;card mb-3&quot;&gt;      &lt;!-- Card header with timestamp and edit link --&gt;      &lt;h4 class=&quot;card-header&quot;&gt;        &#123;&#123; entry.date_added|date:&#x27;M d, Y H:i&#x27; &#125;&#125;        &lt;small&gt;&lt;a href=&quot;&#123;% url &#x27;learning_log:edit_entry&#x27; entry.id %&#125;&quot;&gt;          edit entry&lt;/a&gt;&lt;/small&gt;      &lt;/h4&gt;      &lt;!-- Card body with entry text --&gt;      &lt;div class=&quot;card-body&quot;&gt;&#123;&#123; entry.text|linebreaks &#125;&#125;&lt;/div&gt;    &lt;/div&gt;  &#123;% empty %&#125;    &lt;p&gt;There are no entries for this topic yet.&lt;/p&gt;  &#123;% endfor %&#125;&#123;% endblock content %&#125;
+
+修改后的界面如下
+
+项目部署这部分内容主要就是把项目部署到远程服务器上，让其他人访问，全是配置，没啥意思，不搞了
+]]></content>
+      <categories>
+        <category>Diango开发</category>
+      </categories>
+      <tags>
+        <tag>Python</tag>
+      </tags>
+  </entry>
+  <entry>
     <title>Python实战之Web开发</title>
     <url>/2025/07/10/Python%E5%AE%9E%E6%88%98%E4%B9%8BWeb%E5%BC%80%E5%8F%91/</url>
     <content><![CDATA[创建Django项目我使用Pycharm来创建Django项目，也可以自己手动创建虚拟环境等，配置如下，所有代码可点击这里查看
@@ -248,22 +348,6 @@ def topics(request):    &quot;&quot;&quot;Show all topics.&quot;&quot;&quot;    
 
 运行之后在Topic页面点击主题，显示如下
 
-用户账户用户添加主题在learning_log目录中创建forms.py文件，添加
-from django import formsfrom .models import Topicclass TopicForm(forms.ModelForm):    &quot;&quot;&quot;A form for creating and updating topics.&quot;&quot;&quot;    class Meta:        model = Topic        fields = [&#x27;text&#x27;]        labels = &#123;&#x27;text&#x27;: &#x27;&#x27;&#125;  # No label for the text field
-
-添加URL：path(&#39;new_topic/&#39;, views.new_topic, name=&#39;new_topic&#39;)
-创建视图函数new_topic
-def new_topic(request):    &quot;&quot;&quot;Add a new topic.&quot;&quot;&quot;    if request.method != &#x27;POST&#x27;:        # No data submitted; create a blank form.        form = TopicForm()    else:        # POST data submitted; process data.        form = TopicForm(data=request.POST)        if form.is_valid():            new_topic = form.save()            return redirect(&#x27;learning_log:topic&#x27;, topic_id=new_topic.id)    # Display a blank or invalid form.    context = &#123;&#x27;form&#x27;: form&#125;    return render(request, &#x27;learning_log/new_topic.html&#x27;, context)
-
-创建模板new_topic.html
-&#123;% extends &#x27;learning_log/base.html&#x27; %&#125;&#123;% block content %&#125;    &lt;p&gt;Add a new topic:&lt;/p&gt;    &lt;form action=&quot;&#123;% url &#x27;learning_log:new_topic&#x27; %&#125;&quot; method=&quot;post&quot;&gt;        &#123;% csrf_token %&#125;        &#123;&#123; form.as_div &#125;&#125;        &lt;button type=&quot;submit&quot;&gt;Add Topic&lt;/button&gt;    &lt;/form&gt;&#123;% endblock content %&#125;
-
-链接到页面：&lt;a href = &quot;&#123;% url 'learning_log:new_topic' %&#125;&quot;&gt;Add a new topic&lt;/a&gt;
-代码解释：当用户在网页中点击 &lt;a href=&quot;&#123;% url 'learning_log:new_topic' %&#125;&quot;&gt;Add a new topic&lt;/a&gt; 这个链接时，浏览器会跳转到 /new_topic/。这个路径在 urls.py 中由 path(&#39;new_topic/&#39;, views.new_topic, name=&#39;new_topic&#39;) 映射到 views.new_topic 函数。
-当请求被送到这个视图函数时，Django 会调用 new_topic(request) 来处理。这个视图首先判断请求的方法是不是 POST。如果用户只是点击链接，还没提交表单，那么请求方法是 GET，程序会创建一个空的表单对象 form = TopicForm()，此时这个表单中没有预填数据，只是用于初次显示在网页上。
-如果用户已经在表单中输入了内容并点击了提交按钮，那么浏览器发送的是 POST 请求，此时视图就会执行 form = TopicForm(data=request.POST) 来从用户提交的数据构造一个表单实例。接着通过 form.is_valid() 检查数据是否合法（比如字段有没有漏填，格式是否正确）。如果验证通过，就执行 form.save()，这会自动创建一条新的 Topic 记录并保存到数据库中。接着用 redirect(&#39;learning_log:topic&#39;, topic_id=new_topic.id) 跳转到刚创建的主题详情页。
-不论是初次打开页面，还是提交失败（例如空表单或非法输入），视图最后都会调用 render(request, &#39;learning_log/new_topic.html&#39;, context) 来渲染模板，把表单对象传入 context 变量中。
-这个模板 new_topic.html 继承自 base.html，并在 &#96;
 ]]></content>
       <categories>
         <category>Diango开发</category>
