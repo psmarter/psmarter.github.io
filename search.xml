@@ -1,0 +1,1490 @@
+<?xml version="1.0" encoding="utf-8"?>
+<search>
+  <entry>
+    <title>Python实战之Web开发-续</title>
+    <url>/posts/71a5f1f6.html</url>
+    <content><![CDATA[用户账户用户添加主题在learning_log目录中创建forms.py文件，添加
+from django import formsfrom .models import Topicclass TopicForm(forms.ModelForm):    &quot;&quot;&quot;A form for creating and updating topics.&quot;&quot;&quot;    class Meta:        model = Topic        fields = [&#x27;text&#x27;]        labels = &#123;&#x27;text&#x27;: &#x27;&#x27;&#125;  # No label for the text field
+
+添加URL：path(&#39;new_topic/&#39;, views.new_topic, name=&#39;new_topic&#39;)
+创建视图函数new_topic
+def new_topic(request):    &quot;&quot;&quot;Add a new topic.&quot;&quot;&quot;    if request.method != &#x27;POST&#x27;:        # No data submitted; create a blank form.        form = TopicForm()    else:        # POST data submitted; process data.        form = TopicForm(data=request.POST)        if form.is_valid():            new_topic = form.save()            return redirect(&#x27;learning_log:topic&#x27;, topic_id=new_topic.id)    # Display a blank or invalid form.    context = &#123;&#x27;form&#x27;: form&#125;    return render(request, &#x27;learning_log/new_topic.html&#x27;, context)
+
+创建模板new_topic.html
+&#123;% extends &#x27;learning_log/base.html&#x27; %&#125;&#123;% block content %&#125;    &lt;p&gt;Add a new topic:&lt;/p&gt;    &lt;form action=&quot;&#123;% url &#x27;learning_log:new_topic&#x27; %&#125;&quot; method=&quot;post&quot;&gt;        &#123;% csrf_token %&#125;        &#123;&#123; form.as_div &#125;&#125;        &lt;button type=&quot;submit&quot;&gt;Add Topic&lt;/button&gt;    &lt;/form&gt;&#123;% endblock content %&#125;
+
+链接到页面：&lt;a href = &quot;&#123;% url 'learning_log:new_topic' %&#125;&quot;&gt;Add a new topic&lt;/a&gt;
+代码解释：当用户在网页中点击 &lt;a href=&quot;&#123;% url 'learning_log:new_topic' %&#125;&quot;&gt;Add a new topic&lt;/a&gt; 这个链接时，浏览器会跳转到 /new_topic/。这个路径在 urls.py 中由 path(&#39;new_topic/&#39;, views.new_topic, name=&#39;new_topic&#39;) 映射到 views.new_topic 函数。
+当请求被送到这个视图函数时，Django 会调用 new_topic(request) 来处理。这个视图首先判断请求的方法是不是 POST。如果用户只是点击链接，还没提交表单，那么请求方法是 GET，程序会创建一个空的表单对象 form = TopicForm()，此时这个表单中没有预填数据，只是用于初次显示在网页上。
+如果用户已经在表单中输入了内容并点击了提交按钮，那么浏览器发送的是 POST 请求，此时视图就会执行 form = TopicForm(data=request.POST) 来从用户提交的数据构造一个表单实例。接着通过 form.is_valid() 检查数据是否合法（比如字段有没有漏填，格式是否正确）。如果验证通过，就执行 form.save()，这会自动创建一条新的 Topic 记录并保存到数据库中。接着用 redirect(&#39;learning_log:topic&#39;, topic_id=new_topic.id) 跳转到刚创建的主题详情页。
+不论是初次打开页面，还是提交失败（例如空表单或非法输入），视图最后都会调用 render(request, &#39;learning_log/new_topic.html&#39;, context) 来渲染模板，把表单对象传入 context 变量中。
+这个模板 new_topic.html 继承自 base.html，并在 &#123;% block content %&#125; 中放入了一段 HTML 表单。&lt;form action=&quot;&#123;% url 'learning_log:new_topic' %&#125;&quot; method=&quot;post&quot;&gt; 声明了该表单提交回自己；&#123;% csrf_token %&#125; 是 Django 要求添加的防跨站攻击标记；&#123;&#123; form.as_div &#125;&#125; 是将表单对象渲染为 HTML 元素。最后 &lt;button type=&quot;submit&quot;&gt;Add Topic&lt;/button&gt; 是提交按钮。
+添加条目代码如下
+# 新建formclass EntryForm(forms.ModelForm):    &quot;&quot;&quot;A form for creating and updating entries.&quot;&quot;&quot;    class Meta:        model = Entry        fields = [&#x27;text&#x27;]        labels = &#123;&#x27;text&#x27;: &#x27;&#x27;&#125;  # No label for the text field        widgets = &#123;&#x27;text&#x27;: forms.Textarea(attrs=&#123;&#x27;cols&#x27;: 80&#125;)&#125;  # Wider text area        # 添加URLpath(&#x27;new_entry/&lt;int:topic_id&gt;/&#x27;, views.new_entry, name=&#x27;new_entry&#x27;)# 添加视图def new_entry(request, topic_id):    &quot;&quot;&quot;Add a new entry for a particular topic.&quot;&quot;&quot;    topic = Topic.objects.get(id=topic_id)    if request.method != &#x27;POST&#x27;:        # No data submitted; create a blank form.        form = EntryForm()    else:        # POST data submitted; process data.        form = EntryForm(data=request.POST)        if form.is_valid():            new_entry = form.save(commit=False)            new_entry.topic = topic            new_entry.save()            return redirect(&#x27;learning_log:topic&#x27;, topic_id=topic_id)    # Display a blank or invalid form.    context = &#123;&#x27;topic&#x27;: topic, &#x27;form&#x27;: form&#125;    return render(request, &#x27;learning_log/new_entry.html&#x27;, context)
+
+&#123;# 新建模板 #&#125;&#123;% extends &#x27;learning_log/base.html&#x27; %&#125;&#123;% block content %&#125;    &lt;p&gt;&lt;a href=&quot;&#123;% url &#x27;learning_log:topic&#x27; topic.id %&#125;&quot;&gt;&#123;&#123; topic &#125;&#125;&lt;/a&gt; &lt;/p&gt;    &lt;p&gt;Add a new entry:&lt;/p&gt;    &lt;form action=&quot;&#123;% url &#x27;learning_log:new_entry&#x27; topic.id %&#125;&quot; method=&quot;post&quot;&gt;        &#123;% csrf_token %&#125;        &#123;&#123; form.as_div &#125;&#125;        &lt;button type=&quot;submit&quot;&gt;Add Entry&lt;/button&gt;    &lt;/form&gt;&#123;% endblock content %&#125;&#123;# 链接 #&#125;    &lt;p&gt;        &lt;a href=&quot;&#123;% url &#x27;learning_log:new_entry&#x27; topic.id %&#125;&quot;&gt;Add a new entry&lt;/a&gt;    &lt;/p&gt;
+
+代码解释：这一套代码实现了在某个具体主题（Topic）下添加新学习内容（Entry）的功能。它包括一个基于模型的表单 EntryForm，用于生成输入框，主要针对 Entry 模型中的 text 字段，并通过 widgets 设置了一个宽一些的多行文本区域。URL 配置中使用了路径参数 &lt;int:topic_id&gt; 来标识具体主题，这样不同主题就能通过不同链接添加各自的学习记录。视图函数 new_entry 首先获取对应的 Topic 实例，然后根据请求方法判断是初次访问还是表单提交。如果是提交请求，就根据提交内容构造表单并校验，若通过验证，就先创建一个未保存的 Entry 实例，手动指定其 topic 属性，然后保存到数据库，并跳转回该主题的详情页。
+模板部分继承自基础模板 base.html，显示了当前主题的名称，并提供一个表单用于输入新条目。提交按钮下方还包含一个返回原主题页面的链接。最后那段 HTML 链接代码负责在主题详情页中显示“Add a new entry”按钮，点击即可跳转到添加页面。
+
+编辑条目代码如下
+# 添加URLpath(&#x27;edit_entry/&lt;int:entry_id&gt;/&#x27;, views.edit_entry, name=&#x27;edit_entry&#x27;)# 添加edit_entry函数def edit_entry(request, entry_id):    &quot;&quot;&quot;Edit an existing entry.&quot;&quot;&quot;    entry = Entry.objects.get(id=entry_id)    topic = entry.topic    if request.method != &#x27;POST&#x27;:        # Initial request; pre-fill form with the current entry.        form = EntryForm(instance=entry)    else:        # POST data submitted; process data.        form = EntryForm(instance=entry, data=request.POST)        if form.is_valid():            form.save()            return redirect(&#x27;learning_log:topic&#x27;, topic_id=topic.id)    # Display a blank or invalid form.    context = &#123;&#x27;entry&#x27;: entry, &#x27;topic&#x27;: topic, &#x27;form&#x27;: form&#125;    return render(request, &#x27;learning_log/edit_entry.html&#x27;, context)
+
+&#123;# 添加html #&#125;&#123;% extends &#x27;learning_log/base.html&#x27; %&#125;&#123;% block content %&#125;    &lt;p&gt;&lt;a href=&quot;&#123;% url &#x27;learning_log:topic&#x27; topic.id %&#125;&quot;&gt;&#123;&#123; topic &#125;&#125;&lt;/a&gt; &lt;/p&gt;    &lt;p&gt;Edit entry:&lt;/p&gt;    &lt;form action=&quot;&#123;% url &#x27;learning_log:edit_entry&#x27; entry.id %&#125;&quot; method=&quot;post&quot;&gt;        &#123;% csrf_token %&#125;        &#123;&#123; form.as_div &#125;&#125;        &lt;button type=&quot;submit&quot;&gt;Save Changes&lt;/button&gt;    &lt;/form&gt;&#123;% endblock content %&#125;&#123;# 链接 #&#125;&lt;li&gt;    &lt;p&gt;&#123;&#123; entry.date_added|date:&#x27;M d, Y H:i&#x27; &#125;&#125;&lt;/p&gt;    &lt;p&gt;&#123;&#123; entry.text|linebreaks &#125;&#125;&lt;/p&gt;    &lt;p&gt;        &lt;a href=&quot;&#123;% url &#x27;learning_log:edit_entry&#x27; entry.id %&#125;&quot;&gt;Edit entry&lt;/a&gt;    &lt;/p&gt;&lt;/li&gt;
+
+创建用户首先创建一个新的应用程序来管理账户相关的内容
+python .\manage.py startapp accounts
+
+在INSTALLED_APPS中添加accounts，并包含accounts的URL：path(&#39;accounts/&#39;, include(&#39;accounts.urls&#39;))
+在accounts中新建urls.py，添加以下内容
+from django.urls import path, includeapp_name = &#x27;accounts&#x27;urlpatterns = [    # Include the default auth URLs    path(&#x27;&#x27;, include(&#x27;django.contrib.auth.urls&#x27;)),]
+
+在templates中新建registration文件夹，添加login.html文件
+&#123;% extends &#x27;learning_log/base.html&#x27; %&#125;&#123;% block content %&#125;  &#123;% if form.errors %&#125;    &lt;p&gt;Your username and password didn&#x27;t match. Please try again.&lt;/p&gt;  &#123;% endif %&#125;  &lt;form action=&quot;&#123;% url &#x27;accounts:login&#x27; %&#125;&quot; method=&#x27;post&#x27;&gt;    &#123;% csrf_token %&#125;    &#123;&#123; form.as_div &#125;&#125;    &lt;button name=&quot;submit&quot;&gt;Log in&lt;/button&gt;  &lt;/form&gt;&#123;% endblock content %&#125;
+
+随后在settings中添加成功登录后的重定向地址：LOGIN_REDIRECT_URL = &#39;learning_log:index&#39;
+修改base.html如下
+&lt;p&gt;    &lt;a href=&quot;&#123;% url &#x27;learning_log:index&#x27; %&#125;&quot;&gt;Learning Log&lt;/a&gt; -    &lt;a href=&quot;&#123;% url &#x27;learning_log:topics&#x27; %&#125;&quot;&gt;Topics&lt;/a&gt; -     &#123;% if user.is_authenticated %&#125;        Hello, &#123;&#123; user.username &#125;&#125;! -        &#123;% else %&#125;        &lt;a href=&quot;&#123;% url &#x27;accounts:login&#x27; %&#125;&quot;&gt;Log in&lt;/a&gt; -        &#123;% endif %&#125;&lt;/p&gt;&#123;% block content %&#125;&#123;% endblock content %&#125;
+
+此时就可以通过http://localhost:8000/accounts/login/来登录了，可以使用我们的管理员账号来测试（提前在管理界面退出）
+
+注销和注册用户注销账户在base.html中添加注销表单
+&#123;% if user.is_authenticated %&#125;  &lt;hr /&gt;  &lt;form action=&quot;&#123;% url &#x27;accounts:logout&#x27; %&#125;&quot; method=&#x27;post&#x27;&gt;    &#123;% csrf_token %&#125;    &lt;button name=&#x27;submit&#x27;&gt;Log out&lt;/button&gt;  &lt;/form&gt;&#123;% endif %&#125;
+
+如果账户登录，那么则在最下方显示一个注销按钮用于注销账户，注销后将页面链接到主页：LOGOUT_REDIRECT_URL = &#39;learning_log:index&#39;
+注册账户# 添加URLpath(&#x27;register/&#x27;, views.register, name=&#x27;register&#x27;)# 创建视图函数def register(request):    &quot;&quot;&quot;Register a new user.&quot;&quot;&quot;    if request.method != &#x27;POST&#x27;:        # Display blank registration form.        form = UserCreationForm()    else:        # Process completed form.        form = UserCreationForm(data=request.POST)        if form.is_valid():            new_user = form.save()            # Log the user in and then redirect to home page.            login(request, new_user)            return redirect(&#x27;learning_log:index&#x27;)    # Display a blank or invalid form.    context = &#123;&#x27;form&#x27;: form&#125;    return render(request, &#x27;registration/register.html&#x27;, context)
+
+&#123;# 创建模板 #&#125;&#123;% extends &quot;learning_log/base.html&quot; %&#125;&#123;% block content %&#125;  &lt;form action=&quot;&#123;% url &#x27;accounts:register&#x27; %&#125;&quot; method=&#x27;post&#x27;&gt;    &#123;% csrf_token %&#125;    &#123;&#123; form.as_div &#125;&#125;    &lt;button name=&quot;submit&quot;&gt;Register&lt;/button&gt;  &lt;/form&gt;&#123;% endblock content %&#125;&#123;# 链接注册界面 #&#125;&lt;a href=&quot;&#123;% url &#x27;accounts:register&#x27; %&#125;&quot;&gt;Register&lt;/a&gt; -
+
+当用户登录后，base.html 会显示一个“注销”按钮，它触发的是 accounts:logout 路由（即 Django 默认的登出视图），并通过 LOGOUT_REDIRECT_URL = &#39;learning_log:index&#39; 设置注销后跳转回主页。
+对于注册功能，定义了一个新的 URL 路由 /accounts/register/，并在对应视图函数 register() 中使用 Django 提供的 UserCreationForm 构建注册表单。如果请求为 POST，则处理表单提交并保存用户数据，注册成功后自动登录该用户，并重定向到主页。否则显示一个空白或验证失败的注册表单。
+前端模板继承自 base.html，通过 &#123;% csrf_token %&#125; 加入安全标记，表单本体使用 &#123;&#123; form.as_div &#125;&#125; 渲染输入字段，点击“Register”按钮即可提交注册。
+创建用户数据在未登录的状态下，learning_log中的内容除了主页外，其余内容应该均不可访问，对此我们通过装饰器@login_required来限制未登录用户的访问，如果用户未登录，我们将其重定向到登录界面，在settings中添加LOGIN_URL = &#39;accounts:login&#39;即可
+对于不同的用户，除了主页外，其他的内容应该只能访问自己的部分，我们将数据关联到用户，在Topic中添加owner = models.ForeignKey(User, on_delete=models.CASCADE)，将主题与用户关联。然后把数据库中的内容进行迁移，由于我们新增了owner字段，迁移时会提示我们选择哪一种方式，我们选择“1”让系统自动给我们添加一个默认值，然后将所有的内容迁移到管理账户中，即ID“1”
+
+虽然把主题全部与管理账户进行了关联，但是目前任何用户登录均可访问所有主题，在topics中添加topics = Topic.objects.filter(owner=request.user).order_by(&#39;date_added&#39;)，将不属于当前用户的所有Topic过滤掉，然后在topic和edit_entry中添加以下代码
+if topic.owner != request.user:    raise Http404
+
+从而防止用户通过网址直接访问他人的数据
+最后将新的topic关联到当前用户中，添加代码如下
+new_topic = form.save(commit=False)new_topic.owner = request.usernew_topic.save()
+
+此时任何用户都可创建自己的账号并拥有自己独立的数据了
+样式更改我们的web已经具备基本的功能了，如创建主题、创建与之关联的条目，并且每个用户都有自己的数据而不必担心被其他人访问，但我们的界面还过于简陋，无法吸引用户，因此接下来我们将更改它的布局，使其更加美观
+首先安装django-bootstrap5，我们将使用其中的模板
+pip install django-bootstrap5
+
+然后在INSTALLED_APPS中我们的应用和默认应用之间添加django_bootstrap5，接下来修改base.html
+&lt;!doctype html&gt;&lt;html lang=&quot;en&quot;&gt;&lt;head&gt;  &lt;meta charset=&quot;utf-8&quot;&gt;  &lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot;&gt;  &lt;title&gt;Learning Log&lt;/title&gt;  &#123;% load django_bootstrap5 %&#125;  &#123;% bootstrap_css %&#125;  &#123;% bootstrap_javascript %&#125;&lt;/head&gt;&lt;body&gt;  &lt;nav class=&quot;navbar navbar-expand-md navbar-light bg-light mb-4 border&quot;&gt;    &lt;div class=&quot;container-fluid&quot;&gt;      &lt;a class=&quot;navbar-brand&quot; href=&quot;&#123;% url &#x27;learning_log:index&#x27; %&#125;&quot;&gt;          Learning Log&lt;/a&gt;      &lt;button class=&quot;navbar-toggler&quot; type=&quot;button&quot; data-bs-toggle=&quot;collapse&quot;        data-bs-target=&quot;#navbarCollapse&quot; aria-controls=&quot;navbarCollapse&quot;        aria-expanded=&quot;false&quot; aria-label=&quot;Toggle navigation&quot;&gt;        &lt;span class=&quot;navbar-toggler-icon&quot;&gt;&lt;/span&gt;      &lt;/button&gt;      &lt;div class=&quot;collapse navbar-collapse&quot; id=&quot;navbarCollapse&quot;&gt;        &lt;ul class=&quot;navbar-nav me-auto mb-2 mb-md-0&quot;&gt;          &lt;li class=&quot;nav-item&quot;&gt;            &lt;a class=&quot;nav-link&quot; href=&quot;&#123;% url &#x27;learning_log:topics&#x27; %&#125;&quot;&gt;              Topics&lt;/a&gt;&lt;/li&gt;        &lt;/ul&gt; &lt;!-- End of links on left side of navbar --&gt;        &lt;!-- Account-related links --&gt;        &lt;ul class=&quot;navbar-nav ms-auto mb-2 mb-md-0&quot;&gt;          &#123;% if user.is_authenticated %&#125;            &lt;li class=&quot;nav-item&quot;&gt;              &lt;span class=&quot;navbar-text me-2&quot;&gt;Hello, &#123;&#123; user.username &#125;&#125;.                &lt;/span&gt;&lt;/li&gt;          &#123;% else %&#125;            &lt;li class=&quot;nav-item&quot;&gt;              &lt;a class=&quot;nav-link&quot; href=&quot;&#123;% url &#x27;accounts:register&#x27; %&#125;&quot;&gt;                  Register&lt;/a&gt;&lt;/li&gt;            &lt;li class=&quot;nav-item&quot;&gt;              &lt;a class=&quot;nav-link&quot; href=&quot;&#123;% url &#x27;accounts:login&#x27; %&#125;&quot;&gt;                  Log in&lt;/a&gt;&lt;/li&gt;          &#123;% endif %&#125;        &lt;/ul&gt; &lt;!-- End of account-related links --&gt;        &#123;% if user.is_authenticated %&#125;          &lt;form action=&quot;&#123;% url &#x27;accounts:logout&#x27; %&#125;&quot; method=&#x27;post&#x27;&gt;            &#123;% csrf_token %&#125;            &lt;button name=&#x27;submit&#x27; class=&#x27;btn btn-outline-secondary btn-sm&#x27;&gt;              Log out&lt;/button&gt;          &lt;/form&gt;        &#123;% endif %&#125;      &lt;/div&gt; &lt;!-- Closes collapsible parts of navbar --&gt;    &lt;/div&gt; &lt;!-- Closes navbar&#x27;s container --&gt;  &lt;/nav&gt; &lt;!-- End of navbar --&gt;  &lt;main class=&quot;container&quot;&gt;    &lt;div class=&quot;pb-2 mb-2 border-bottom&quot;&gt;      &#123;% block page_header %&#125;&#123;% endblock page_header %&#125;    &lt;/div&gt;    &lt;div&gt;      &#123;% block content %&#125;&#123;% endblock content %&#125;    &lt;/div&gt;  &lt;/main&gt;&lt;/body&gt;&lt;/html&gt;
+
+修改主页index.html的样式
+&#123;% extends &#x27;learning_log/base.html&#x27; %&#125;&#123;% block page_header %&#125;  &lt;div class=&quot;p-3 mb-4 bg-light border rounded-3&quot;&gt;    &lt;div class=&quot;container-fluid py-4&quot;&gt;      &lt;h1 class=&quot;display-3&quot;&gt;Track your learning.&lt;/h1&gt;            &lt;p class=&quot;lead&quot;&gt;Make your own Learning Log, and keep a list of the      topics you&#x27;re learning about. Whenever you learn something new      about a topic, make an entry summarizing what you&#x27;ve learned.&lt;/p&gt;      &lt;a class=&quot;btn btn-primary btn-lg mt-1&quot;          href=&quot;&#123;% url &#x27;accounts:register&#x27; %&#125;&quot;&gt;Register &amp;raquo;&lt;/a&gt;    &lt;/div&gt;  &lt;/div&gt;&#123;% endblock page_header %&#125;
+
+修改登录界面login.html的样式
+&#123;% extends &#x27;learning_log/base.html&#x27; %&#125;&#123;% load django_bootstrap5 %&#125;&#123;% block page_header %&#125;  &lt;h2&gt;Log in to your account.&lt;/h2&gt;&#123;% endblock page_header %&#125;&#123;% block content %&#125;  &lt;form action=&quot;&#123;% url &#x27;accounts:login&#x27; %&#125;&quot; method=&#x27;post&#x27;&gt;    &#123;% csrf_token %&#125;    &#123;% bootstrap_form form %&#125;    &#123;% bootstrap_button button_type=&quot;submit&quot; content=&quot;Log in&quot; %&#125;  &lt;/form&gt;&#123;% endblock content %&#125;
+
+修改页面topics的样式
+&#123;% extends &#x27;learning_log/base.html&#x27; %&#125;&#123;% block page_header %&#125;  &lt;h1&gt;Topics&lt;/h1&gt;&#123;% endblock page_header %&#125;&#123;% block content %&#125;  &lt;ul class=&quot;list-group border-bottom pb-2 mb-4&quot;&gt;    &#123;% for topic in topics %&#125;      &lt;li class=&quot;list-group-item border-0&quot;&gt;        &lt;a href=&quot;&#123;% url &#x27;learning_log:topic&#x27; topic.id %&#125;&quot;&gt;          &#123;&#123; topic.text &#125;&#125;&lt;/a&gt;      &lt;/li&gt;    &#123;% empty %&#125;      &lt;li class=&quot;list-group-item border-0&quot;&gt;No topics have been added yet.&lt;/li&gt;    &#123;% endfor %&#125;  &lt;/ul&gt;  &lt;a href=&quot;&#123;% url &#x27;learning_log:new_topic&#x27; %&#125;&quot;&gt;Add a new topic&lt;/a&gt;&#123;% endblock content %&#125;
+
+修改页面topic条目的样式
+&#123;% extends &#x27;learning_log/base.html&#x27; %&#125;&#123;% block page_header %&#125;  &lt;h1&gt;&#123;&#123; topic.text &#125;&#125;&lt;/h1&gt;&#123;% endblock page_header %&#125;&#123;% block content %&#125;  &lt;p&gt;    &lt;a href=&quot;&#123;% url &#x27;learning_log:new_entry&#x27; topic.id %&#125;&quot;&gt;Add new entry&lt;/a&gt;  &lt;/p&gt;  &#123;% for entry in entries %&#125;    &lt;div class=&quot;card mb-3&quot;&gt;      &lt;!-- Card header with timestamp and edit link --&gt;      &lt;h4 class=&quot;card-header&quot;&gt;        &#123;&#123; entry.date_added|date:&#x27;M d, Y H:i&#x27; &#125;&#125;        &lt;small&gt;&lt;a href=&quot;&#123;% url &#x27;learning_log:edit_entry&#x27; entry.id %&#125;&quot;&gt;          edit entry&lt;/a&gt;&lt;/small&gt;      &lt;/h4&gt;      &lt;!-- Card body with entry text --&gt;      &lt;div class=&quot;card-body&quot;&gt;&#123;&#123; entry.text|linebreaks &#125;&#125;&lt;/div&gt;    &lt;/div&gt;  &#123;% empty %&#125;    &lt;p&gt;There are no entries for this topic yet.&lt;/p&gt;  &#123;% endfor %&#125;&#123;% endblock content %&#125;
+
+修改后的界面如下
+
+项目部署这部分内容主要就是把项目部署到远程服务器上，让其他人访问，全是配置，没啥意思，不搞了
+]]></content>
+      <categories>
+        <category>Diango开发</category>
+      </categories>
+      <tags>
+        <tag>Python</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>Python实战之外星人入侵《一》</title>
+    <url>/posts/25297ba4.html</url>
+    <content><![CDATA[武装飞船由于不经常用Python写程序，最近在用Python写一个可视化工具时，惊觉发现自己的Python水平严重下滑，因此又重新拿起了《Python编程-从入门到实践》这本书。
+经过简单的复习，觉得还是有必要把书中的项目给练习一遍，同时也通过Blog记录一下我的实现过程，该篇文章以及后续系列将会讲解这本书中的“外星人入侵”项目，经过第十二、十三、十四章的阅读，我觉得在开始编程之前有必要先分析一下要实现的功能以及项目的整体架构，姑且就按照书上的顺序来吧。
+这里我们需要四个类，分别是主程序类AlienInvasion、子弹类Bullet、设置类Settings、飞船类Ship，主程序类主要用于初始化游戏界面，然后通过循环来更新游戏，子弹类和飞船类主要用于自身属性的初始化、显示和更新位置，设置类主要包含游戏的界面大小、飞船和子弹的移动速度等。整体结构大致如下
+
+游戏入口我的IDE是Pycharm，首先创建一个名为 Alien-Invasion-Project 并初始化了git仓库的项目，后续的所有开发代码都将放到我的Gitghub Alien-Invasion-Project 同名仓库中，有兴趣可以访问查看。这里我们首先安装开发需要用到的模块pygame，使用命令pip instal pygame即可，如下
+
+提示“Successfully ……”表明安装成功，也可使用书中的命令python -m pip install --user pygame来安装
+初步实现界面先创建一个alien_invasion.py文件，用来实现界面的初始化，然后创建AlienInvasion类，添加如下代码
+import  pygameclass AlienInvasion:    # 初始化界面    def __init__(self):        pygame.init()        self.screen = pygame.display.set_mode((800, 600))        pygame.display.set_caption(&quot;外星人来喽&quot;)    def run_game(self):        # 游戏主循环        while True:            passif __name__ == &#x27;__main__&#x27;:    # 实例化AlienInvasion类并运行游戏    alien_invasion = AlienInvasion()    alien_invasion.run_game()
+
+这里我们通过pygame.init()来实现游戏环境的初始化，然后设置了一个800*600的游戏界面，再通过pygame.display.set_caption(&quot;外星人来喽&quot;)来设置游戏界面的Title，同时我们定义一个run_game函数用来进入游戏，这里添加了一个while的死循环，通过pass占位符来保持界面的显示，并在main里面完成游戏类的实例化和进入游戏中的循环，运行程序，如下图
+
+大致就是一个黑框框，里面什么都没有，由于我们只初始化了游戏界面的大小和标题，因此不会有其他的内容，同时各位应该也能注意到运行之后电脑很卡，这是因为我们在程序中添加了一个死循环，下面我们来对程序进行优化
+优化界面我们在其中添加事件处理程序来监听事件，首先导入系统模块sys，然后删除pass，在循环中添加如下代码
+for event in pygame.event.get():    if event.type == pygame.QUIT:        pygame.quit()        sys.exit()
+
+这段程序表明我们一直在监听事件，如果有退出的事件发生，我们将调用pygame和系统的退出函数来结束游戏的运行，这时候运行代码，就不会卡了，同时点击X号也能正常退出
+下一步我们对游戏界面填充背景色，同时控制游戏的刷新的帧率
+添加成员变量bg_color，并在while循环中通过screen.fill()来绘制屏幕，然后使用pygame.display.flip()来使屏幕显示出来，运行结果如下
+
+帧率的控制主要通过限制循环中屏幕刷新的时间来实现，添加成员变量clock来定义时钟，然后在循环的末尾启动计时，我们这里设个90帧，代码如下
+class AlienInvasion:    # 初始化界面    def __init__(self):        pygame.init()        self.clock = pygame.time.Clock()        ……    def run_game(self):        # 游戏主循环        while True:            ……            # 控制游戏帧率            self.clock.tick(90)
+
+封装Settings类为了方便，我们可以把游戏设置相关的内容统一组织起来，放入单独的类中，比如屏幕大小，背景颜色等
+创建settings.py文件，并在其中添加Settings类，将屏幕大小，背景颜色甚至帧率等添加到类中，如下
+class Settings:    def __init__(self):        self.screen_width = 800        self.screen_height = 600        self.bg_color = (230, 230, 230)        self.FPS = 90        self.TITLE = &quot;外星人来喽&quot;
+
+在主程序创建Settings的实例，并用其中的属性替换掉原来的硬编码行为，这样便于我们理解和组织代码以及后续拓展开发
+创建Ship类这里我们要在游戏界面创建一个飞船，首先需要准备一张照片，创建文件夹imgs，将书中源码位置的图片复制到imgs下，并添加新文件ship.py，Ship类要加载图片显示，初始位置应当位于屏幕中心底部，并且支持左右移动，代码如下
+import pygameclass Ship:    def __init__(self, game):        self.game = game        # 加载图片        self.image = pygame.image.load(&#x27;imgs/ship.bmp&#x27;)        self.rect = self.image.get_rect()        # 显示图片在底部        self.rect.midbottom = self.game.screen.get_rect().midbottom        # 图片当前所在的x轴位置        self.x = float(self.rect.x)        # 移动标识        self.moving_right = False        self.moving_left = False    def update(self):        &quot;&quot;&quot;更新飞船位置&quot;&quot;&quot;        if self.moving_right and self.rect.right &lt; self.game.settings.screen_width:            self.x += 3        if self.moving_left and self.rect.left &gt; 0:            self.x -= 3        # 更新rect对象的位置        self.rect.x = self.x    def draw(self):        &quot;&quot;&quot;绘制飞船&quot;&quot;&quot;        self.game.screen.blit(self.image, self.rect)
+
+突然发现写博客还是比较费时间的，这里就不过多解释了，完成Ship类之后就需要对主程序进行更改了，我们对原来的代码进行重构，因为要添加左右移动的消息，所以将while循环中的内容简化，尽可能的封装为函数模块，大致分为事件检测、事件执行、飞船更新、屏幕更新等
+事件检测：
+def _check_events(self):    &quot;&quot;&quot;响应按键和鼠标事件&quot;&quot;&quot;    for event in pygame.event.get():        if event.type == pygame.QUIT:            pygame.quit()            sys.exit()        elif event.type == pygame.KEYDOWN:            self._check_keydown_events(event)        elif event.type == pygame.KEYUP:            self._check_keyup_events(event)
+
+判断消息类型，如果是退出，就结束游戏，如果是键盘按键按下或者是键盘按键松开，则执行对应的函数
+事件执行：
+def _check_keydown_events(self, event):    &quot;&quot;&quot;响应按键按下事件&quot;&quot;&quot;    if event.key == pygame.K_RIGHT:        self.ship.moving_right = True    elif event.key == pygame.K_LEFT:        self.ship.moving_left = True    elif event.key == pygame.K_q:        pygame.quit()        sys.exit()
+
+如果键盘按下，则判断按下的是哪一个键，右键激活飞船的右移动标识，左键则激活左移动标识，如果是q键，同样执行退出，这是为了方便用户结束游戏而不用每次都点击右上角X号
+def _check_keyup_events(self, event):    &quot;&quot;&quot;响应按键松开事件&quot;&quot;&quot;    if event.key == pygame.K_RIGHT:        self.ship.moving_right = False    elif event.key == pygame.K_LEFT:        self.ship.moving_left = False
+
+如果键盘松开，则根据松开的按键来结束对应的移动标识
+屏幕更新：
+def _update_screen(self):    &quot;&quot;&quot;更新屏幕&quot;&quot;&quot;    self.screen.fill(self.settings.bg_color)    self.ship.draw()    pygame.display.flip()
+
+综上，while循环目前应该包含的内容如下
+while True:    # 监听事件    self._check_events()    # 更新飞船位置    self.ship.update()    # 更新屏幕    self._update_screen()    # 控制游戏帧率    self.clock.tick(self.settings.FPS)
+
+运行
+
+这个时候我们的飞船就可以正常移动了
+创建Bullet类首先创建bullet.py文件，在其中创建Bullet类，为了便于管理子弹，我们采用群组的方式将其继承Sprite，Bullet类应当包含颜色、大小、速度等，同时绘制自身并更新位置，代码如下
+import pygamefrom pygame.sprite import Spriteclass Bullet(Sprite):    def __init__(self, game):        super().__init__()        self.game = game        self.color = (60, 60, 60)        self.rect = pygame.Rect(0, 0, 3, 15)               self.speed = 4        self.rect.midtop = self.game.ship.rect.midtop()        self.y = float(self.rect.y)    def update(self):        self.y -= self.speed        self.rect.y = self.y    def draw(self):        pygame.draw.rect(self.game.screen, self.color, self.rect)
+
+更改主程序代码，以pygame.sprite.Group()的方式创建子弹群组，在按下键盘事件中添加空格的侦听，并添加发射子弹的函数，然后在主循环中添加更新子弹的函数，用于更新子弹的位置并删除超出屏幕的子弹，最后在刷新屏幕的函数中添加显示子弹的代码，主要添加内容如下
+def _update_bullets(self):    &quot;&quot;&quot;更新子弹位置&quot;&quot;&quot;    self.bullets.update()    for bullet in self.bullets.copy():        if bullet.rect.bottom &lt;= 0:            self.bullets.remove(bullet)            def _fire_bullet(self):    &quot;&quot;&quot;发射子弹&quot;&quot;&quot;    if len(self.bullets) &lt; 6:        new_bullet = Bullet(self)        self.bullets.add(new_bullet)
+
+运行如下
+
+这样就可以正常发射子弹了。下面我们还需要对代码进行简单的修改，将子弹的相关配置放入Settings中
+代码优化跟设置相关的内容我们应该放在Settings类当中，同时尽可能的减少硬编码的行为，优化后的完整代码如下
+alien_invasion.py
+import  pygameimport sysfrom settings import Settingsfrom ship import Shipfrom bullet import Bulletclass AlienInvasion:    # 初始化界面    def __init__(self):        pygame.init()        self.settings = Settings()        self.clock = pygame.time.Clock()        self.screen = pygame.display.set_mode((self.settings.screen_width, self.settings.screen_height))        pygame.display.set_caption(self.settings.TITLE)        self.ship = Ship(self)        self.bullets = pygame.sprite.Group()    def run_game(self):        # 游戏主循环        while True:            # 监听事件            self._check_events()            # 更新飞船位置            self.ship.update()            # 更新子弹位置            self._update_bullets()            # 更新屏幕            self._update_screen()            # 控制游戏帧率            self.clock.tick(self.settings.FPS)    def _check_events(self):        &quot;&quot;&quot;响应按键和鼠标事件&quot;&quot;&quot;        for event in pygame.event.get():            if event.type == pygame.QUIT:                pygame.quit()                sys.exit()            elif event.type == pygame.KEYDOWN:                self._check_keydown_events(event)            elif event.type == pygame.KEYUP:                self._check_keyup_events(event)    def _check_keydown_events(self, event):        &quot;&quot;&quot;响应按键按下事件&quot;&quot;&quot;        if event.key == pygame.K_RIGHT:            self.ship.moving_right = True        elif event.key == pygame.K_LEFT:            self.ship.moving_left = True        elif event.key == pygame.K_q:            pygame.quit()            sys.exit()        elif event.key == pygame.K_SPACE:            self._fire_bullet()    def _check_keyup_events(self, event):        &quot;&quot;&quot;响应按键松开事件&quot;&quot;&quot;        if event.key == pygame.K_RIGHT:            self.ship.moving_right = False        elif event.key == pygame.K_LEFT:            self.ship.moving_left = False    def _update_screen(self):        &quot;&quot;&quot;更新屏幕&quot;&quot;&quot;        self.screen.fill(self.settings.bg_color)        for bullet in self.bullets.sprites():            bullet.draw()        self.ship.draw()        pygame.display.flip()    def _update_bullets(self):        &quot;&quot;&quot;更新子弹位置&quot;&quot;&quot;        self.bullets.update()        for bullet in self.bullets.copy():            if bullet.rect.bottom &lt;= 0:                self.bullets.remove(bullet)    def _fire_bullet(self):        &quot;&quot;&quot;发射子弹&quot;&quot;&quot;        if len(self.bullets) &lt; self.settings.bullet_limit:            new_bullet = Bullet(self)            self.bullets.add(new_bullet)if __name__ == &#x27;__main__&#x27;:    # 实例化AlienInvasion类并运行游戏    alien_invasion = AlienInvasion()    alien_invasion.run_game()
+
+bullet.py
+import pygamefrom pygame.sprite import Spriteclass Bullet(Sprite):    def __init__(self, game):        super().__init__()        self.game = game        # 设置子弹的属性        self.color = self.game.settings.bullet_color        self.rect = pygame.Rect(0, 0, self.game.settings.bullet_width, self.game.settings.bullet_height)        # 将子弹放在飞船的顶部        self.rect.midtop = self.game.ship.rect.midtop		        # 子弹的y轴位置        self.y = float(self.rect.y)    def update(self):        &quot;&quot;&quot;更新子弹位置&quot;&quot;&quot;        self.y -= self.game.settings.bullet_speed        self.rect.y = self.y    def draw(self):        &quot;&quot;&quot;绘制子弹&quot;&quot;&quot;        pygame.draw.rect(self.game.screen, self.color, self.rect)
+
+settings.py
+class Settings:    def __init__(self):        &quot;&quot;&quot;初始化游戏的设置&quot;&quot;&quot;        self.screen_width = 1600        self.screen_height = 600        self.bg_color = (230, 230, 230)        self.FPS = 90        self.TITLE = &quot;外星人来喽&quot;        # 飞船设置        self.ship_image_path = &#x27;imgs/ship.bmp&#x27;        self.ship_speed = 3        # 子弹设置        self.bullet_color = (60, 60, 60)        self.bullet_speed = 4        self.bullet_width = 3        self.bullet_height = 15        self.bullet_limit = 10
+
+ship.py
+import pygameclass Ship:    def __init__(self, game):        self.game = game        # 加载图片        self.image = pygame.image.load(self.game.settings.ship_image_path)        self.rect = self.image.get_rect()        # 显示图片在底部        self.rect.midbottom = self.game.screen.get_rect().midbottom        # 图片当前所在的x轴位置        self.x = float(self.rect.x)        # 移动标识        self.moving_right = False        self.moving_left = False    def update(self):        &quot;&quot;&quot;更新飞船位置&quot;&quot;&quot;        if self.moving_right and self.rect.right &lt; self.game.settings.screen_width:            self.x += self.game.settings.ship_speed        if self.moving_left and self.rect.left &gt; 0:            self.x -= self.game.settings.ship_speed        # 更新rect对象的位置        self.rect.x = self.x    def draw(self):        &quot;&quot;&quot;绘制飞船&quot;&quot;&quot;        self.game.screen.blit(self.image, self.rect)
+
+]]></content>
+      <categories>
+        <category>Python实战之外星人入侵</category>
+      </categories>
+      <tags>
+        <tag>Python</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>Python实战之外星人入侵《二》</title>
+    <url>/posts/153f977c.html</url>
+    <content><![CDATA[创建Alien类创建一个alien.py文件，并把书中源码的alien.bmp图片拷贝到我们的imgs文件夹中，代码如下
+import pygamefrom pygame.sprite import Spriteclass Alien(Sprite):    def __init__(self, game):        super().__init__()        self.game = game        # 加载外星人图片        self.image = pygame.image.load(&#x27;imgs/alien.bmp&#x27;)        self.rect = self.image.get_rect()        # 设置外星人初始位置        self.rect.x = self.rect.width        self.rect.y = self.rect.height        # 外星人当前的x轴位置        self.x = float(self.rect.x)
+
+创建Alien实例由于外星人通常是成批次出现，因此我们也要通过Sprite管理，如self.aliens = pygame.sprite.Group()，这里我们单独创建一个函数用于外星人的生成
+def _create_fleet(self):    &quot;&quot;&quot;创建外星人舰队&quot;&quot;&quot;    alinen = Alien(self)    self.aliens.add(alinen)
+
+然后在更新屏幕的函数中添加如下代码用于外星人在屏幕上的显示
+self.aliens.draw(self.screen)
+
+运行
+
+此时在屏幕的左上角已经出现了一个外星人
+创建Alien舰队上述我们在_create_fleet中只生成了一个外星人，下面进行修改来生成多行外星人，代码如下
+def _create_fleet(self):    &quot;&quot;&quot;创建外星人舰队&quot;&quot;&quot;    alinen = Alien(self)    alien_width = alinen.rect.width    alien_height = alinen.rect.height    current_x, current_y = alien_width, alien_height    # 计算屏幕可以容纳多少个外星人    while current_y &lt; (self.settings.screen_height - 3 * alien_height):        while current_x &lt; (self.settings.screen_width - 2 * alien_width):            self._create_alien(current_x, current_y)            current_x += 2 * alien_width        # 重置当前x位置，移动到下一行        current_y += 2 * alien_height        current_x = alien_widthdef _create_alien(self, current_x, current_y):    &quot;&quot;&quot;创建一个外星人&quot;&quot;&quot;    alien = Alien(self)    alien.x = current_x    alien.rect.x = current_x    alien.rect.y = current_y    self.aliens.add(alien)
+
+这里我们先生成一个实例，然后获取到它的宽度和高度并赋值为当前的x轴位置和y轴位置，内层循环用来生成一行外星人，从距离屏幕一个外星人的宽度开始，每隔一个外星人宽度创建一个实例，直到屏幕宽度不满足两个外星人的宽度为止，外层循环首先更新y轴位置，将其下移两个外星人的高度，然后初始化当前的x轴位置，再次创建一行，直到屏幕高度不满足三个外星人的高度位置为止，运行如下
+
+此时我们已经创建了一个外星人的舰队
+移动舰队在Setting中添加如下代码
+# 外星人设置self.alien_speed = 1self.alien_drop_speed = 10self.alien_direction = 1  # 1表示向右移动，-1表示向左移动
+
+分别表示外星人的水平速度、下降速度、水平方向
+然后在Alien中添加更新位置的函数
+def update(self):    &quot;&quot;&quot;更新外星人位置&quot;&quot;&quot;    self.x += self.game.settings.alien_speed * self.game.settings.alien_direction    self.rect.x = self.x
+
+通过alien_direction来决定水平方向的移动，但这样只会让舰队朝着一个方向不停移动直到超出屏幕范围，在舰队即将到达屏幕边缘时，我们应该改变它的方向，让它朝着相反的方向移动，并下降一段距离。先添加边缘检测函数，如下
+def check_edges(self):    &quot;&quot;&quot;检查外星人是否到达屏幕边缘&quot;&quot;&quot;    screen_rect = self.game.screen.get_rect()    if self.rect.right &gt;= screen_rect.right or self.rect.left &lt;= 0:        return True    return False
+
+先获取屏幕大小，然后根据外星人所在的位置判断是否超出了屏幕边界，超了就返回True，否则返回就False
+随后我们在主程序添加检测函数，并在到达边缘时使其下降一段距离
+def _check_fleet_edges(self):    &quot;&quot;&quot;检查外星人是否到达屏幕边缘&quot;&quot;&quot;    for alien in self.aliens.sprites():        if alien.check_edges():            self._change_fleet_direction()            breakdef _change_fleet_direction(self):    &quot;&quot;&quot;改变外星人舰队的方向&quot;&quot;&quot;    for alien in self.aliens.sprites():        alien.rect.y += self.settings.alien_drop_speed    self.settings.alien_direction *= -1
+
+对于每一个外星人我们都检测其是否超出了屏幕范围，然后改变所有外星人其移动方向，并下降一段距离，此时我们在更新外星人位置的函数中调用检测边界函数，运行结果如下
+
+射击外星人此时我们发射子弹，子弹并不能击落外星人，而是会直接穿过外星人，因为我们还没有做子弹和外星人的碰撞检测，下面我们来逐步实现这一过程
+检测子弹和外星人的碰撞要实现这个功能非常简单，我们只需要利用pygame.sprite.groupcollide(self.bullets, self.aliens, True, True)这个函数即可，前两个参数分别表示子弹群组和外星人群组，后面两个参数表示碰撞后是否消失，True表明碰撞后子弹和外星人均消失。但这样还有个缺陷，就是我们把外星人全部击落之后，屏幕将没有外星人了，我们应该在打完所有外星人之后重新生成新的外星人舰队，代码如下
+def _update_bullets(self):    &quot;&quot;&quot;更新子弹位置&quot;&quot;&quot;    self.bullets.update()    for bullet in self.bullets.copy():        if bullet.rect.bottom &lt;= 0:            self.bullets.remove(bullet)                self._check_bullet_alien_collisions()def _check_bullet_alien_collisions(self):    &quot;&quot;&quot;检查子弹与外星人碰撞&quot;&quot;&quot;    collisions = pygame.sprite.groupcollide(self.bullets, self.aliens, True, True)    if not self.aliens:        # 如果没有外星人了，重新创建外星人舰队        self._create_fleet()        self.bullets.empty()
+
+我们在更新子弹的后面加入了调用检测碰撞的函数，并在所有外星人消失后重新生成新的外星人舰队，同时清除所有子弹，从而使我们继续游戏
+检测飞船和外星人的碰撞如果按照上述的逻辑，那么这个游戏将没有终止的时候，为此应该加入游戏结束的一些条件，比如我们的飞船和外星人发生了碰撞，在更新外星人的函数中添加代码如下
+# 检测外星人和飞船的碰撞if pygame.sprite.spritecollideany(self.ship, self.aliens):    print(&quot;飞船被外星人撞了！&quot;)
+
+spritecollideany(self.ship, self.aliens)函数接收一个精灵和一个编组，用于检测飞船是否有和外星人碰撞，如果发生碰撞，将打印”飞船被外星人撞了！”。通常来讲，我们不应当在飞船撞毁之后直接结束游戏，而是应该给予玩家多次机会，下面我们创建一个game_status.py文件，用于记录游戏信息，内容如下
+class GameStatus:    def __init__(self, game):        &quot;&quot;&quot;初始化游戏状态&quot;&quot;&quot;        self.ships_left = None        self.game = game        self.reset_status()            def reset_status(self):        &quot;&quot;&quot;重置游戏状态&quot;&quot;&quot;        self.ships_left = self.game.settings.ship_limit
+
+同时在Settings中添加self.ship_limit = 3，表明飞船最多只有三次，ships_left则用来记录剩余的飞船数量
+下面我们对主程序进行修改，添加一个用于游戏状态表示的实例：self.status = GameStatus(self)，然后创建撞击后的响应函数，如下
+def _ship_hit(self):    &quot;&quot;&quot;响应飞船被外星人撞击的事件&quot;&quot;&quot;    if self.status.ships_left &gt; 0:        # 减少剩余飞船数量        self.status.ships_left -= 1        # 清空子弹和外星人        self.bullets.empty()        self.aliens.empty()        # 重新创建外星人舰队        self._create_fleet()        # 重置飞船位置        self.ship.center_ship()        # 暂停一段时间        sleep(1)    else:        print(&quot;游戏结束！&quot;)
+
+如果被撞击并且飞船数量大于0，则减少一个飞船数量并清空子弹和外星人，从而生成新的外星人和飞船。删除碰撞函数里print()函数，替换为_ship_hit()，并在Ship中添加如下函数
+def center_ship(self):    &quot;&quot;&quot;将飞船放在屏幕底部中央&quot;&quot;&quot;    self.rect.midbottom = self.game.screen.get_rect().midbottom    self.x = float(self.rect.x)
+
+使新生成的飞船位于屏幕底部中心
+到达屏幕底部边缘如果外星人到达屏幕底部，我们同样应该跟碰撞一样响应，添加屏幕下边缘检测函数
+def _check_alien_bottom(self):    &quot;&quot;&quot;检查外星人是否到达屏幕底部&quot;&quot;&quot;    for alien in self.aliens.sprites():        if alien.rect.bottom &gt;= self.settings.screen_height:            self._ship_hit()            break
+
+检查每个外星人的底部是否超过了屏幕的高度，如果超过则调用_ship_hit()函数。在更新外星人的最后添加self._check_alien_bottom()，此时当外星人到达屏幕底部游戏也将重置
+GameOver细心一点可能会注意到，当我们死亡超过三次时，游戏仍然没有结束，事实上它永远也不会结束，因为我们在_ship_hit()函数中，当ships_left小于0时，只是调用了print(&quot;游戏结束！&quot;)，其他什么也没有做，因此ships_left只会越来越小，我们应该为其添加一个游戏标识，如果标识为False则终止某些部分的运行，从而实现游戏的结束。在主程序添加self.game_active = True，并将print(&quot;游戏结束！&quot;)替换为self.game_active = False，同时修改主循环如下
+# 游戏主循环while True:    # 监听事件    self._check_events()    if self.game_active:        # 更新飞船位置        self.ship.update()        # 更新子弹位置        self._update_bullets()        # 更新外星人位置        self._update_aliens()    # 更新屏幕    self._update_screen()    # 控制游戏帧率    self.clock.tick(self.settings.FPS)
+
+]]></content>
+      <categories>
+        <category>Python实战之外星人入侵</category>
+      </categories>
+      <tags>
+        <tag>Python</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>Python实战之外星人入侵《三》</title>
+    <url>/posts/5821342e.html</url>
+    <content><![CDATA[添加Play按钮首先在Setting中添加如下代码
+# 按钮设置self.button_color = (0, 255, 0)self.button_width = 200self.button_height = 50self.button_text_color = (255, 255, 255)self.button_font = 48self.play_button_text = &quot;Play&quot;
+
+将按钮的相关属性加入到设置相关的类中，然后创建button.py文件，添加如下代码
+import pygame.fontclass Button:    def __init__(self, game, msg):        self.game = game        self.font = pygame.font.SysFont(None, self.game.settings.button_font)        self.rect = pygame.Rect(0, 0, self.game.settings.button_width, self.game.settings.button_height)        self.rect.center = self.game.screen.get_rect().center        self._pre_msg(msg)    def _pre_msg(self, msg):        &quot;&quot;&quot;将msg渲染为图像&quot;&quot;&quot;        self.msg_image = self.font.render(msg, True, self.game.settings.button_text_color, self.game.settings.button_color)        self.msg_image_rect = self.msg_image.get_rect()        self.msg_image_rect.center = self.rect.center    def draw(self):        &quot;&quot;&quot;绘制按钮&quot;&quot;&quot;        self.game.screen.fill(self.game.settings.button_color, self.rect)        self.game.screen.blit(self.msg_image, self.msg_image_rect)
+
+__init__()函数用于按钮的初始化，如按钮的大小、字体、位置等，_pre_msg()函数用于将字符串消息转换为图像并填充到矩形中，draw()函数用于绘制按钮
+接下来我们在主程序中将game_active设为False，从而为了显示按钮，然后添加按钮属性self.play_button = Button(self, self.settings.play_button_text)，接着在更新屏幕的地方判断如果游戏处于非活跃状态就显示按钮
+if not self.game_active:    self.play_button.draw()
+
+现在运行游戏
+
+开始游戏此时点击按钮并没有做出反应，因为我们还没有添加鼠标点击响应的事件，首先在_check_events中添加如下代码
+elif event.type == pygame.MOUSEBUTTONDOWN:    mouse_pos = pygame.mouse.get_pos()    self._check_play_button(mouse_pos)
+
+上述代码用于检测是否有鼠标按下，如果有则获取鼠标点击的位置，然后将变量传递给_check_play_button，现在我们添加该函数
+def _check_play_button(self, mouse_pos):    &quot;&quot;&quot;响应Play按钮的点击事件&quot;&quot;&quot;    if self.play_button.rect.collidepoint(mouse_pos):        # 重置游戏状态        self.status.reset_status()        self.game_active = True        # 清空子弹和外星人        self.bullets.empty()        self.aliens.empty()        # 创建新的外星人舰队        self._create_fleet()        # 重置飞船位置        self.ship.center_ship()
+
+一旦有点击事件的发生，我们就判断点击位置是否位于按钮中，如果是，则重置游戏状态并清空所有子弹和外星人，创建新的外星人和飞船，从而表明我们开启了新游戏，运行如下
+
+游戏优化当前游戏中还存在Bug，如果我们点击按钮所在区域，即便是按钮已经消失但仍会做出响应并重置游戏，因为我们的鼠标点击事件还会判断其点击位置与按钮位置重合，因此我们需要对判断做出优化
+if self.play_button.rect.collidepoint(mouse_pos) and not self.game_active:
+
+将_check_play_button函数中的if判断语句改为上述代码，从而防止其在游戏运行时仍会执行重置代码
+另外，玩游戏时我们应该将光标隐藏，在游戏结束时显示光标
+在_check_play_button的末尾添加pygame.mouse.set_visible(False)，游戏开始将光标隐藏，在_ship_hit的else块的末尾添加pygame.mouse.set_visible(True) ，游戏结束时将光标显示
+提升趣味性在Settings中添加如下代码
+    # 游戏速度设置    self.speed_scale = 1.1    self.init_settings()def init_settings(self):    &quot;&quot;&quot;初始化游戏的动态设置&quot;&quot;&quot;    self.ship_speed = 30    self.bullet_speed = 10    self.alien_speed = 10    self.alien_drop_speed = 10    self.alien_direction = 1def increase_speed(self):    &quot;&quot;&quot;提高游戏速度设置&quot;&quot;&quot;    self.ship_speed *= self.speed_scale    self.bullet_speed *= self.speed_scale    self.alien_speed *= self.speed_scale    self.alien_drop_speed *= self.speed_scale
+
+speed_scale用于控制游戏增长的速度，init_settings用于初始化设置，increase_speed用于将相关参数增长从而提高游戏难度
+在_check_bullet_alien_collisions中，如果外星人全部被击落，我们就调用self.settings.increase_speed()增加游戏速度。当然每次开启新游戏时，应当将所有设置还原，在_check_play_button的if语块的第一行添加self.settings.init_settings()，这将使得新游戏的属性为初始化值
+记录分数在GameStatus中添加属性self.score = 0用于重置分数，在Settings中添加分数相关设置
+# 游戏分数设置self.score_text_color = (30, 30, 30)self.score_font = 48
+
+然后创建gamescore.py文件添加如下代码
+import pygame.fontclass GameScore:    def __init__(self, game):        self.game = game        self.font = pygame.font.SysFont(None, self.game.settings.score_font)        self.prep_score()    def prep_score(self):        &quot;&quot;&quot;将得分渲染为图像&quot;&quot;&quot;        score_str = str(self.game.status.score)        self.score_image = self.font.render(score_str, True, self.game.settings.score_text_color, self.game.settings.bg_color)        self.score_rect = self.score_image.get_rect()        self.score_rect.right = self.game.screen.get_rect().right - 20        self.score_rect.top = 20    def show_score(self):        &quot;&quot;&quot;在屏幕上显示得分&quot;&quot;&quot;        self.game.screen.blit(self.score_image, self.score_rect)
+
+在主程序中添加成员self.score = GameScore(self)，随后在更新屏幕函数中显示分数面板self.score.show_score()，此时运行游戏就能显示分数面板了
+更新得分在Settings的init_settings中添加self.alien_points = 50，用于表示每个外星人击落的初始得分，然后在主程序的_check_bullet_alien_collisions中添加
+if collisions:    for aliens in collisions.values():        self.status.score += self.settings.alien_points * len(aliens)    self.score.prep_score()
+
+表示每次击中一个外星人则对其进行加分，同时击落多个外星人也能同时记分，当然每次开始游戏我们也要重置分数，在_check_play_button中添加self.score.prep_score()，用新的分数来初始化记分面板
+对于不同速度的外星人，我们也应该增加其击落分数，在Settings中添加self.score_scale = 1.5表示外星人的分数增长速度，然后在increase_speed中添加self.alien_points = int(self.alien_points * self.score_scale)，更新新的外星人分数，最后再对分数进行取舍，在GameScore的prep_score中修改代码如下
+def prep_score(self):    &quot;&quot;&quot;将得分渲染为图像&quot;&quot;&quot;    rounded_score = round(self.game.status.score, -1)    score_str = f&quot;&#123;rounded_score:,&#125;&quot;  # 使用逗号分隔千位    self.score_image = self.font.render(score_str, True, self.game.settings.score_text_color, self.game.settings.bg_color)    self.score_rect = self.score_image.get_rect()    self.score_rect.right = self.game.screen.get_rect().right - 20    self.score_rect.top = 20
+
+表示我们通过round函数将分数取为10的整数倍，这样每个外星人的分数都是10的倍数了
+获取最高分在GameStatus添加新属性self.max_score = 0用来记录最高分，随后在GameScore中添加新函数
+def prep_high_score(self):    &quot;&quot;&quot;将最高得分渲染为图像&quot;&quot;&quot;    high_score = round(self.game.status.max_score, -1)    high_score_str = f&quot;&#123;high_score:,&#125;&quot;    self.high_score_image = self.font.render(high_score_str, True, self.game.settings.score_text_color, self.game.settings.bg_color)    self.high_score_rect = self.high_score_image.get_rect()    self.high_score_rect.centerx = self.game.screen.get_rect().centerx    self.high_score_rect.top = self.score_rect.top    def check_high_score(self):    &quot;&quot;&quot;检查是否达到了新的最高得分&quot;&quot;&quot;    if self.game.status.score &gt; self.game.status.max_score:        self.game.status.max_score = self.game.status.score        self.prep_high_score()
+
+这里将最高分渲染为图像并放置在屏幕正中央的上方，在__init__中调用prep_high_score，然后在show_score中将high_score_image显示出来，并在主程序中每当碰撞发生时就调用check_high_score判断当前分数是否超过了最高分，运行如下
+
+显示等级和飞船数在GameStatus的reset_status中添加self.level = 1，在GameScore的__init__添加函数self.prep_level()，代码如下
+def prep_level(self):    &quot;&quot;&quot;将当前关卡渲染为图像&quot;&quot;&quot;    level_str = str(self.game.status.level)    self.level_image = self.font.render(level_str, True, self.game.settings.score_text_color, self.game.settings.bg_color)    self.level_rect = self.level_image.get_rect()    self.level_rect.right = self.score_rect.right    self.level_rect.top = self.score_rect.bottom + 10
+
+将等级渲染为图片并显示在得分的正下方，然后在show_score中添加self.game.screen.blit(self.level_image, self.level_rect)来显示图像，在主程序中清除所有外星人之后提升等级，代码如下
+if not self.aliens:    # 如果没有外星人了，重新创建外星人舰队    self._create_fleet()    self.bullets.empty()    self.settings.increase_speed()    # 提升关卡    self.status.level += 1    self.score.prep_level()
+
+最后在_check_play_button中重置等级，调用self.score.prep_level()即可，运行如下
+
+接下来我们要显示剩余飞船数，这里我们对飞船也要使用Sprite，更改Ship类如下
+class Ship(Sprite):    def __init__(self, game):        super().__init__()
+
+将Ship继承自Sprite，在GameScore中添加函数prep_ships如下
+def prep_ships(self):    &quot;&quot;&quot;显示剩余飞船数量&quot;&quot;&quot;    self.ships = Group()    for ship_number in range(self.game.status.ships_left):        ship = Ship(self.game)        ship.rect.x = 10 + ship_number * ship.rect.width        ship.rect.y = 10        self.ships.add(ship)
+
+这个函数用于根据剩余的飞船数量来创建飞船对象并调整位置，然后在初始化的函数中添加self.prep_ships()。下一步我们就要绘制飞船了，在show_score中添加self.ships.draw(self.game.screen)即可，然后在主程序的游戏开始和飞船被撞击的地方调用self.score.prep_ships()就能够正常加载和显示剩余飞船了，如下
+
+游戏Bug更改到上述部分我们就完成了书中的所有内容，但经过我的测试，这款游戏存在一定的Bug，看图
+
+是不是很奇怪？游戏还没有开始怎么就出现了一条横线？其实这是因为我们通过循环来侦听不同事件的发生，如果在游戏开始之前点击空格按钮，那么就会执行发射子弹的函数。但此时游戏状态并没有被激活，因此这条横线会停在这里，而且由于我们的子弹比较大，我们的飞船图像并不能完全遮盖子弹，所以就出现了这种现象，但从逻辑上来讲，如果我们不停按空格，程序应该每次都会执行空格所对应的响应，所以这里我们对其进行修改
+def _check_events(self):    &quot;&quot;&quot;响应按键和鼠标事件&quot;&quot;&quot;    for event in pygame.event.get():        if event.type == pygame.QUIT:            pygame.quit()            sys.exit()        elif event.type == pygame.KEYDOWN and self.game_active:            self._check_keydown_events(event)        elif event.type == pygame.KEYUP and self.game_active:            self._check_keyup_events(event)        elif event.type == pygame.MOUSEBUTTONDOWN:            mouse_pos = pygame.mouse.get_pos()            self._check_play_button(mouse_pos)
+
+上述代码主要增加了当键盘响应时游戏是否处于激活状态，如果游戏未激活则不响应任何按键，此时我们无论按键盘上的哪里，都不会再次出现上述的情况了，至此，该项目就完全结束了。源码访问点击这里
+]]></content>
+      <categories>
+        <category>Python实战之外星人入侵</category>
+      </categories>
+      <tags>
+        <tag>Python</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>Simulink调用外部Dll可视化《二》</title>
+    <url>/posts/4e6df0d5.html</url>
+    <content><![CDATA[介绍这篇文章主要实现在Simulink中可视化的工作，由于自身求解工具的可视化代码采用C++编程，同时与项目耦合过多，难以独立摘出或通过Matlab重现，因此这里采用新建桥接工程将所有需要用到的可视化代码封装并导出
+封装Dll并导出C函数首先在VS中新建空项目工程并进行配置，主要是关于项目依赖、导出Dll相关，然后将所有可能用到的代码进行简化和封装，我这里采用的类进行管理，由于跟项目相关不进行展示，新建XXXBridgeDLL.h和XXXBridgeDLL.cpp用于导出C接口供Matlab调用，内容如下
+#pragma once#ifdef XXXBRIDGEDLL_EXPORTS#define EXPORT_API __declspec(dllexport)#else#define EXPORT_API __declspec(dllimport)#endif#ifdef __cplusplusextern &quot;C&quot; &#123;#endif    EXPORT_API void* CreateProcessor();    EXPORT_API void DeleteProcessor(void* p);    EXPORT_API int  ReadXXXDat(void* p, const char* folder, int* pNumPts);        EXPORT_API int   GetPointCount(void* p);                      /* 返回总点数         */    EXPORT_API int   CopyX_mm(void* p, double* out, int max);  /* 轴向坐标 (mm)     */    EXPORT_API int   CopyPower(void* p, double* out, int max);  /* 输出功率 (W)      */    EXPORT_API int   CopyGain(void* p, double* out, int max);  /* 增益 (dB)         */    EXPORT_API int   CopyEff(void* p, double* out, int max);  /* 效率 (%)          */#ifdef __cplusplus&#125;#endif
+
+这段代码是一个 C&#x2F;C++ 动态链接库（DLL）的头文件（.h），用于定义向外部导出的一组函数接口。
+
+DLL 导出宏定义部分#ifdef XXXBRIDGEDLL_EXPORTS#define EXPORT_API __declspec(dllexport)#else#define EXPORT_API __declspec(dllimport)#endif
+
+
+作用：用于在不同编译阶段切换导出&#x2F;导入。
+如果编译的是 DLL 本身（定义了 XXXBRIDGEDLL_EXPORTS），则 EXPORT_API 展开为 __declspec(dllexport)，导出符号；
+如果是使用 DLL 的客户端程序，则展开为 __declspec(dllimport)，用于导入符号。
+
+
+
+
+extern &quot;C&quot; 块#ifdef __cplusplusextern &quot;C&quot; &#123;#endif...#ifdef __cplusplus&#125;#endif
+
+
+使得这些函数按照 C语言方式 进行链接（不进行 C++ 名字改编 &#x2F; name mangling），以便在 C&#x2F;C++&#x2F;Python&#x2F;MATLAB 等跨语言调用时保持接口兼容。
+
+
+导出的函数接口EXPORT_API void* CreateProcessor();
+
+
+创建一个处理器对象，返回一个 void* 指针（通常是一个类的实例地址）。
+
+EXPORT_API void DeleteProcessor(void* p);
+
+
+删除处理器对象，释放资源。
+
+EXPORT_API int ReadXXXDat(void* p, const char* folder, int* pNumPts);
+
+
+从指定文件夹读取数据，p 是处理器对象指针，folder 是数据路径，pNumPts 用于返回读取到的点数。
+
+
+数据访问函数（数据从内存复制出来）EXPORT_API int GetPointCount(void* p);
+
+
+获取数据点总数。
+
+EXPORT_API int CopyX_mm(void* p, double* out, int max);
+
+
+复制轴向坐标数据（单位：mm）到 out 指针所指向的数组，max 是允许写入的最大点数。
+
+EXPORT_API int CopyPower(void* p, double* out, int max);
+
+
+复制输出功率数据（单位：瓦特）。
+
+EXPORT_API int CopyGain(void* p, double* out, int max);
+
+
+复制增益数据（单位：dB）。
+
+EXPORT_API int CopyEff(void* p, double* out, int max);
+
+
+复制电子效率数据（单位：百分比）。
+
+这个 DLL 接口提供了一个基于文件夹读取仿真结果（XXX仿真输出），并通过一系列函数获取：
+
+坐标（X）
+功率（Power）
+增益（Gain）
+效率（Eff）
+
+#define XXXBRIDGEDLL_EXPORTS#include &quot;XXXBridgeDLL.h&quot;#include &quot;CXXXProcessor.h&quot;#include &lt;algorithm&gt;#include &lt;vector&gt;namespace &#123;    template&lt;typename SRC_GETTER&gt;    int copyVector(CXXXProcessor* proc, double* out, int max, SRC_GETTER getter)    &#123;        if (!proc || !out || max &lt;= 0) return 0;        const auto&amp; vec = getter(proc);        int n = std::min&lt;int&gt;(vec.size(), max);        std::copy(vec.begin(), vec.begin() + n, out);        return n;    &#125;&#125; extern &quot;C&quot; &#123;    EXPORT_API void* CreateProcessor() &#123; return new CXXXProcessor(); &#125;    EXPORT_API void  DeleteProcessor(void* p) &#123; delete static_cast&lt;CXXXProcessor*&gt;(p); &#125;    EXPORT_API int ReadXXXDat(void* p, const char* folder, int* pts) &#123;        if (!p || !folder || !pts) return 0;        auto proc = static_cast&lt;CXXXProcessor*&gt;(p);        bool ok = proc-&gt;ReadXXXDat(folder);        *pts = ok ? static_cast&lt;int&gt;(proc-&gt;m_vdpX.size()) : 0;        return ok;    &#125;    EXPORT_API int GetPointCount(void* p) &#123;        return p ? static_cast&lt;int&gt;(static_cast&lt;CXXXProcessor*&gt;(p)-&gt;m_vdpX.size()) : 0;    &#125;    EXPORT_API int CopyX_mm(void* p, double* out, int max) &#123;        if (!p || !out || max &lt;= 0) return 0;        auto proc = static_cast&lt;CXXXProcessor*&gt;(p);        int n = std::min&lt;int&gt;(proc-&gt;m_vdpX.size(), max);        for (int i = 0; i &lt; n; ++i) out[i] = proc-&gt;m_vdpX[i] * 1000.0;        return n;    &#125;    EXPORT_API int CopyPower(void* p, double* o, int m) &#123;        return copyVector(static_cast&lt;CXXXProcessor*&gt;(p), o, m,            [](CXXXProcessor* q)-&gt;const std::vector&lt;double&gt;&amp;&#123;return q-&gt;PowerOut; &#125;);    &#125;    EXPORT_API int CopyGain(void* p, double* o, int m) &#123;        return copyVector(static_cast&lt;CXXXProcessor*&gt;(p), o, m,            [](CXXXProcessor* q)-&gt;const std::vector&lt;double&gt;&amp;&#123;return q-&gt;Gain; &#125;);    &#125;    EXPORT_API int CopyEff(void* p, double* o, int m) &#123;        return copyVector(static_cast&lt;CXXXProcessor*&gt;(p), o, m,            [](CXXXProcessor* q)-&gt;const std::vector&lt;double&gt;&amp;&#123;return q-&gt;Eff; &#125;);    &#125;&#125;
+
+这段代码是 XXXBridgeDLL.dll 的 实现部分（C++源文件），与之前的头文件 XXXBridgeDLL.h 搭配使用，向外部程序提供接口来访问 XXX 仿真数据
+
+文件头部设置#define XXXBRIDGEDLL_EXPORTS
+
+
+定义此宏意味着当前正在编译 DLL，因此头文件中的 EXPORT_API 会变成 __declspec(dllexport)，导出接口。
+
+
+#include &quot;XXXBridgeDLL.h&quot;#include &quot;CXXXProcessor.h&quot;#include &lt;algorithm&gt;#include &lt;vector&gt;
+
+
+引入头文件和 STL 库。CXXXProcessor 是处理器类，核心功能由它实现，接口只是封装。
+
+
+匿名命名空间 copyVectornamespace &#123;    template&lt;typename SRC_GETTER&gt;    int copyVector(CXXXProcessor* proc, double* out, int max, SRC_GETTER getter)    &#123;        if (!proc || !out || max &lt;= 0) return 0;        const auto&amp; vec = getter(proc);        int n = std::min&lt;int&gt;(vec.size(), max);        std::copy(vec.begin(), vec.begin() + n, out);        return n;    &#125;&#125;
+
+
+作用：通用的向 double* out 中复制数据的函数模板。
+SRC_GETTER 是一个 Lambda，返回某个 vector&lt;double&gt; 的引用。
+使用匿名命名空间是为了限定作用域（防止链接冲突）。
+
+
+导出接口（extern &quot;C&quot;）
+CreateProcessor
+
+EXPORT_API void* CreateProcessor() &#123;    return new CXXXProcessor();&#125;
+
+
+返回新建的处理器对象（指针以 void* 形式传出，保持 C 接口风格）。
+
+
+DeleteProcessor
+
+EXPORT_API void DeleteProcessor(void* p) &#123;    delete static_cast&lt;CXXXProcessor*&gt;(p);&#125;
+
+
+释放 CreateProcessor() 创建的对象。
+
+
+ReadXXXDat
+
+EXPORT_API int ReadXXXDat(void* p, const char* folder, int* pts) &#123;    if (!p || !folder || !pts) return 0;    auto proc = static_cast&lt;CXXXProcessor*&gt;(p);    bool ok = proc-&gt;ReadXXXDat(folder);    *pts = ok ? static_cast&lt;int&gt;(proc-&gt;m_vdpX.size()) : 0;    return ok;&#125;
+
+
+调用 CXXXProcessor::ReadXXXDat(folder) 加载文件夹中的数据。
+加载成功后将数据点数写入 pts。
+m_vdpX 是轴向坐标数组。
+
+
+GetPointCount
+
+EXPORT_API int GetPointCount(void* p) &#123;    return p ? static_cast&lt;int&gt;(static_cast&lt;CXXXProcessor*&gt;(p)-&gt;m_vdpX.size()) : 0;&#125;
+
+
+返回总的数据点数（坐标数量）。
+
+
+CopyX_mm
+
+EXPORT_API int CopyX_mm(void* p, double* out, int max) &#123;    if (!p || !out || max &lt;= 0) return 0;    auto proc = static_cast&lt;CXXXProcessor*&gt;(p);    int n = std::min&lt;int&gt;(proc-&gt;m_vdpX.size(), max);    for (int i = 0; i &lt; n; ++i) out[i] = proc-&gt;m_vdpX[i] * 1000.0;    return n;&#125;
+
+
+将轴向坐标 m_vdpX（单位：米）转换为毫米（乘以 1000）并复制到 out 缓冲区。
+
+
+CopyPower, CopyGain, CopyEff
+
+EXPORT_API int CopyPower(void* p, double* o, int m) &#123;    return copyVector(static_cast&lt;CXXXProcessor*&gt;(p), o, m,        [](CXXXProcessor* q)-&gt;const std::vector&lt;double&gt;&amp;&#123;return q-&gt;PowerOut; &#125;);&#125;
+
+
+通过 copyVector 模板复制 PowerOut 数据。
+
+EXPORT_API int CopyGain(void* p, double* o, int m) &#123;    return copyVector(static_cast&lt;CXXXProcessor*&gt;(p), o, m,        [](CXXXProcessor* q)-&gt;const std::vector&lt;double&gt;&amp;&#123;return q-&gt;Gain; &#125;);&#125;
+
+
+复制增益（Gain）数据。
+
+EXPORT_API int CopyEff(void* p, double* o, int m) &#123;    return copyVector(static_cast&lt;CXXXProcessor*&gt;(p), o, m,        [](CXXXProcessor* q)-&gt;const std::vector&lt;double&gt;&amp;&#123;return q-&gt;Eff; &#125;);&#125;
+
+
+复制效率（Eff）数据。
+
+
+模块用途概览
+
+
+函数名
+功能描述
+
+
+
+CreateProcessor
+创建处理器对象
+
+
+DeleteProcessor
+释放处理器对象
+
+
+ReadXXXDat
+从指定目录读取 XXX 数据文件
+
+
+GetPointCount
+获取总数据点数
+
+
+CopyX_mm
+获取轴向坐标（单位 mm）
+
+
+CopyPower
+获取输出功率（单位 W）
+
+
+CopyGain
+获取增益（单位 dB）
+
+
+CopyEff
+获取电子效率（单位 %）
+
+
+编译成功后会在指定目录生成dll文件，把dll文件和导出函数头文件放到Matlab的工作目录下供其使用
+Matlab及Simulink调用Dll在Matlab中新建m文件，内容如下
+% 0. 环境与路径dll = &#x27;H:\Matlab\bin\XXXBridgeDLL.dll&#x27;;hdr = &#x27;H:\Matlab\bin\XXXBridgeDLL.h&#x27;;dir = &#x27;C:\Users\pc\Desktop\XXX&#x27;;if ~libisloaded(&#x27;XXXBridgeDLL&#x27;)    loadlibrary(dll,hdr);endp   = calllib(&#x27;XXXBridgeDLL&#x27;,&#x27;CreateProcessor&#x27;);nPt = libpointer(&#x27;int32Ptr&#x27;,0);assert(calllib(&#x27;XXXBridgeDLL&#x27;,&#x27;ReadXXXDat&#x27;,p,dir,nPt)==1,&#x27;读取失败&#x27;);N = nPt.Value;% --- 指针缓冲区 ---xPtr   = libpointer(&#x27;doublePtr&#x27;, zeros(N,1));powPtr = libpointer(&#x27;doublePtr&#x27;, zeros(N,1));gainPtr= libpointer(&#x27;doublePtr&#x27;, zeros(N,1));effPtr = libpointer(&#x27;doublePtr&#x27;, zeros(N,1));calllib(&#x27;XXXBridgeDLL&#x27;,&#x27;CopyX_mm&#x27;, p, xPtr,   N);calllib(&#x27;XXXBridgeDLL&#x27;,&#x27;CopyPower&#x27;,p, powPtr, N);calllib(&#x27;XXXBridgeDLL&#x27;,&#x27;CopyGain&#x27;, p, gainPtr,N);calllib(&#x27;XXXBridgeDLL&#x27;,&#x27;CopyEff&#x27;,  p, effPtr ,N);x    = xPtr.Value;pow  = powPtr.Value;gain = gainPtr.Value;eff  = effPtr.Value;% --- 绘图 ---figure;subplot(3,1,1); plot(x,pow,&#x27;-b&#x27;);  title(&#x27;输出功率曲线&#x27;);xlabel(&#x27;z / mm&#x27;);ylabel(&#x27;W&#x27;);subplot(3,1,2); plot(x,gain,&#x27;-b&#x27;); title(&#x27;增益曲线&#x27;);    xlabel(&#x27;z / mm&#x27;);ylabel(&#x27;dB&#x27;);subplot(3,1,3); plot(x,eff ,&#x27;-b&#x27;); title(&#x27;效率曲线&#x27;);    xlabel(&#x27;z / mm&#x27;);ylabel(&#x27;%&#x27;);% --- 清理 ---calllib(&#x27;XXXBridgeDLL&#x27;,&#x27;DeleteProcessor&#x27;,p);unloadlibrary(&#x27;XXXBridgeDLL&#x27;);
+
+这段 MATLAB 代码演示了如何通过调用 C++ 动态链接库 XXXBridgeDLL.dll 来读取 XXX 仿真数据，并绘制输出功率、增益和效率随轴向位置变化的曲线
+
+1. 加载 DLL 与设置路径dll = &#x27;H:\Matlab\bin\XXXBridgeDLL.dll&#x27;;hdr = &#x27;H:\Matlab\bin\XXXBridgeDLL.h&#x27;;dir = &#x27;C:\Users\pc\Desktop\XXX&#x27;;if ~libisloaded(&#x27;XXXBridgeDLL&#x27;)    loadlibrary(dll,hdr);end
+
+
+设置 DLL 文件路径、头文件路径和数据文件夹路径。
+如果 DLL 尚未加载，则调用 loadlibrary 加载 DLL 并注册其接口函数。
+
+
+2. 创建处理器并读取数据p   = calllib(&#x27;XXXBridgeDLL&#x27;,&#x27;CreateProcessor&#x27;);nPt = libpointer(&#x27;int32Ptr&#x27;,0);assert(calllib(&#x27;XXXBridgeDLL&#x27;,&#x27;ReadXXXDat&#x27;,p,dir,nPt)==1,&#x27;读取失败&#x27;);N = nPt.Value;
+
+
+创建处理器实例 p（C++ 对象的指针）。
+申请一个 int32 类型的指针 nPt 用于返回数据点数量。
+调用 ReadXXXDat 从 dir 文件夹读取仿真数据。
+将数据点个数保存在 N 中。
+
+
+3. 分配输出缓冲区并复制数据xPtr   = libpointer(&#x27;doublePtr&#x27;, zeros(N,1));powPtr = libpointer(&#x27;doublePtr&#x27;, zeros(N,1));gainPtr= libpointer(&#x27;doublePtr&#x27;, zeros(N,1));effPtr = libpointer(&#x27;doublePtr&#x27;, zeros(N,1));calllib(&#x27;XXXBridgeDLL&#x27;,&#x27;CopyX_mm&#x27;, p, xPtr,   N);calllib(&#x27;XXXBridgeDLL&#x27;,&#x27;CopyPower&#x27;,p, powPtr, N);calllib(&#x27;XXXBridgeDLL&#x27;,&#x27;CopyGain&#x27;, p, gainPtr,N);calllib(&#x27;XXXBridgeDLL&#x27;,&#x27;CopyEff&#x27;,  p, effPtr ,N);
+
+
+为四类数据创建指针缓冲区，长度为 N。
+通过调用 DLL 中的接口函数将数据从 C++ 内部复制到 MATLAB 缓冲区中。
+
+
+4. 将指针值转换为 MATLAB 向量x    = xPtr.Value;pow  = powPtr.Value;gain = gainPtr.Value;eff  = effPtr.Value;
+
+
+将指针对象中的数据取出，转换为 MATLAB 可用的数组。
+
+
+5. 绘制仿真结果曲线figure;subplot(3,1,1); plot(x,pow,&#x27;-b&#x27;);  title(&#x27;输出功率曲线&#x27;);xlabel(&#x27;z / mm&#x27;);ylabel(&#x27;W&#x27;);subplot(3,1,2); plot(x,gain,&#x27;-b&#x27;); title(&#x27;增益曲线&#x27;);    xlabel(&#x27;z / mm&#x27;);ylabel(&#x27;dB&#x27;);subplot(3,1,3); plot(x,eff ,&#x27;-b&#x27;); title(&#x27;效率曲线&#x27;);    xlabel(&#x27;z / mm&#x27;);ylabel(&#x27;%&#x27;);
+
+
+打开一个新图像窗口，将三种数据绘制在三个子图中：
+输出功率 vs. 坐标
+增益 vs. 坐标
+效率 vs. 坐标
+
+
+
+
+6. 清理资源calllib(&#x27;XXXBridgeDLL&#x27;,&#x27;DeleteProcessor&#x27;,p);unloadlibrary(&#x27;XXXBridgeDLL&#x27;);
+
+
+释放处理器对象 p。
+卸载 DLL，释放系统资源。
+
+这段代码实现了：
+
+加载 DLL 并创建处理器。
+调用 C++ 函数读取 XXX 仿真数据。
+将结果复制到 MATLAB 并绘图。
+使用完后清理资源，避免内存泄漏。
+
+运行效果如下
+
+与求解工具链接现在的可视化模块只是通过硬编码的方式读取指定文件，下面需要把求解工具和可视化链接，通过求解工具输出的参数来进行泛型可视化
+修改现有的调用求解工具S Function代码
+function sfun_callXXX(block)    setup(block);end% ─────────────────── SETUP ────────────────────function setup(block)    %— I/O 配置 —————————————————————————————————————————————    block.NumInputPorts  = 1;    block.NumOutputPorts = 1;    block.InputPort(1).Dimensions        = 1;    block.InputPort(1).DatatypeID        = 0;   % double    block.InputPort(1).DirectFeedthrough = true;    block.OutputPort(1).Dimensions       = 1;    block.OutputPort(1).DatatypeID       = 0;    %— SampleTime 配置 ———————————————————————    block.SampleTimes        = [0.5 0];         % 0.5 s 轮询    block.SimStateCompliance = &#x27;DefaultSimState&#x27;;    %— 注册方法 —————————————————————————    block.RegBlockMethod(&#x27;PostPropagationSetup&#x27;, @PostProp);    block.RegBlockMethod(&#x27;InitializeConditions&#x27;, @InitCond);    block.RegBlockMethod(&#x27;Outputs&#x27;,              @Outputs);    block.RegBlockMethod(&#x27;Terminate&#x27;,            @Terminate);    %— 设置仿真时间为无限，直到进程完成 —————    set_param(bdroot(block.BlockHandle), &#x27;StopTime&#x27;, &#x27;inf&#x27;);end% ─── PostPropagationSetup：声明 DWork ───function PostProp(block)    block.NumDworks = 3;    names = &#123;&#x27;prevU&#x27;, &#x27;exeState&#x27;, &#x27;pid&#x27;&#125;;    for k = 1:3        block.Dwork(k).Name            = names&#123;k&#125;;        block.Dwork(k).Dimensions      = 1;        block.Dwork(k).DatatypeID      = 0;        block.Dwork(k).Complexity      = &#x27;Real&#x27;;        block.Dwork(k).UsedAsDiscState = true;    endend% ─── 初始化 ───function InitCond(block)    block.Dwork(1).Data = 0;    block.Dwork(2).Data = 0;    block.Dwork(3).Data = 0;end% ─────────────────── Outputs ───────────────────function Outputs(block)    u        = block.InputPort(1).Data;    prevU    = block.Dwork(1).Data;    exeState = block.Dwork(2).Data;    pid      = block.Dwork(3).Data;    %— 持久变量：进程句柄 —————————————    persistent procObj    if isempty(procObj), procObj = []; end    %— 配置区：路径 —————————    exePath   = &#x27;.\Solver\XXX.exe&#x27;;    paramPath = &#x27;C:\Users\pc\Desktop\XXX&#x27;;    %— ① Rising-edge → 启动 EXE —————————    if u == 1 &amp;&amp; prevU == 0 &amp;&amp; exeState == 0        [ok, procObj, pid, exeState] = launchExe(exePath, paramPath);        if ok            fprintf(&#x27;[XXX] PID=%d 已启动\n&#x27;, pid);        else            exeState = -1;  % 启动失败        end    end    %— ② 运行中 → 轮询进程是否退出 —————    if exeState == 1        [exeState, pid] = pollProcessExitStatus(procObj, pid);        if exeState == 2 || exeState == -1            stopSimulation(block);        end    end    %— ③ 输出 &amp; 保存 —————————    block.OutputPort(1).Data = exeState;    block.Dwork(1).Data      = u;    block.Dwork(2).Data      = exeState;    block.Dwork(3).Data      = pid;end% ─── Terminate：处理进程退出 —──function Terminate(~)    persistent procObj    if ~isempty(procObj)        try            terminateProcess(procObj);        catch            % Ignore if the process has already been terminated        end    endend% ─── helper：启动进程 ───function [ok, proc, pid, exeState] = launchExe(exePath, paramPath)    ok = false; proc = []; pid = 0; exeState = 0;    try        if exist(exePath, &#x27;file&#x27;) ~= 2            warning(&#x27;[XXX] EXE 不存在: %s&#x27;, exePath); return; end        if exist(paramPath, &#x27;dir&#x27;) ~= 7            warning(&#x27;[XXX] 参数路径不存在: %s&#x27;, paramPath); return; end        argStr = [&#x27;1|1|&#x27; paramPath];  % 启动参数        proc = System.Diagnostics.Process();        info = proc.StartInfo;        info.FileName        = exePath;        info.Arguments       = argStr;        info.UseShellExecute = false;        info.CreateNoWindow  = true;        ok = proc.Start();        if ok            pid = double(proc.Id);            exeState = 1;   % 运行中        end    catch ME        warning(&#x27;[XXX] 启动 EXE 异常: %s&#x27;, E.message);    endend% ─── helper：轮询进程退出状态 ───function [exeState, pid] = pollProcessExitStatus(procObj, pid)    finished = false;    try        procObj.Refresh();        finished = procObj.HasExited;        if ~finished            finished = procObj.WaitForExit(50);  % 等待 50 ms        end    catch        finished = ~isProcAlive(pid);    end        if finished        exitC = getExitCodeSafe(procObj);        exeState = (exitC == 0) * 2 + (exitC ~= 0) * (-1);        pid = 0;    else        exeState = 1; % Running    endend% ─── helper：检查 PID 是否仍存活 ───function alive = isProcAlive(pid)    alive = false;    if pid &lt;= 0, return; end    try        pchk = System.Diagnostics.Process.GetProcessById(pid);        alive = ~pchk.HasExited;    catch        % Process not found    endend% ─── helper：读取 ExitCode ───function code = getExitCodeSafe(procObj)    code = -1;    try code = procObj.ExitCode; catch, endend% ─── helper：终止进程 ───function terminateProcess(procObj)    if ~procObj.HasExited        procObj.Kill();    end    procObj.Dispose();end% ─── helper：停止仿真 ───function stopSimulation(block)    set_param(bdroot(block.BlockHandle), &#x27;SimulationCommand&#x27;, &#x27;stop&#x27;);end
+
+这段代码是一个 Level-2 MATLAB S-Function，用于在 Simulink 中检测输入信号的 上升沿（从0变为1），然后异步启动一个外部 EXE 程序（XXX.exe），并轮询进程状态，完成后自动停止仿真。
+
+
+
+步骤
+说明
+
+
+
+①
+输入信号从 0 → 1，触发启动 XXX.exe
+
+
+②
+启动进程，记录 PID 和运行状态
+
+
+③
+每 0.5 秒轮询一次，判断进程是否结束
+
+
+④
+若 EXE 正常退出，则输出状态为 2，仿真停止；否则输出 -1 并停止
+
+
+⑤
+清理进程资源，防止残留
+
+
+
+调用工具代码解释
+顶部函数入口
+
+function sfun_callXXX(block)    setup(block);end
+
+
+S-Function 的主函数入口，调用 setup() 注册接口。
+
+
+setup(block)：配置端口、采样、方法等
+
+block.NumInputPorts  = 1;  % 输入1个信号（控制启动）block.NumOutputPorts = 1;  % 输出当前状态（0, 1, 2, -1）block.SampleTimes = [0.5 0];  % 每 0.5 秒执行一次block.RegBlockMethod(...)    % 注册各阶段的回调函数set_param(..., &#x27;StopTime&#x27;, &#x27;inf&#x27;);  % 设置仿真不主动终止
+
+
+PostProp：声明离散状态（DWork）
+
+block.NumDworks = 3;names = &#123;&#x27;prevU&#x27;, &#x27;exeState&#x27;, &#x27;pid&#x27;&#125;;
+
+
+prevU：上一时刻输入值（检测上升沿用）
+exeState：执行状态（0&#x3D;未启动，1&#x3D;运行中，2&#x3D;正常退出，-1&#x3D;错误）
+pid：外部进程 PID
+
+
+InitCond：初始化 DWork 数据
+
+block.Dwork(1).Data = 0;  % 上一时刻输入值block.Dwork(2).Data = 0;  % exeStateblock.Dwork(3).Data = 0;  % pid
+
+
+Outputs(block)：主逻辑处理区
+
+u = block.InputPort(1).Data;
+
+上升沿触发：启动外部 EXE
+if u == 1 &amp;&amp; prevU == 0 &amp;&amp; exeState == 0    [ok, procObj, pid, exeState] = launchExe(...);end
+
+运行中：轮询状态（每次采样调用）
+if exeState == 1    [exeState, pid] = pollProcessExitStatus(...);    if exeState == 2 || exeState == -1        stopSimulation(block);  % 进程完成 → 停止仿真    endend
+
+输出当前状态并保存状态数据
+block.OutputPort(1).Data = exeState;
+
+
+Terminate：终止残留进程（防挂后台）
+
+if ~isempty(procObj)    terminateProcess(procObj);end
+
+内部 helper 函数说明launchExe(exePath, paramPath)
+
+启动 XXX.exe
+参数格式是 &#39;1|1|参数路径&#39;
+返回是否成功、进程对象、PID、状态
+
+pollProcessExitStatus(procObj, pid)
+
+检查进程是否已退出
+如果异常，也尝试通过 PID 判断
+根据 ExitCode 判断：
+0 → 正常结束（返回状态 2）
+非 0 → 异常（状态 -1）
+
+
+
+isProcAlive(pid)
+
+尝试通过 PID 检查进程是否还活着
+
+terminateProcess(procObj)
+
+如果进程还在运行，则强制结束并释放资源
+
+stopSimulation(block)
+
+调用 Simulink 命令强制停止整个仿真
+
+状态码含义总结
+
+
+状态码
+含义
+
+
+
+0
+初始未启动
+
+
+1
+正在运行 EXE
+
+
+2
+EXE 正常退出
+
+
+-1
+启动或执行异常
+
+
+修改M文件将调用dll的Matlab代码改为S Function的方式，并通过1→2来进行触发，代码如下
+function sfun_callXXXProcess(block)    setup(block);end% ─────────────────── SETUP ────────────────────function setup(block)    block.NumInputPorts  = 1;    block.NumOutputPorts = 0;    block.InputPort(1).Dimensions        = 1;    block.InputPort(1).DatatypeID        = 0;   % double    block.InputPort(1).Complexity        = &#x27;Real&#x27;;    block.InputPort(1).DirectFeedthrough = true;    block.SampleTimes        = [0.5 0];         % 0.5 s 轮询    block.SimStateCompliance = &#x27;DefaultSimState&#x27;;    block.RegBlockMethod(&#x27;PostPropagationSetup&#x27;, @PostProp);    block.RegBlockMethod(&#x27;InitializeConditions&#x27;, @InitCond);    block.RegBlockMethod(&#x27;Outputs&#x27;,              @Outputs);    block.RegBlockMethod(&#x27;Terminate&#x27;,            @Terminate);end% ─── PostPropagationSetup：声明 DWork ───function PostProp(block)    block.NumDworks = 1;                       % prevU    block.Dwork(1).Name            = &#x27;prevU&#x27;;    block.Dwork(1).Dimensions      = 1;    block.Dwork(1).DatatypeID      = 0;    block.Dwork(1).Complexity      = &#x27;Real&#x27;;    block.Dwork(1).UsedAsDiscState = true;end% ─── 初始化 ───function InitCond(block)    block.Dwork(1).Data = 0;end% ─────────────────── Outputs ───────────────────function Outputs(block)    u = block.InputPort(1).Data;    prevU = block.Dwork(1).Data;    % 如果脉冲信号为2，则开始执行数据读取    if u == 2 &amp;&amp; prevU ~= 2        % --- 读取数据并绘图 ---        dll = &#x27;.\bin\XXXBridgeDLL.dll&#x27;;        hdr = &#x27;.\bin\XXXBridgeDLL.h&#x27;;        dir = &#x27;C:\Users\pc\Desktop\XXX&#x27;;        if ~libisloaded(&#x27;XXXBridgeDLL&#x27;)            loadlibrary(dll, hdr);        end        p   = calllib(&#x27;XXXBridgeDLL&#x27;, &#x27;CreateProcessor&#x27;);        nPt = libpointer(&#x27;int32Ptr&#x27;, 0);        assert(calllib(&#x27;XXXBridgeDLL&#x27;, &#x27;ReadXXXDat&#x27;, p, dir, nPt) == 1, &#x27;读取失败&#x27;);        N = nPt.Value;        % --- 指针缓冲区 ---        xPtr   = libpointer(&#x27;doublePtr&#x27;, zeros(N, 1));        powPtr = libpointer(&#x27;doublePtr&#x27;, zeros(N, 1));        gainPtr= libpointer(&#x27;doublePtr&#x27;, zeros(N, 1));        effPtr = libpointer(&#x27;doublePtr&#x27;, zeros(N, 1));        calllib(&#x27;XXXBridgeDLL&#x27;, &#x27;CopyX_mm&#x27;, p, xPtr, N);        calllib(&#x27;XXXBridgeDLL&#x27;, &#x27;CopyPower&#x27;, p, powPtr, N);        calllib(&#x27;XXXBridgeDLL&#x27;, &#x27;CopyGain&#x27;, p, gainPtr, N);        calllib(&#x27;XXXBridgeDLL&#x27;, &#x27;CopyEff&#x27;,  p, effPtr, N);        x    = xPtr.Value;        pow  = powPtr.Value;        gain = gainPtr.Value;        eff  = effPtr.Value;        % --- 绘图 ---        figure;        subplot(3, 1, 1);        plot(x, pow, &#x27;-b&#x27;);        title(&#x27;输出功率曲线&#x27;);        xlabel(&#x27;z / mm&#x27;);        ylabel(&#x27;W&#x27;);        subplot(3, 1, 2);        plot(x, gain, &#x27;-b&#x27;);        title(&#x27;增益曲线&#x27;);        xlabel(&#x27;z / mm&#x27;);        ylabel(&#x27;dB&#x27;);        subplot(3, 1, 3);        plot(x, eff, &#x27;-b&#x27;);        title(&#x27;效率曲线&#x27;);        xlabel(&#x27;z / mm&#x27;);        ylabel(&#x27;%&#x27;);        % --- 清理 ---        calllib(&#x27;XXXBridgeDLL&#x27;, &#x27;DeleteProcessor&#x27;, p);        unloadlibrary(&#x27;XXXBridgeDLL&#x27;);    end    % 保存当前脉冲值    block.Dwork(1).Data = u;end% ─── Terminate：处理退出 —──function Terminate(~)end
+
+这段代码实现了一个 MATLAB Level-2 S-Function，主要功能是当输入信号为 2 时触发外部 DLL（XXXBridgeDLL.dll）的数据读取和处理，之后进行数据的可视化。
+总体功能流程
+输入信号：该 S-Function 监听一个输入信号 u。
+脉冲触发：当信号 u == 2 且前一时刻 prevU != 2 时，触发读取数据。
+调用 DLL：加载外部 DLL (XXXBridgeDLL.dll)，读取 XXX 仿真数据。
+数据处理与绘图：读取坐标、功率、增益和效率数据，并绘制图形。
+清理资源：在操作完成后，清理 DLL 资源。
+
+代码分解
+sfun_callXXXProcess(block)
+
+function sfun_callXXXProcess(block)    setup(block);end
+
+
+这是 S-Function 的入口函数，调用 setup(block) 设置仿真模块的基本配置。
+
+
+setup(block): 配置端口、采样时间与方法
+
+function setup(block)    block.NumInputPorts  = 1;  % 一个输入端口    block.NumOutputPorts = 0;  % 无输出端口    block.SampleTimes        = [0.5 0];  % 每 0.5 秒触发一次    block.SimStateCompliance = &#x27;DefaultSimState&#x27;;  % 默认的仿真状态兼容性    block.RegBlockMethod(&#x27;PostPropagationSetup&#x27;, @PostProp);    block.RegBlockMethod(&#x27;InitializeConditions&#x27;, @InitCond);    block.RegBlockMethod(&#x27;Outputs&#x27;, @Outputs);    block.RegBlockMethod(&#x27;Terminate&#x27;, @Terminate);end
+
+
+配置输入端口和采样时间（每 0.5 秒触发一次）。
+注册方法：PostPropagationSetup、InitializeConditions、Outputs 和 Terminate。
+
+
+PostProp(block): 声明 DWork 状态变量
+
+function PostProp(block)    block.NumDworks = 1;    block.Dwork(1).Name            = &#x27;prevU&#x27;;  % 存储上一时刻的输入信号    block.Dwork(1).Dimensions      = 1;    block.Dwork(1).DatatypeID      = 0;  % double 类型    block.Dwork(1).Complexity      = &#x27;Real&#x27;;    block.Dwork(1).UsedAsDiscState = true;end
+
+
+声明一个名为 prevU 的 DWork 变量，用于保存前一时刻的输入信号值。
+
+
+InitCond(block): 初始化 DWork 数据
+
+function InitCond(block)    block.Dwork(1).Data = 0;  % 初始化 `prevU` 为 0end
+
+
+初始化时，prevU 设置为 0，表示初始状态。
+
+
+Outputs(block): 主逻辑处理区
+
+function Outputs(block)    u = block.InputPort(1).Data;  % 获取当前输入信号    prevU = block.Dwork(1).Data;  % 获取前一时刻的输入信号    if u == 2 &amp;&amp; prevU ~= 2        % 读取 XXX 数据        dll = &#x27;.\bin\XXXBridgeDLL.dll&#x27;;        hdr = &#x27;.\bin\XXXBridgeDLL.h&#x27;;        dir = &#x27;C:\Users\pc\Desktop\XXX&#x27;;        if ~libisloaded(&#x27;XXXBridgeDLL&#x27;)            loadlibrary(dll, hdr);  % 加载 DLL        end        p   = calllib(&#x27;XXXBridgeDLL&#x27;, &#x27;CreateProcessor&#x27;);  % 创建处理器对象        nPt = libpointer(&#x27;int32Ptr&#x27;, 0);        assert(calllib(&#x27;XXXBridgeDLL&#x27;, &#x27;ReadXXXDat&#x27;, p, dir, nPt) == 1, &#x27;读取失败&#x27;);  % 读取数据        N = nPt.Value;  % 获取数据点数量        % 初始化指针缓冲区        xPtr   = libpointer(&#x27;doublePtr&#x27;, zeros(N, 1));        powPtr = libpointer(&#x27;doublePtr&#x27;, zeros(N, 1));        gainPtr= libpointer(&#x27;doublePtr&#x27;, zeros(N, 1));        effPtr = libpointer(&#x27;doublePtr&#x27;, zeros(N, 1));        % 从 DLL 中复制数据到指针        calllib(&#x27;XXXBridgeDLL&#x27;, &#x27;CopyX_mm&#x27;, p, xPtr, N);        calllib(&#x27;XXXBridgeDLL&#x27;, &#x27;CopyPower&#x27;, p, powPtr, N);        calllib(&#x27;XXXBridgeDLL&#x27;, &#x27;CopyGain&#x27;, p, gainPtr, N);        calllib(&#x27;XXXBridgeDLL&#x27;, &#x27;CopyEff&#x27;, p, effPtr, N);        % 获取数据        x    = xPtr.Value;        pow  = powPtr.Value;        gain = gainPtr.Value;        eff  = effPtr.Value;        % 绘图        figure;        subplot(3, 1, 1);        plot(x, pow, &#x27;-b&#x27;);        title(&#x27;输出功率曲线&#x27;);        xlabel(&#x27;z / mm&#x27;);        ylabel(&#x27;W&#x27;);        subplot(3, 1, 2);        plot(x, gain, &#x27;-b&#x27;);        title(&#x27;增益曲线&#x27;);        xlabel(&#x27;z / mm&#x27;);        ylabel(&#x27;dB&#x27;);        subplot(3, 1, 3);        plot(x, eff, &#x27;-b&#x27;);        title(&#x27;效率曲线&#x27;);        xlabel(&#x27;z / mm&#x27;);        ylabel(&#x27;%&#x27;);        % 清理资源        calllib(&#x27;XXXBridgeDLL&#x27;, &#x27;DeleteProcessor&#x27;, p);        unloadlibrary(&#x27;XXXBridgeDLL&#x27;);    end    % 保存当前脉冲值    block.Dwork(1).Data = u;end
+
+
+当 u == 2 时，调用 XXXBridgeDLL.dll 进行数据读取，获取 x（坐标）、pow（功率）、gain（增益）和 eff（效率）数据。
+使用 figure 绘制三张子图，显示输出功率、增益和效率随坐标的变化。
+在操作完成后，清理 DLL 资源。
+
+
+Terminate(~): 清理
+
+function Terminate(~)end
+
+
+在仿真结束时，Terminate 函数被调用，但在这个实现中没有进行额外操作。
+
+工作流程
+输入信号：当输入信号为 2 时，触发外部 EXE 进程。
+调用 DLL：通过 XXXBridgeDLL.dll 读取 XXX 仿真数据。
+数据处理与绘图：读取数据并绘制输出功率、增益和效率曲线。
+清理：仿真结束后清理 DLL 资源。
+
+运行示例
+]]></content>
+      <categories>
+        <category>Simulink仿真</category>
+      </categories>
+      <tags>
+        <tag>Simulink</tag>
+        <tag>Matlab</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>Simulink调用外部工具仿真《一》</title>
+    <url>/posts/51a3b25e.html</url>
+    <content><![CDATA[该项目旨在使用Simulink来完成某些计算和仿真，计算工具采用自己的求解器，因此Simulink在这里的作用主要为模拟输入输出接口和触发信号，后续可能会引入优化器来对参数进行优化，本篇作为开头，主要介绍如何使用Simulink调用外部工具。
+创建m文件首先打开Matlab，指定工作路径，在命令行窗口输入edit sfun_callXXX从而在当前路径下创建sfun_callXXX.m文件，输入下述代码
+function sfun_callXXX(block)% Level-2 MATLAB S-Function: 可多次触发执行 XXX.exe，并做路径检查setup(block);endfunction setup(block)    % 一个输入端口：触发信号（1 表示触发执行）    block.NumInputPorts = 1;    block.SetPreCompInpPortInfoToDynamic;    block.InputPort(1).Dimensions        = 1;    block.InputPort(1).DatatypeID        = 0;    block.InputPort(1).Complexity        = &#x27;Real&#x27;;    block.InputPort(1).DirectFeedthrough = true;    % 一个输出端口：执行状态    block.NumOutputPorts = 1;    block.SetPreCompOutPortInfoToDynamic;    block.OutputPort(1).Dimensions   = 1;    block.OutputPort(1).DatatypeID   = 0;    block.OutputPort(1).Complexity   = &#x27;Real&#x27;;    % 一个 Dwork 变量：用于保存上一个输入（用于边沿检测）    block.NumDworks = 1;    block.Dwork(1).Name            = &#x27;prevInput&#x27;;    block.Dwork(1).Dimensions      = 1;    block.Dwork(1).DatatypeID      = 0;    block.Dwork(1).Complexity      = &#x27;Real&#x27;;    block.Dwork(1).UsedAsDiscState = true;    % 每 1 秒调用一次    block.SampleTimes = [1.0 0.0];    block.SimStateCompliance = &#x27;DefaultSimState&#x27;;    block.InitializeConditions = @InitConditions;    block.Outputs              = @Output;endfunction InitConditions(block)    block.Dwork(1).Data = 0;  % 初始值：输入未触发endfunction Output(block)    u = block.InputPort(1).Data;    prev = block.Dwork(1).Data;    % 只在输入从 0 → 1 的跳变时执行    if u == 1 &amp;&amp; prev == 0        % 配置路径        exePath = &#x27;I:\XXX.exe&#x27;;        paramPath = &#x27;C:\Users\pc\Desktop\XXX&#x27;;        % 检查 EXE 是否存在        if ~isfile(exePath)            warning(&#x27;[XXX] EXE 路径不存在: %s&#x27;, exePath);            block.OutputPort(1).Data = -2;            block.Dwork(1).Data = u;            return;        end        % 检查参数路径是否存在        if ~isfolder(paramPath)            warning(&#x27;[XXX] 参数路径不存在: %s&#x27;, paramPath);            block.OutputPort(1).Data = -3;            block.Dwork(1).Data = u;            return;        end        % 构造命令        exePathQuoted = [&#x27;&quot;&#x27; exePath &#x27;&quot;&#x27;];        paramPathQuoted = [&#x27;&quot;&#x27; paramPath &#x27;&quot;&#x27;];        args = [&#x27;1|1|&#x27; paramPathQuoted];        cmd = [exePathQuoted &#x27; &#x27; args];        disp([&#x27;[XXX] 正在执行: &#x27; cmd]);        % 执行命令        status = system(cmd);        if status == 0            block.OutputPort(1).Data = 1;  % 成功        else            block.OutputPort(1).Data = -1; % 执行失败        end    else        block.OutputPort(1).Data = 0;  % 无触发    end    % 更新 Dwork 状态    block.Dwork(1).Data = u;end
+
+该函数的主要作用是在 Simulink 中通过输入触发器调用外部程序 XXX.exe，实现如下特性：
+
+支持多次触发执行，但只在输入信号从 0 到 1 的上升沿执行
+执行结果通过输出端口返回状态码：
+1 → 执行成功；
+-1 → 执行失败；
+-2 → EXE 路径不存在；
+-3 → 参数路径不存在；
+0 → 没有触发。
+
+
+
+主函数部分function sfun_callXXX(block)% Level-2 MATLAB S-Function: 可多次触发执行 XXX.exe，并做路径检查setup(block);end
+
+这是主入口函数，Simulink 在加载该 S-Function 时会调用这个函数。block 是代表这个 S-Function 块的对象，包含输入输出、状态等所有接口
+function setup(block)
+
+block.NumInputPorts = 1;block.SetPreCompInpPortInfoToDynamic;block.InputPort(1).Dimensions        = 1;block.InputPort(1).DatatypeID        = 0;  % doubleblock.InputPort(1).Complexity        = &#x27;Real&#x27;;block.InputPort(1).DirectFeedthrough = true;
+
+设置只有 1 个输入端口，类型为 double 实数，输入数据是一个触发信号，为 1 表示要执行 XXX.exe
+block.NumOutputPorts = 1;block.SetPreCompOutPortInfoToDynamic;block.OutputPort(1).Dimensions   = 1;block.OutputPort(1).DatatypeID   = 0;block.OutputPort(1).Complexity   = &#x27;Real&#x27;;
+
+也只有 1 个输出端口，用于输出执行状态
+block.NumDworks = 1;block.Dwork(1).Name            = &#x27;prevInput&#x27;;block.Dwork(1).Dimensions      = 1;block.Dwork(1).DatatypeID      = 0;block.Dwork(1).Complexity      = &#x27;Real&#x27;;block.Dwork(1).UsedAsDiscState = true;
+
+Dwork 是 S-Function 中的离散状态变量，在仿真期间保留，这里用来保存上一时刻的输入值，从而判断是否出现了 0→1 的跳变（上升沿）
+block.SampleTimes = [1.0 0.0];block.SimStateCompliance = &#x27;DefaultSimState&#x27;;block.InitializeConditions = @InitConditions;block.Outputs              = @Output;
+
+SampleTimes = [1.0 0.0] → 每 1 秒调用一次 Output 函数，注册初始化函数和主输出函数
+初始化函数 InitConditionsfunction InitConditions(block)    block.Dwork(1).Data = 0;  % 初始值设为0，表示“未触发”end
+
+初始化 Dwork 状态变量，表示开始时没有任何触发信号
+主执行函数 Outputfunction Output(block)
+
+u = block.InputPort(1).Data;prev = block.Dwork(1).Data;
+
+u 是当前输入值，prev 是上一个采样时刻的输入值，用于检测跳变
+if u == 1 &amp;&amp; prev == 0
+
+
+只有从 0 → 1 的跳变，才执行外部命令
+如果持续为 1，不会重复执行
+
+exePath = &#x27;...XXX.exe&#x27;;paramPath = &#x27;...指定输入&#x27;;
+
+exePath 是要调用的外部可执行文件路径，paramPath 是输入数据或配置文件的路径
+if ~isfile(exePath)    warning(&#x27;[XXX] EXE 路径不存在: %s&#x27;, exePath);    block.OutputPort(1).Data = -2;    block.Dwork(1).Data = u;    return;endif ~isfolder(paramPath)    warning(&#x27;[XXX] 参数路径不存在: %s&#x27;, paramPath);    block.OutputPort(1).Data = -3;    block.Dwork(1).Data = u;    return;end
+
+
+如果 EXE 不存在 → 返回 -2
+如果参数目录不存在 → 返回 -3
+
+exePathQuoted = [&#x27;&quot;&#x27; exePath &#x27;&quot;&#x27;];paramPathQuoted = [&#x27;&quot;&#x27; paramPath &#x27;&quot;&#x27;];args = [&#x27;1|1|&#x27; paramPathQuoted];cmd = [exePathQuoted &#x27; &#x27; args];disp([&#x27;[XXX] 正在执行: &#x27; cmd]);
+
+
+把路径加引号是为了防止路径中有空格报错
+
+执行命令类似于（根据自己的可执行文件进行修改，这里的1|1|是参数需要）
+&quot;I:\...\XXX.exe&quot; 1|1|&quot;C:\Users\...\指定输入&quot;
+
+status = system(cmd);if status == 0    block.OutputPort(1).Data = 1;  % 成功else    block.OutputPort(1).Data = -1; % 失败end
+
+
+system(cmd) 用于调用系统命令
+如果返回值为 0，表示执行成功 → 输出 1
+否则 → 输出 -1
+
+else    block.OutputPort(1).Data = 0;  % 无触发，不执行end
+
+
+输入无变化或不是上升沿时，输出 0
+
+block.Dwork(1).Data = u;
+
+
+用当前输入值覆盖 Dwork，供下一次仿真调用使用
+
+
+
+
+输出值
+含义
+
+
+
+1
+成功执行 XXX.exe
+
+
+-1
+执行失败
+
+
+-2
+找不到 EXE
+
+
+-3
+参数目录不存在
+
+
+0
+无触发（未上升沿）
+
+
+代码流程概览
+
+
+阶段
+Simulink 触发
+函数
+功能描述
+
+
+
+模块加载时
+Simulink 加载模型
+sfun_callXXX() → setup()
+初始化输入输出端口、采样时间、Dwork 状态变量等
+
+
+仿真开始时
+点击仿真按钮 Run
+InitializeConditions()
+将 prevInput 初始化为 0
+
+
+每个仿真步
+每秒调用一次
+Output()
+检测输入信号是否跳变为 1，如果是就执行 XXX.exe
+
+
+在Simulink中使用S Function在命令行窗口输入simulink或直接点击菜单面板“Simulink”来打开Simulink仿真工具，新建空白模型
+
+将该模型保存到当前目录下（与上述.m文件相同），在库浏览器中依次将Constant、Level-2 MATLAB S-Function（不能直接选S-Function，因为我们的代码是针对Level 2的）、Display模块拖入，并连接如下
+
+双击S-Function模块，将 S-function name 设为 sfun_callXXX，确认之后提示出错。
+这里的主要原因为MATLAB Level-2 S-Function 的 Dwork 区只能在 PostPropagationSetup() 阶段设置，而目前把 NumDworks 和 Dwork 配置写在了 setup() 里，这是不允许的，修改如下
+function sfun_callXXX(block)% Level-2 MATLAB S-Function：检测 0→1 边沿并调用 XXX.exe    setup(block);end%-----------------------------------------------------------%function setup(block)%% 1. 端口block.NumInputPorts  = 1;block.NumOutputPorts = 1;block.SetPreCompInpPortInfoToDynamic;block.SetPreCompOutPortInfoToDynamic;block.InputPort(1).Dimensions        = 1;block.InputPort(1).DatatypeID        = 0;   % doubleblock.InputPort(1).Complexity        = &#x27;Real&#x27;;block.InputPort(1).DirectFeedthrough = true;block.OutputPort(1).Dimensions = 1;block.OutputPort(1).DatatypeID = 0;block.OutputPort(1).Complexity = &#x27;Real&#x27;;%% 2. 采样时间（每 1 s 执行一次）block.SampleTimes = [1 0];%% 3. S-Function 状态机合规block.SimStateCompliance = &#x27;DefaultSimState&#x27;;%% 4. 注册回调 —— 用 RegBlockMethod（关键）block.RegBlockMethod(&#x27;PostPropagationSetup&#x27;, @PostPropSetup);block.RegBlockMethod(&#x27;InitializeConditions&#x27;, @InitConditions);block.RegBlockMethod(&#x27;Outputs&#x27;,              @Output);end%-----------------------------------------------------------%function PostPropSetup(block)%% Dwork 在此阶段声明block.NumDworks = 1;block.Dwork(1).Name            = &#x27;prevInput&#x27;;block.Dwork(1).Dimensions      = 1;block.Dwork(1).DatatypeID      = 0;  % doubleblock.Dwork(1).Complexity      = &#x27;Real&#x27;;block.Dwork(1).UsedAsDiscState = true;end%-----------------------------------------------------------%function InitConditions(block)%% 仿真开始时：prevInput 置零block.Dwork(1).Data = 0;end%-----------------------------------------------------------%function Output(block)%% 边沿检测 + 执行外部 EXEu    = block.InputPort(1).Data;prev = block.Dwork(1).Data;if u == 1 &amp;&amp; prev == 0    % 路径设定    exePath   = &#x27;I:\XXX.exe&#x27;;    paramPath = &#x27;C:\Users\pc\Desktop\XXX&#x27;;    % -------- 路径检查（兼容旧版 MATLAB：用 exist） --------    if exist(exePath,&#x27;file&#x27;) ~= 2        warning(&#x27;[XXX] EXE 不存在: %s&#x27;, exePath);        block.OutputPort(1).Data = -2;    elseif exist(paramPath,&#x27;dir&#x27;) ~= 7        warning(&#x27;[XXX] 参数路径不存在: %s&#x27;, paramPath);        block.OutputPort(1).Data = -3;    else        % 构造命令        cmd = [&#x27;&quot;&#x27; exePath &#x27;&quot; 1|1|&quot;&#x27; paramPath &#x27;&quot;&#x27;];        disp([&#x27;[XXX] 执行: &#x27; cmd]);        status = system(cmd);        block.OutputPort(1).Data = double(status == 0) * 2 - 1;  % 1 成功 /-1 失败    endelse    block.OutputPort(1).Data = 0;                                % 未触发end% 更新上周期输入block.Dwork(1).Data = u;end
+
+运行仿真，观察到Display显示为1表明正确调用执行，为了方便截图，我把Display换为Scope，观察如下
+
+第一秒，输入从0→1 调用exe成功并输出1，第二秒没有跳变发生，输出为0
+Simulink 对该 S-Function 模块的调用时序如下
+
+
+
+时间
+执行
+来自 S-Function 的函数调用
+说明
+
+
+
+0s
+初始化
+setup() → InitializeConditions()
+初始化端口、状态变量（prevInput&#x3D;0）
+
+
+每秒
+仿真步
+Output() 被调用一次
+判断输入信号是否从 0→1 变化，若是就调用 EXE
+
+
+假设输入信号如下
+
+
+
+步数
+输入 u
+prevInput
+是否执行 EXE？
+输出值
+
+
+
+1
+0
+0
+否
+0
+
+
+2
+1
+0
+是（跳变）
+1 &#x2F; -1
+
+
+3
+1
+1
+否
+0
+
+
+4
+0
+1
+否
+0
+
+
+5
+1
+0
+是（跳变）
+1 &#x2F; -1
+
+
+]]></content>
+      <categories>
+        <category>Simulink仿真</category>
+      </categories>
+      <tags>
+        <tag>Simulink</tag>
+        <tag>Matlab</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>VSCode插件开发-文件统计功能</title>
+    <url>/posts/57a69459.html</url>
+    <content><![CDATA[修改package.json在开发 VS Code 插件时，package.json 是整个插件的“说明书”。这里以一个简单的功能为例进行测试
+&quot;activationEvents&quot;: [&quot;onCommand:code-auto-test.getFileState&quot;],&quot;main&quot;: &quot;./out/extension.js&quot;,&quot;contributes&quot;: &#123;  &quot;commands&quot;: [    &#123;      &quot;command&quot;: &quot;code-auto-test.getFileState&quot;,      &quot;title&quot;: &quot;File State&quot;,      &quot;category&quot;: &quot;Code Auto Test&quot;    &#125;  ],  &quot;menus&quot;: &#123;    &quot;editor/context&quot;: [      &#123;        &quot;when&quot;: &quot;editorFocus&quot;,        &quot;command&quot;: &quot;code-auto-test.getFileState&quot;,        &quot;group&quot;: &quot;navigation&quot;      &#125;    ],    &quot;explorer/context&quot;: [      &#123;        &quot;command&quot;: &quot;code-auto-test.getFileState&quot;,        &quot;group&quot;: &quot;navigation&quot;      &#125;    ]  &#125;&#125;
+
+&quot;activationEvents&quot;: [&quot;onCommand:code-auto-test.getFileState&quot;]
+
+
+意义：插件不会在 VS Code 启动时就加载，而是在用户执行命令 code-auto-test.getFileState 时激活。
+优势：提升启动性能，遵循 VS Code 插件的延迟加载机制。
+
+指定插件的主入口&quot;main&quot;: &quot;./out/extension.js&quot;
+
+
+指向插件的主模块，通常是 TypeScript 编译后的文件。
+extension.js 中通常包含 activate(context) 和 deactivate() 函数，用于插件的生命周期管理。
+
+注册自定义命令&quot;commands&quot;: [  &#123;    &quot;command&quot;: &quot;code-auto-test.getFileState&quot;,    &quot;title&quot;: &quot;File State&quot;,    &quot;category&quot;: &quot;Code Auto Test&quot;  &#125;]
+
+
+command：命令的唯一标识符，供代码调用。
+title：在命令面板（Ctrl+Shift+P）中的显示名称。
+category：命令分类，显示为 &quot;Code Auto Test: File State&quot;。
+
+执行位置包括：
+
+命令面板
+上下文菜单（通过 menus 配置）
+
+集成到右键菜单中编辑器右键菜单&quot;editor/context&quot;: [  &#123;    &quot;when&quot;: &quot;editorFocus&quot;,    &quot;command&quot;: &quot;code-auto-test.getFileState&quot;,    &quot;group&quot;: &quot;navigation&quot;  &#125;]
+
+
+插入位置：当编辑器中有焦点时，在右键菜单的“导航”区域显示。
+when: 上下文条件，这里为 editorFocus 表示编辑器有焦点时才显示。
+
+资源管理器右键菜单&quot;explorer/context&quot;: [  &#123;    &quot;command&quot;: &quot;code-auto-test.getFileState&quot;,    &quot;group&quot;: &quot;navigation&quot;  &#125;]
+
+
+插入位置：资源管理器（文件树）右键菜单中。
+可用于对选中的文件&#x2F;文件夹执行操作。
+
+通过这段简单的配置，我们实现了一个功能完整的 VS Code 插件功能点：
+
+
+
+功能
+实现方式
+
+
+
+延迟激活
+activationEvents 指定命令触发激活
+
+
+注册命令
+contributes.commands
+
+
+集成编辑器右键菜单
+menus.editor/context
+
+
+集成资源管理器右键菜单
+menus.explorer/context
+
+
+这套模式是编写 VS Code 插件的基础，适用于各种需要通过右键或命令面板触发逻辑的场景，比如自动测试、代码分析、格式化工具等。
+修改extension.ts查看文件状态的命令实现（extension.ts）我们前面在 package.json 中注册了命令 code-auto-test.getFileState，接下来在插件主入口文件中进行具体实现。
+文件路径：src/extension.ts// 引入 VS Code 扩展 APIimport * as vscode from &#x27;vscode&#x27;;import * as fs from &#x27;fs&#x27;;// 插件激活时触发export function activate(context: vscode.ExtensionContext) &#123;	console.log(&#x27;插件已激活：code-auto-test&#x27;);	// 注册 getFileState 命令	const disposable = vscode.commands.registerCommand(&#x27;code-auto-test.getFileState&#x27;, (uri: vscode.Uri) =&gt; &#123;		// 获取文件路径		const filePath = uri.fsPath;		// 异步获取文件信息		fs.stat(filePath, (err, stats) =&gt; &#123;			if (err) &#123;				vscode.window.showErrorMessage(`获取文件信息失败: $&#123;err.message&#125;`);				return;			&#125;			// 判断是否为文件夹			if (stats.isDirectory()) &#123;				vscode.window.showWarningMessage(&#x27;检测的是文件夹，不是文件，请重新选择！&#x27;);				return;			&#125;			// 若是普通文件，显示基本信息			if (stats.isFile()) &#123;				const size = stats.size;				const createTime = stats.birthtime.toLocaleString();				const modifyTime = stats.mtime.toLocaleString();				vscode.window.showInformationMessage(					` 文件大小: $&#123;size&#125; 字节\n 创建时间: $&#123;createTime&#125;\n 修改时间: $&#123;modifyTime&#125;`,					&#123; modal: true &#125;				);			&#125;		&#125;);		// 调试用：同步读取 stat 信息输出日志		try &#123;			const statsSync = fs.statSync(filePath);			console.log(&#x27;statSync:&#x27;, statsSync);			console.log(&#x27;isFile:&#x27;, statsSync.isFile());		&#125; catch (err) &#123;			console.error(&#x27;statSync 读取失败:&#x27;, err);		&#125;	&#125;);	// 将命令加入插件上下文中	context.subscriptions.push(disposable);&#125;// 插件被卸载时触发export function deactivate() &#123;&#125;
+
+
+
+
+功能点
+说明
+
+
+
+vscode.Uri
+命令参数自动传入，支持从资源管理器中点击文件触发命令。
+
+
+fs.stat()
+异步获取文件状态，包含文件大小、创建时间、修改时间等。
+
+
+fs.statSync()
+同步版本，用于调试或日志输出。
+
+
+vscode.window.showInformationMessage(..., &#123; modal: true &#125;)
+使用模态窗口展示信息，确保用户注意查看。
+
+
+在编辑器中右键文件：
+显示：File State
+点击后弹出文件大小、创建时间、修改时间
+
+在资源管理器中右键文件：
+同样支持显示该命令
+若选中文件夹则给出提示
+
+
+通过 package.json + extension.ts，我们构建了一个结构完整、功能清晰的 VS Code 插件，具备以下特征：
+
+延迟激活（按需加载）
+支持右键菜单调用
+使用原生 Node.js 文件系统 API 获取信息
+弹出信息提示（用户交互友好）
+
+]]></content>
+      <categories>
+        <category>VSCode插件</category>
+      </categories>
+      <tags>
+        <tag>VSCode</tag>
+        <tag>插件</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>Python实战之Web开发</title>
+    <url>/posts/1a56256.html</url>
+    <content><![CDATA[创建Django项目我使用Pycharm来创建Django项目，也可以自己手动创建虚拟环境等，配置如下，所有代码可点击这里查看
+
+运行，在浏览器输入http://localhost:8000/，显示如下表明项目创建正确
+
+创建应用程序终端输入python manage.py migrate创建数据库，用于将项目相关的信息存储，然后输入python manage.py startapp learning_log来创建应用程序，项目结构如下
+
+.venv/
+Python 虚拟环境目录。
+包含你项目安装的所有依赖（如 Django）。
+通常会在 .gitignore 中忽略它。
+
+manage.py
+管理工具脚本，用于执行各种 Django 命令，如：
+python manage.py runserver      # 启动开发服务器python manage.py makemigrations # 创建迁移python manage.py migrate        # 应用迁移到数据库python manage.py createsuperuser # 创建管理员账户
+
+__init__.py
+让该目录成为 Python 包可为空
+
+settings.py
+Django 项目的配置文件
+包含数据库设置、应用注册、模板路径、静态文件配置、安全设置等
+
+urls.py
+项目级URL 路由入口
+
+将不同的 URL 请求分发给对应的 app 处理
+
+通常写法：
+from django.urls import path, includeurlpatterns = [    path(&#x27;admin/&#x27;, admin.site.urls),    path(&#x27;&#x27;, include(&#x27;learning_log.urls&#x27;)),  # 指向 app 的 url]
+
+wsgi.py
+用于部署到 WSGI 服务器
+生产环境使用
+
+asgi.py
+用于部署到 ASGI 服务器
+用于支持 WebSocket、异步视图
+
+__init__.py
+表示这是一个 Python 包
+
+admin.py
+用于注册模型到 Django 管理后台（admin site）
+
+示例：
+from django.contrib import adminfrom .models import Entryadmin.site.register(Entry)
+
+apps.py
+定义 app 的元信息，通常不需修改
+当你在 INSTALLED_APPS 中注册 app 时，这里也会用到
+
+models.py
+定义数据模型（Model）类
+每个模型对应数据库中的一张表
+
+views.py
+视图函数，用来处理用户请求并返回响应
+例如返回 HTML 页面、JSON 数据等
+
+tests.py
+单元测试文件，可编写自动化测试
+Django 内建测试框架基于 Python 的 unittest
+
+migrations/
+自动生成的数据库迁移文件
+
+每当你修改模型（models.py）并运行：
+python manage.py makemigrations
+
+就会在此生成一个迁移脚本，用于记录数据库变更
+
+
+templates/
+存放 HTML 模板文件的目录
+用于 Django 的模板引擎渲染页面
+
+例如： 你可以在 templates/ 中创建 index.html，然后在视图中渲染：
+from django.shortcuts import renderdef index(request):    return render(request, &#x27;index.html&#x27;)
+
+db.sqlite3
+默认使用的 SQLite 数据库文件
+存储了你项目所有模型的数据内容
+
+
+
+
+文件&#x2F;文件夹
+作用说明
+
+
+
+.venv/
+虚拟环境，包含依赖
+
+
+manage.py
+管理命令脚本
+
+
+DjangoProject/settings.py
+项目配置
+
+
+DjangoProject/urls.py
+URL 路由入口
+
+
+DjangoProject/wsgi.py
+部署用 WSGI 接口
+
+
+learning_log/
+自定义 app
+
+
+models.py
+定义数据库模型
+
+
+views.py
+编写视图函数
+
+
+admin.py
+注册后台模型
+
+
+migrations/
+数据库变更记录
+
+
+templates/
+HTML 模板目录
+
+
+db.sqlite3
+SQLite 数据库文件
+
+
+应用设置修改models.py文件如下
+from django.db import models# Create your models here.class Topic(models.Model):    &quot;&quot;&quot;A topic the user is learning about.&quot;&quot;&quot;    text = models.CharField(max_length=200)    date_added = models.DateTimeField(auto_now_add=True)    def __str__(self):        &quot;&quot;&quot;Return a string representation of the model.&quot;&quot;&quot;        return self.text
+
+在settings.py的INSTALLED_APPS中添加learning_log，然后执行数据库迁移，如下
+python manage.py makemigrationspython manage.py migrate 
+
+
+创建超级用户输入python manage.py createsuperuser来创建管理者，账户名、密码、邮箱自行设置，其中密码会被隐藏
+
+随后在admin.py文件中修改代码如下
+from django.contrib import adminfrom learning_log.models import Topic# Register your models here.admin.site.register(Topic)
+
+这段代码用于向管理网站注册Topic
+由于我在创建项目时没有勾选“启用Django admin”，因此这里需要对项目进行简单的更改
+
+将urls.py中注释的部分取消
+# from django.contrib import adminfrom django.urls import pathurlpatterns = [    #    path(&#x27;admin/&#x27;, admin.site.urls),]
+
+在settings.py的INSTALLED_APPS中添加django.contrib.admin
+
+
+访问http://localhost:8000/admin/，显示如下
+
+输入账户和密码，登录进去界面显示如下
+
+User和Group是Django自动在管理网站添加的模型，而Topic是我们刚刚自己添加的。此时可以点击Topic，添加任意的主题
+定义Entry在models.py中添加如下代码
+class Entry(models.Model):    &quot;&quot;&quot;Something specific learned about a topic.&quot;&quot;&quot;    topic = models.ForeignKey(Topic, on_delete=models.CASCADE)    text = models.TextField()    date_added = models.DateTimeField(auto_now_add=True)    class Meta:        verbose_name_plural = &#x27;entries&#x27;    def __str__(self):        &quot;&quot;&quot;Return a string representation of the model.&quot;&quot;&quot;        if len(self.text) &gt; 50:            return f&quot;&#123;self.text[:50]&#125;...&quot;        else:            return self.text
+
+这里主要说一下两个地方
+
+topic = models.ForeignKey(Topic, on_delete=models.CASCADE)是将每一条 Entry 都关联一个 Topic，形成多对一的关系
+
+元信息配置（Meta）：默认 Django 会把模型名称小写加 “s” 做复数，这句是为了告诉 Django这个模型的复数名称设置为 entries，而不是默认的 Entrys
+
+
+由于修改了模型文件，因此我们需要再次迁移数据库，执行
+python manage.py makemigrations learning_logpython manage.py migrate 
+
+然后在管理网站注册Entry：admin.site.register(Entry)（有关模型导入的问题这里不做叙述）
+进入管理网站后会发现多出了一个Entries条目，进入该条目，点击下拉框就可以选择对应的主题，如下图
+
+这时候我们就可以创建条目并将其与对应的主题相关联。不过，目前除了后台管理界面，我们还没任何可供用户访问的界面，下一步我们将尝试创建一个网页来让其他人访问
+创建网页使用Django创建网页主要分为三个步骤，定义URL、编写视图、编写模板，完成这三个部分的顺序通常无关紧要，每个人都可以按照个人喜好来实现
+映射URL当前http://localhost:8000返回默认的Django网站，下面进行修改，打开urls.py文件，在`urlpatterns`中添加`path(‘’, include(‘learning_log.urls’)),&#96;表示我们导入应用learning_log中的url。然后在应用learning_log中添加urls.py文件，内容如下
+from django.urls import pathfrom . import viewsapp_name = &#x27;learning_log&#x27;urlpatterns = [    # Home page    path(&#x27;&#x27;, views.index, name=&#x27;index&#x27;),]
+
+这段代码主要为当前 app 即（learning_log）配置 URL 路由，其中app_name = &#39;learning_log&#39;，给这个 app 的 URL 配置一个命名空间，防止与其他 app 中的 URL 名称冲突，在模板中使用 &#123;% url 'learning_log:index' %&#125; 就能明确地调用这个 URL。urlpatterns 是 Django 查找 URL 的核心列表，每一个 path() 定义了一个 URL 与视图的映射。path(&#39;&#39;, views.index, name=&#39;index&#39;),第一个参数是一个字符串用于正确的路由请求，这里表示匹配根路径，第二个参数表示当匹配到 / 时，调用 views.py 中的 index() 函数，第三个参数给这个 URL 取了一个名字叫 &#39;index&#39;，在模板中可以用 &#123;% url 'learning_log:index' %&#125; 来反向生成地址
+编写视图视图函数接受请求中的信息，准备好生成网页所需的数据，然后将其发送给浏览器。在前面我们调用了 views.py 中的 index() 函数，但该函数还未编写，打开views.py文件，添加代码如下
+from django.shortcuts import render# Create your views here.def index(request):    return render(request, &#x27;learning_log/index.html&#x27;)
+
+它接受一个 request 对象作为参数，这是 Django 在用户访问网页时自动传入的请求信息对象。函数的返回值是 render(request, &#39;learning_log/index.html&#39;)，表示让 Django 去找一个路径为 learning_log/index.html 的模板文件，并渲染它，默认的模板查找路径为app/templates/app_name/文件名.html 
+编写模板模板定义网页的外观，每当访问网页时，Django都将填入相关的数据用于显示，我们的template文件夹位于根目录，所以无需在app目录中重新创建，但需要在settings.py的TEMPLATES中检查是否存在&#39;DIRS&#39;: [BASE_DIR / &#39;templates&#39;]，以便正确检索html文件
+在template文件夹中创建learning_log文件夹并在其中创建index.html，添加代码如下
+&lt;p&gt;Learning Log&lt;/p&gt;&lt;p&gt;Learning Log is a tool for tracking your learning progress.     It allows you to create entries for each topic you are studying,     including notes, resources, and reflections.     You can also categorize your entries by subject or skill level.&lt;/p&gt;
+
+这里添加了两个段落，运行访问界面如下
+
+创建其他网页创建父模板在index.html所在的目录中，创建一个base.html文件，这个模板将包含所有页面的通用元素，并将所有子模板都继承它，添加内容如下
+&lt;p&gt;    &lt;a href=&quot;&#123;% url &#x27;learning_log:index&#x27; %&#125;&quot;&gt;Learning Log&lt;/a&gt;&lt;/p&gt;&#123;% block content %&#125;&#123;% endblock content %&#125;
+
+&lt;p&gt;    &lt;a href=&quot;&#123;% url &#x27;learning_log:index&#x27; %&#125;&quot;&gt;Learning Log&lt;/a&gt;&lt;/p&gt;
+
+这段表示页面顶部的一个链接，点击后会跳转到名为 &#39;learning_log:index&#39; 的 URL 对应的页面。
+
+&#123;% url 'learning_log:index' %&#125; 是 Django 模板语言提供的 URL 反向解析标签。
+&#39;learning_log&#39; 是在 learning_log/urls.py 中定义的 app_name。
+&#39;index&#39; 是在 urlpatterns 中为首页设置的 name。
+
+所以最终这个标签会被渲染为：
+&lt;a href=&quot;/&quot;&gt;Learning Log&lt;/a&gt;
+
+如果将 index 页面映射到 /，那么这个链接就是返回首页的作用。
+&#123;% block content %&#125;&#123;% endblock content %&#125;
+
+这是 Django 模板语言中非常关键的部分，称为 模板块（template block），它用于定义“可扩展区域”。
+解释如下：
+
+&#123;% block content %&#125;` 是定义一个名为 `content` 的内容区块。
+- `&#123;% endblock content %&#125; 表示这个区块的结束。
+
+换句话说，子模板可以继承这个模板，并用自己的内容替换掉这个 block 区域，例如：
+&#123;% extends &quot;learning_log/base.html&quot; %&#125;&#123;% block content %&#125;  &lt;h2&gt;This is the home page!&lt;/h2&gt;&#123;% endblock content %&#125;
+
+创建子模板重写index.html文件，使其继承base.html，如下
+&#123;% extends &#x27;learning_log/base.html&#x27; %&#125;&#123;% block content %&#125;    &lt;p&gt;Learning Log is a tool for tracking your learning progress.     It allows you to create entries for each topic you are studying,     including notes, resources, and reflections.     You can also categorize your entries by subject or skill level.    &lt;/p&gt;&#123;% endblock content %&#125;
+
+这里将index从base继承下来，使用&#123;% block content %&#125;`定义一个`content`并插入内容，使用`&#123;% endblock content %&#125;结束content块，里面内容将显示在界面上，此时通过修改父模板将修改所有继承它的界面，方便统一管理
+显示所有主题的页面首先定义URL，添加path(&#39;topics/&#39;,  views.topics, name=&#39;topics&#39;)，在视图中定义topics函数如下
+def topics(request):    &quot;&quot;&quot;Show all topics.&quot;&quot;&quot;    topics = Topic.objects.order_by(&#x27;date_added&#x27;)    context = &#123;&#x27;topics&#x27;: topics&#125;    return render(request, &#x27;learning_log/topics.html&#x27;, context)
+
+将所有主题按照时间顺序排序并返回，然后创建topics.html，内容如下
+&#123;% extends &#x27;learning_log/base.html&#x27; %&#125;&#123;% block content %&#125;    &lt;p&gt;Topics&lt;/p&gt;    &lt;ul&gt;        &#123;% for topic in topics %&#125;            &lt;li&gt;&#123;&#123; topic.text &#125;&#125;&lt;/li&gt;        &#123;% empty %&#125;            &lt;li&gt;No topics have been created yet.&lt;/li&gt;        &#123;% endfor %&#125;    &lt;/ul&gt;&#123;% endblock content %&#125;
+
+这里主要将topics中的内容通过无序列表的方式呈现出来。随后在base.html中添加连字符以及代码&lt;a href=&quot;&#123;% url 'learning_log:topics' %&#125;&quot;&gt;Topics&lt;/a&gt;，这将产生一个与Topics匹配的URL链接，访问http://localhost:8000/topics/，如下![image-20250712114413813](https://cdn.jsdelivr.net/gh/psmarter/blog-imgs/Python%E5%AE%9E%E6%88%98%E4%B9%8BWeb%E5%BC%80%E5%8F%91%2F2025-07-12-23-47-46-91b35a.png)
+显示特定主题我们已经创建了两次页面，对其基本流程应该有所了解了，后续关于URL、视图、模板相关的内容将进行简略，我们再次创建一个页面用于显示特定的主题及其所有的条目
+# URLpath(&#x27;topics/&lt;int:topic_id&gt;/&#x27;, views.topic, name=&#x27;topic&#x27;)# topic函数def topic(request, topic_id):    &quot;&quot;&quot;Show a single topic and all its entries.&quot;&quot;&quot;    topic = Topic.objects.get(id=topic_id)    entries = topic.entry_set.order_by(&#x27;-date_added&#x27;)    context = &#123;&#x27;topic&#x27;: topic, &#x27;entries&#x27;: entries&#125;    return render(request, &#x27;learning_log/topic.html&#x27;, context)
+
+&#123;# 模板 #&#125;&#123;% extends &#x27;learning_log/base.html&#x27; %&#125;&#123;% block content %&#125;    &lt;p&gt;Topic:&#123;&#123; topic.text &#125;&#125;&lt;/p&gt;        &lt;p&gt;Entries:&lt;/p&gt;    &lt;ul&gt;            &#123;% for entry in entries %&#125;            &lt;li&gt;                &lt;p&gt;&#123;&#123; entry.date_added|date:&#x27;M d, Y H:i&#x27; &#125;&#125;&lt;/p&gt;                &lt;p&gt;&#123;&#123; entry.text|linebreaks &#125;&#125;&lt;/p&gt;            &lt;/li&gt;        &#123;% empty %&#125;            &lt;li&gt;No entries have been created for this topic yet.&lt;/li&gt;        &#123;% endfor %&#125;    &lt;/ul&gt;    &#123;% endblock content %&#125;
+
+在topic函数中先通过id获取到特定的主题，然后将主题中的条目降序排列，最后将Topic和Entries返回。模板主要把entries按照特定的格式显示，“|”表示过滤符，也就是将时间按照：January 1, 2025 23:00格式。linebreaks是将文本中的换行符转变为浏览器理解的内容。
+然后修改topics.html，将每个主题都映射为对应的链接
+&#123;% for topic in topics %&#125;    &lt;li&gt;        &lt;a href=&quot;&#123;% url &#x27;learning_log:topic&#x27; topic.id %&#125;&quot;&gt;&#123;&#123; topic.text &#125;&#125;&lt;/a&gt;    &lt;/li&gt;
+
+运行之后在Topic页面点击主题，显示如下
+
+]]></content>
+      <categories>
+        <category>Diango开发</category>
+      </categories>
+      <tags>
+        <tag>Python</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>创建VS Code插件</title>
+    <url>/posts/7d850c90.html</url>
+    <content><![CDATA[本人打算创建一个VS Code插件用于调试代码，拟结合AI用于生成测试用例，分析代码等
+环境准备安装Node.isVS Code 插件开发使用 JavaScript &#x2F; TypeScript 编写，需要 Node.js 来运行开发脚本和构建流程
+官网：https://nodejs.org
+安装后验证是否成功
+node -v
+
+
+安装脚手架这里会用到yo和generator-code
+yo 是 Yeoman 的命令行工具，是一个用于快速生成项目脚手架的工具，类似于项目生成器
+generator-code 是一个 Yeoman 生成器插件，专门用于生成 VS Code 插件项目 的脚手架。
+全局安装yo和generator-code
+npm i -g yo generator-code
+
+我这里已经安装过了，输出如下
+
+创建VS Code插件项目新建工程在你需要创建插件的目录下输入
+yo code
+
+执行如下
+
+
+[!NOTE]
+这里将会依次问你如下几个问题
+
+选择你的插件类型
+插件的名字
+插件的唯一标识
+插件的描述
+是否需要git仓库
+打包工具选择
+选择包管理工具
+
+
+我的配置如图
+
+选择完成之后出现如下内容
+
+然后可以选择打开新建的工程或者直接跳过，这里选择第一个，打开之后项目结构如图所示，其中最重要的文件是package.json和extension.js，到这里一个VS Code的框架算是基本完成了。
+
+目录介绍
+[!NOTE]
+.vscode: 里面的文件是用来测试插件或者测试代码的一些文件。node_modules: 第三方依赖。src/test：测试文件。src/extension.ts：插件的主文件
+
+package.json文件该文件是vscode扩展的清单文件，具体可以看文档：发布内容配置
+&#123;  &quot;name&quot;: &quot;code-auto-test&quot;,	// 插件名  &quot;displayName&quot;: &quot;code-auto-test&quot;,	// 应用市场显示的名字  &quot;description&quot;: &quot;自动执行代码测试&quot;,	// 插件描述  &quot;version&quot;: &quot;0.0.1&quot;,  &quot;engines&quot;: &#123;    &quot;vscode&quot;: &quot;^1.101.0&quot;  &#125;,  &quot;categories&quot;: [    &quot;Other&quot;	// 扩展类别  ],   // 激活事件组，在那些事件情况下被激活  &quot;activationEvents&quot;: [],   // 插件的主入口文件  &quot;main&quot;: &quot;./out/extension.js&quot;,  &quot;contributes&quot;: &#123;     // 命令    &quot;commands&quot;: [      &#123;        &quot;command&quot;: &quot;code-auto-test.helloWorld&quot;,        &quot;title&quot;: &quot;Hello World&quot;      &#125;    ]  &#125;,  &quot;scripts&quot;: &#123;    &quot;vscode:prepublish&quot;: &quot;npm run compile&quot;,    &quot;compile&quot;: &quot;tsc -p ./&quot;,    &quot;watch&quot;: &quot;tsc -watch -p ./&quot;,    &quot;pretest&quot;: &quot;npm run compile &amp;&amp; npm run lint&quot;,    &quot;lint&quot;: &quot;eslint src&quot;,    &quot;test&quot;: &quot;vscode-test&quot;  &#125;,  &quot;devDependencies&quot;: &#123;    &quot;@types/vscode&quot;: &quot;^1.101.0&quot;,    &quot;@types/mocha&quot;: &quot;^10.0.10&quot;,    &quot;@types/node&quot;: &quot;20.x&quot;,    &quot;@typescript-eslint/eslint-plugin&quot;: &quot;^8.31.1&quot;,    &quot;@typescript-eslint/parser&quot;: &quot;^8.31.1&quot;,    &quot;eslint&quot;: &quot;^9.25.1&quot;,    &quot;typescript&quot;: &quot;^5.8.3&quot;,    &quot;@vscode/test-cli&quot;: &quot;^0.0.10&quot;,    &quot;@vscode/test-electron&quot;: &quot;^2.5.2&quot;  &#125;&#125;
+
+extension.js文件入口文件，即package.json中main字段对应的文件，文件中有导出两个方法：activate和deactivate
+测试在package.json文件中添加激活事件
+&quot;activationEvents&quot;: [&quot;onCommand:code-auto-test.helloWorld&quot;],
+
+终端进入项目
+cd code-auto-testnpm installnpm run compile
+
+这会将 src/extension.ts 编译到 out/extension.js，为插件运行做好准备
+F5运行插件，会启动扩展宿主环境，打开任意文件夹，按下ctrl+shift+p 并输入helloworld
+
+确认选择Hello World，右下角出现如图内容表明运行成功
+
+先到这吧，累了😮‍💨
+]]></content>
+      <categories>
+        <category>VSCode插件</category>
+      </categories>
+      <tags>
+        <tag>VSCode</tag>
+        <tag>插件</tag>
+      </tags>
+  </entry>
+</search>
