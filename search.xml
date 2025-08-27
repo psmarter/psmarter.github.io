@@ -1487,4 +1487,114 @@ F5运行插件，会启动扩展宿主环境，打开任意文件夹，按下ctr
         <tag>插件</tag>
       </tags>
   </entry>
+  <entry>
+    <title>Simulink调用外部Dll交互《三》</title>
+    <url>/posts/ee275623.html</url>
+    <content><![CDATA[介绍本文主要实现了Simulink下模块化GUI与外部Dll数据交互的功能。首先将需要用到的交互接口封装，导出为C风格的函数，然后在模块中创建可视化界面并导入外部Dll，用于显示和操作数据，并在修改数据后通过接口保存到文件，如果成功，则与后续接口通信，调用求解器并显示结果
+导出交互接口// 参数交互EXPORT_API void LoadParametersFromIni(void* p, const char* filename);EXPORT_API int GetGlobalParameterCount(void* p);EXPORT_API const char* GetParameterName(void* p, int index);EXPORT_API double GetParameterValue(void* p, int index);EXPORT_API double GetParameterMin(void* p, int index);EXPORT_API double GetParameterMax(void* p, int index);EXPORT_API const char* GetParameterDescription(void* p, int index);EXPORT_API bool RewriteBWIIni_Param(void* p, const char* paramName, double newValue, const char* projectPath);
+
+//-------------参数交互用-------------------   EXPORT_API void LoadParametersFromIni(void* p, const char* filename) &#123;       if (!p || !filename) return;       auto proc = static_cast&lt;CXXXProcessor*&gt;(p);       proc-&gt;LoadIniParametersToGlobalParameter(filename);  // 调用现有方法   &#125;   EXPORT_API int GetGlobalParameterCount(void* p) &#123;       if (!p) return 0;       auto proc = static_cast&lt;CXXXProcessor*&gt;(p);       return static_cast&lt;int&gt;(proc-&gt;m_vglobalParams.size());   &#125;   EXPORT_API const char* GetParameterName(void* p, int index) &#123;       if (!p || index &lt; 0) return nullptr;       auto proc = static_cast&lt;CXXXProcessor*&gt;(p);       if (index &lt; proc-&gt;m_vglobalParams.size()) &#123;           return proc-&gt;m_vglobalParams[index]-&gt;GetName().c_str();       &#125;       return nullptr;   &#125;   EXPORT_API double GetParameterValue(void* p, int index) &#123;       if (!p || index &lt; 0) return 0.0;       auto proc = static_cast&lt;CXXXProcessor*&gt;(p);       if (index &lt; proc-&gt;m_vglobalParams.size()) &#123;           return proc-&gt;m_vglobalParams[index]-&gt;GetValue();       &#125;       return 0.0;   &#125;   EXPORT_API double GetParameterMin(void* p, int index) &#123;       if (!p || index &lt; 0) return 0.0;       auto proc = static_cast&lt;CXXXProcessor*&gt;(p);       if (index &lt; proc-&gt;m_vglobalParams.size()) &#123;           return proc-&gt;m_vglobalParams[index]-&gt;GetMin();       &#125;       return 0.0;   &#125;   EXPORT_API double GetParameterMax(void* p, int index) &#123;       if (!p || index &lt; 0) return 0.0;       auto proc = static_cast&lt;CXXXProcessor*&gt;(p);       if (index &lt; proc-&gt;m_vglobalParams.size()) &#123;           return proc-&gt;m_vglobalParams[index]-&gt;GetMax();       &#125;       return 0.0;   &#125;   EXPORT_API const char* GetParameterDescription(void* p, int index) &#123;       if (!p || index &lt; 0) return nullptr;       auto proc = static_cast&lt;CXXXProcessor*&gt;(p);       if (index &lt; proc-&gt;m_vglobalParams.size()) &#123;           return proc-&gt;m_vglobalParams[index]-&gt;GetDescription().c_str();       &#125;       return nullptr;   &#125;   EXPORT_API bool RewriteBWIIni_Param(void* p, const char* paramName, double newValue, const char* projectPath) &#123;       if (!p || !paramName || !projectPath) &#123;           return false;       &#125;       try &#123;           auto proc = static_cast&lt;CXXXProcessor*&gt;(p);           // 调用 C++ 类成员函数进行参数修改           return proc-&gt;RewriteBWIIni_Param(paramName, newValue, projectPath);                   &#125;       catch (const std::exception&amp; e) &#123;           std::cerr &lt;&lt; &quot;错误: &quot; &lt;&lt; e.what() &lt;&lt; std::endl;           return false;       &#125;   &#125;
+
+这段代码主要是通过 C++ 的 EXPORT_API 宏将 CXXXProcessor 类的相关函数暴露为 API 接口，允许外部调用进行参数的读取、修改以及加载配置。
+1. EXPORT_API 宏每个函数前面都使用了 EXPORT_API 宏，这通常是为了将这些函数导出为 DLL 接口，让外部应用可以调用这些函数。这种做法常见于需要将 C++ 类和方法暴露给其他编程语言（如 Python 或 C#）的情况。EXPORT_API 一般在头文件中定义，并用来标记需要导出的函数。
+2. 参数校验在所有函数内部，第一步都是检查指针或参数是否为空或无效。例如：
+if (!p || !filename) return;
+
+这种做法可以确保在程序运行时避免因为传入无效参数而导致的崩溃，增强了代码的鲁棒性。
+3. static_cast 类型转换很多地方使用了 static_cast 来进行类型转换。比如：
+auto proc = static_cast&lt;CXXXProcessor*&gt;(p);
+
+这里 p 是一个 void* 类型的指针，指向 CXXXProcessor 类型的对象。static_cast 将 void* 转换成 CXXXProcessor* 类型，以便调用该类的成员函数。通过这种方式，可以在不暴露类内部实现的情况下，提供面向外部的 API 接口。
+4. 函数功能设计加载参数 (LoadParametersFromIni)
+proc-&gt;LoadIniParametersToGlobalParameter(filename);
+
+该函数的设计目的是加载指定的 .ini 配置文件，并将参数值导入到类内部的全局参数列表中。它的设计思想是将文件读取与内存中数据的存储解耦，便于后续的参数操作。
+参数获取函数
+包括：
+
+GetGlobalParameterCount：返回全局参数的数量。
+GetParameterName、GetParameterValue、GetParameterMin、GetParameterMax：返回指定参数的不同属性（名称、值、最小值、最大值）。
+GetParameterDescription：返回参数的描述信息。
+
+这些函数的设计方式非常直观，主要是通过访问类内部 m_vglobalParams 成员（一个存储参数的容器，如 std::vector）来返回相应的信息。每个函数都首先检查传入的索引是否有效，确保在访问数组或容器时不会越界。
+修改参数 (RewriteBWIIni_Param)
+proc-&gt;RewriteBWIIni_Param(paramName, newValue, projectPath);
+
+此函数负责修改指定参数的值并将其更新回 .ini 配置文件中。它利用 CXXXProcessor 类中的现有方法 RewriteBWIIni_Param 来执行实际的修改操作。在设计上，这个函数有一个异常处理机制（try-catch 语句），用于捕获运行时可能出现的异常，防止程序崩溃。错误信息会通过 std::cerr 输出，便于调试。
+5. 数据封装与分离函数内部使用了 CXXXProcessor 类封装了所有参数相关的操作，外部调用者仅通过接口来操作这些数据。这样的封装设计符合面向对象编程（OOP）的原则，数据与操作方法分离，外部只关心接口而无需了解内部实现细节。
+
+m_vglobalParams 是存储所有全局参数的容器，封装了参数的读取、修改等操作。
+CXXXProcessor 类中提供了对参数的处理函数，如 LoadIniParametersToGlobalParameter 和 RewriteBWIIni_Param，而 API 函数仅暴露必要的接口给外部调用。
+
+6. 错误处理与返回值大多数函数都进行了参数校验和错误处理。比如 GetParameterName 和其他类似的获取参数信息的函数都返回 nullptr 或默认值（如 0.0），当输入无效时避免出现错误：
+if (!p || index &lt; 0) return nullptr;
+
+RewriteBWIIni_Param 函数则使用 try-catch 机制来捕获异常，确保在发生异常时能返回 false，并输出错误信息。
+7. 代码设计的一致性与可扩展性
+所有获取参数的函数（如 GetParameterName、GetParameterValue 等）具有一致的接口设计，参数索引作为输入，返回相关数据。这使得 API 易于扩展和维护，后期可以轻松增加更多的参数获取功能。
+RewriteBWIIni_Param 与加载参数的功能解耦，遵循了单一职责原则，使得每个函数都专注于自己的一部分工作，易于理解和测试。
+
+Matlab GUI实现将上个步骤的代码编译为Dll，并把其头文件、dll文件以及所有用到的其他dll拷贝到Matlab的运行环境下
+function sfun_callInterface(block)    % 初始化 S-Function    setup(block);end% ─────────────────── SETUP ────────────────────function setup(block)    % I/O 配置（没有输入端口）    block.NumInputPorts  = 0;    block.NumOutputPorts = 1;    block.OutputPort(1).Dimensions       = 1;    block.OutputPort(1).DatatypeID       = 0;  % 输出一个常数，作为标志位    % 明确设置输出端口的采样模式（设置为样本数据）    block.OutputPort(1).SamplingMode = &#x27;Sample&#x27;;  % FRAME_NO: 样本数据    % SampleTime 配置    block.SampleTimes        = [0 0];         % 立即执行，停止仿真时使用    block.SimStateCompliance = &#x27;DefaultSimState&#x27;;    % 注册方法    block.RegBlockMethod(&#x27;PostPropagationSetup&#x27;, @PostProp);    block.RegBlockMethod(&#x27;InitializeConditions&#x27;, @InitCond);    block.RegBlockMethod(&#x27;Outputs&#x27;, @Outputs);    block.RegBlockMethod(&#x27;Terminate&#x27;, @Terminate);    % 设置 OpenFcn 触发 GUI    set_param(block.BlockHandle, &#x27;OpenFcn&#x27;, &#x27;start_import_gui&#x27;);end% ─── PostPropagationSetup：声明 DWork ───function PostProp(block)    block.NumDworks = 3;        % Dwork 1: 用于存储 GUI 是否已启动的标志    block.Dwork(1).Name            = &#x27;guiLaunched&#x27;;    block.Dwork(1).Dimensions      = 1;    block.Dwork(1).DatatypeID      = 0;    block.Dwork(1).Complexity      = &#x27;Real&#x27;;    block.Dwork(1).UsedAsDiscState = true;        % Dwork 2: 用于存储确认标志    block.Dwork(2).Name            = &#x27;confirmationFlag&#x27;;    block.Dwork(2).Dimensions      = 1;    block.Dwork(2).DatatypeID      = 0;    block.Dwork(2).Complexity      = &#x27;Real&#x27;;    block.Dwork(2).UsedAsDiscState = true;    % Dwork 3: 用于存储是否已尝试启动仿真的标志（防止多次调用）    block.Dwork(3).Name            = &#x27;simStarted&#x27;;    block.Dwork(3).Dimensions      = 1;    block.Dwork(3).DatatypeID      = 0;    block.Dwork(3).Complexity      = &#x27;Real&#x27;;    block.Dwork(3).UsedAsDiscState = true;end% ─── InitializeConditions：初始化 DWork ───function InitCond(block)    % 每次仿真开始时重置标志    block.Dwork(1).Data = 0;  % GUI 未启动    block.Dwork(2).Data = 0;  % 确认标志为 0    block.Dwork(3).Data = 0;  % 未启动仿真end% ─── Outputs ───function Outputs(block)    % 获取当前状态    guiLaunched = block.Dwork(1).Data;    confirmationFlag = block.Dwork(2).Data;    simStarted = block.Dwork(3).Data;        % 如果 GUI 尚未启动，则启动 GUI    if guiLaunched == 0        start_import_gui(block.BlockHandle);  % 传递块句柄给 GUI        block.Dwork(1).Data = 1;  % 设置 GUI 已启动标志    end        % 尝试从基础工作空间获取确认状态    try        confirmationFlag = evalin(&#x27;base&#x27;, &#x27;confirmationFlag&#x27;);        block.Dwork(2).Data = confirmationFlag;    catch        % 如果变量不存在，保持当前值    end        % 输出确认标志    block.OutputPort(1).Data = confirmationFlag;        % 如果确认标志是 1，且尚未启动仿真，则自动运行仿真    if confirmationFlag == 1 &amp;&amp; simStarted == 0        % 自动开始仿真，无需手动输入        set_param(bdroot(block.BlockHandle), &#x27;SimulationCommand&#x27;, &#x27;start&#x27;);        block.Dwork(3).Data = 1;  % 设置已启动标志    end    % 如果确认标志是 -1，表示取消，停止仿真    if confirmationFlag == -1        try            % 检查仿真是否正在运行，若正在运行则停止            simStatus = get_param(bdroot(block.BlockHandle), &#x27;SimulationStatus&#x27;);            if strcmp(simStatus, &#x27;running&#x27;)                % 如果仿真正在运行，取消仿真                set_param(bdroot(block.BlockHandle), &#x27;SimulationCommand&#x27;, &#x27;stop&#x27;);                disp(&#x27;仿真已取消&#x27;);            end        catch            % 如果没有仿真，或其他错误，则跳过            disp(&#x27;未能检查到正在运行的仿真，或仿真未启动&#x27;);        end    endend% ─── Terminate：处理进程退出 ───function Terminate(~)    % 清理基础工作空间中的标志变量    evalin(&#x27;base&#x27;, &#x27;clear confirmationFlag&#x27;);endfunction start_import_gui(blockHandle)    % 获取屏幕大小    screenSize = get(0, &#x27;ScreenSize&#x27;);    screenWidth = screenSize(3);    screenHeight = screenSize(4);        % 设置图形界面大小    figWidth = 800;    figHeight = 400;    % 计算居中显示的坐标    figPosX = (screenWidth - figWidth) / 2;    figPosY = (screenHeight - figHeight) / 2;    % 创建图形界面（窗口），居中显示    fig = uifigure(&#x27;Name&#x27;, &#x27;数据导入与显示&#x27;, &#x27;Position&#x27;, [figPosX, figPosY, figWidth, figHeight], ...                   &#x27;CloseRequestFcn&#x27;, @(src, event) close_gui(fig));    % 存储块句柄在图形对象的 UserData 中    fig.UserData.blockHandle = blockHandle;    % 加载 DLL（在 GUI 启动时加载一次）    dll = fullfile(pwd, &#x27;bin&#x27;, &#x27;BWIBridgeDLL.dll&#x27;);    hdr = fullfile(pwd, &#x27;bin&#x27;, &#x27;BWIBridgeDLL.h&#x27;);    if ~libisloaded(&#x27;BWIBridgeDLL&#x27;)        loadlibrary(dll, hdr);    end    fig.UserData.dllLoaded = true;  % 标记 DLL 已加载    % 创建按钮来导入数据    btnImport = uibutton(fig, &#x27;push&#x27;, &#x27;Text&#x27;, &#x27;导入数据&#x27;, &#x27;Position&#x27;, [680, 360, 100, 30], ...                         &#x27;ButtonPushedFcn&#x27;, @(src, event) import_data(fig));    % 创建一个uitable用于显示数据    uit = uitable(fig, &#x27;Position&#x27;, [20, 60, 760, 280], ...                  &#x27;ColumnName&#x27;, &#123;&#x27;变量名&#x27;, &#x27;数值&#x27;, &#x27;最小值&#x27;, &#x27;最大值&#x27;, &#x27;说明&#x27;&#125;, ...                  &#x27;Data&#x27;, &#123;&#125;, &#x27;ColumnEditable&#x27;, [false true false false false]);    uit.Tag = &#x27;dataTable&#x27;;  % 设置标签，方便后续操作    % 用于保存数据的临时变量（移到 fig.UserData）    fig.UserData.data = [];    fig.UserData.originalData = [];  % 用于存储原始数据    % 创建一个TextArea来显示文件夹路径    filePathLabel = uilabel(fig, &#x27;Text&#x27;, &#x27;选择的文件夹路径：&#x27;, &#x27;Position&#x27;, [20, 360, 100, 30]);    filePathTextArea = uitextarea(fig, &#x27;Position&#x27;, [130, 360, 530, 30], &#x27;Tag&#x27;, &#x27;filePathTextArea&#x27;);    filePathTextArea.Editable = &#x27;off&#x27;;  % 设置为只读    % 创建&quot;确认&quot;按钮    uibutton(fig, &#x27;push&#x27;, &#x27;Text&#x27;, &#x27;确认&#x27;, &#x27;Position&#x27;, [520, 20, 100, 30], ...             &#x27;ButtonPushedFcn&#x27;, @(src, event) confirm_action(fig));    % 创建&quot;取消&quot;按钮    uibutton(fig, &#x27;push&#x27;, &#x27;Text&#x27;, &#x27;取消&#x27;, &#x27;Position&#x27;, [640, 20, 100, 30], ...             &#x27;ButtonPushedFcn&#x27;, @(src, event) cancel_action(fig));end
+
+这段代码是一个用于在 Simulink 模型中调用自定义 S-Function 的实现，目的是在仿真过程中与图形用户界面 (GUI) 交互，导入和修改参数。
+S-Function 主体首先，sfun_callInterface 函数是 S-Function 的入口，调用了 setup 函数来进行初始化配置。setup 函数为 S-Function 设置了输入输出端口、采样时间、以及仿真相关的回调方法。
+setup 函数在 setup 函数中，设置了 S-Function 的输入和输出端口配置。它没有输入端口，只有一个输出端口，并且输出的维度和数据类型进行了设定。该端口的采样模式为 Sample，表示输出数据为常规的样本数据。
+此外，SampleTimes 被设置为 [0 0]，这意味着该 S-Function 会立即执行并且不会进行周期性的采样。通过注册 PostPropagationSetup, InitializeConditions, Outputs, 和 Terminate 四个方法，定义了仿真生命周期内不同阶段的行为。
+最后，set_param 设置了 OpenFcn 触发，指向了 start_import_gui 函数，用于启动 GUI 界面。
+PostPropagationSetup 函数该函数用于声明 S-Function 中的 DWork（数据工作区）。DWork 是用来存储状态信息的地方。这里定义了三个 DWork 变量：
+
+guiLaunched 用于标识 GUI 是否已启动。
+confirmationFlag 用于存储从 GUI 获取的确认状态。
+simStarted 用于标记仿真是否已经启动。
+
+这些 DWork 变量的作用是确保 GUI 在需要时只启动一次，并且管理仿真状态，防止重复操作。
+InitCond 函数InitCond 函数在每次仿真开始时被调用，用来初始化 DWork 变量。在这里，所有的标志变量（guiLaunched, confirmationFlag, simStarted）都被初始化为 0，表示 GUI 尚未启动，确认标志为未设置，仿真尚未开始。
+Outputs 函数Outputs 函数是在仿真过程中持续被调用的，用来控制和更新仿真输出。首先，它获取了 GUI 启动状态、确认标志和仿真启动状态。如果 GUI 尚未启动，则调用 start_import_gui 函数启动 GUI 界面，并将 guiLaunched 标志设为 1。
+如果 GUI 已经启动，尝试从基础工作空间获取 confirmationFlag 变量的值。如果获取到有效值，则更新 DWork 中的 confirmationFlag。
+然后，函数检查确认标志的值：
+
+如果 confirmationFlag 为 1 且仿真尚未启动，则自动启动仿真，并将 simStarted 设为 1。
+如果 confirmationFlag 为 -1，表示取消，尝试停止正在运行的仿真。
+
+Terminate 函数Terminate 函数在仿真结束时调用，主要作用是清理基础工作空间中的标志变量 confirmationFlag，以防止在下次仿真中出现残留的状态信息。
+start_import_gui 函数start_import_gui 函数用于创建并显示 GUI 窗口。首先，它计算并设置窗口居中显示的坐标。然后，创建了一个图形界面，并在其中添加了以下元素：
+
+一个按钮用来触发数据导入。
+一个表格用来显示导入的数据。
+一个文本框用来显示当前选择的文件夹路径。
+“确认”和“取消”按钮，用来控制数据导入和取消操作。
+
+此外，在 GUI 初始化时加载了一个动态链接库（DLL），用于后续的参数导入和修改操作。
+调用Dll% 导入数据的回调函数function import_data(fig)    % 弹出文件夹选择对话框    folderPath = uigetdir(&#x27;&#x27;, &#x27;选择数据文件夹&#x27;);        if folderPath == 0  % 用户取消选择文件夹        return;    end    % 拼接完整路径    iniFilePath = fullfile(folderPath, &#x27;bwiparamtemp.ini&#x27;);        if ~isfile(iniFilePath)        uialert(fig, &#x27;bwiparamtemp.ini 文件不存在&#x27;, &#x27;导入错误&#x27;);        return;    end        % 调用 DLL 读取数据    try        % 创建处理器        proc = calllib(&#x27;BWIBridgeDLL&#x27;, &#x27;CreateProcessor&#x27;);                % 调用函数加载 INI 参数        calllib(&#x27;BWIBridgeDLL&#x27;, &#x27;LoadParametersFromIni&#x27;, proc, iniFilePath);                % 获取参数数量        paramCount = calllib(&#x27;BWIBridgeDLL&#x27;, &#x27;GetGlobalParameterCount&#x27;, proc);                % 获取参数的名称、数值、最小值、最大值、描述等        data = cell(paramCount, 5);  % 5 列：名称、数值、最小值、最大值、描述        for i = 0:paramCount-1            name = calllib(&#x27;BWIBridgeDLL&#x27;, &#x27;GetParameterName&#x27;, proc, i);            value = calllib(&#x27;BWIBridgeDLL&#x27;, &#x27;GetParameterValue&#x27;, proc, i);            minVal = calllib(&#x27;BWIBridgeDLL&#x27;, &#x27;GetParameterMin&#x27;, proc, i);            maxVal = calllib(&#x27;BWIBridgeDLL&#x27;, &#x27;GetParameterMax&#x27;, proc, i);            desc = calllib(&#x27;BWIBridgeDLL&#x27;, &#x27;GetParameterDescription&#x27;, proc, i);                        % 假设 value, minVal, maxVal 是 double，确保一致            data&#123;i+1, 1&#125; = char(name);      % 变量名 (确保字符串)            data&#123;i+1, 2&#125; = value;           % 数值 (double)            data&#123;i+1, 3&#125; = minVal;          % 最小值 (double)            data&#123;i+1, 4&#125; = maxVal;          % 最大值 (double)            data&#123;i+1, 5&#125; = char(desc);      % 说明 (确保字符串)        end                % 更新表格数据        uit = findobj(fig, &#x27;Tag&#x27;, &#x27;dataTable&#x27;);        uit.Data = data;  % 显示数据                % 保存数据到 fig.UserData（原始数据和当前数据）        fig.UserData.data = data;        fig.UserData.originalData = data;  % 存储原始数据副本        % 更新文件夹路径显示框        filePathTextArea = findobj(fig, &#x27;Tag&#x27;, &#x27;filePathTextArea&#x27;);        if ~isempty(filePathTextArea)            filePathTextArea.Value = &#123;folderPath&#125;;  % 显示路径 (uitextarea Value 是 cell)        else            uialert(fig, &#x27;未找到文件夹路径文本框，无法更新路径&#x27;, &#x27;更新错误&#x27;);        end                % 释放处理器        calllib(&#x27;BWIBridgeDLL&#x27;, &#x27;DeleteProcessor&#x27;, proc);                disp(&#x27;数据导入成功&#x27;);    catch ME        % 读取文件失败时的处理        uialert(fig, [&#x27;文件导入失败: &#x27;, ME.message], &#x27;导入错误&#x27;);    endend% 确认按钮的回调function confirm_action(fig)    % 获取表格数据    uit = findobj(fig, &#x27;Tag&#x27;, &#x27;dataTable&#x27;);    data = uit.Data;  % 表格中的所有数据    % 获取文件夹路径作为项目路径    filePathTextArea = findobj(fig, &#x27;Tag&#x27;, &#x27;filePathTextArea&#x27;);    folderPath = filePathTextArea.Value&#123;1&#125;;  % 获取显示的文件夹路径 (从 cell 取)        if isempty(folderPath)        uialert(fig, &#x27;文件夹路径无效&#x27;, &#x27;导入错误&#x27;);        return;    end    % 确保将 folderPath 转换为字符向量    folderPath = char(folderPath);    % 创建处理器    proc = calllib(&#x27;BWIBridgeDLL&#x27;, &#x27;CreateProcessor&#x27;);    % 获取原始数据从 fig.UserData    originalData = fig.UserData.originalData;        % 如果没有原始数据，则使用当前数据作为原始数据    if isempty(originalData)        originalData = data;        fig.UserData.originalData = data;    end        % 遍历表格中的每一行，获取参数名和新值    updated = false;  % 标记是否有更新    for i = 1:size(data, 1)        paramName = data&#123;i, 1&#125;;   % 参数名        newValue = data&#123;i, 2&#125;;    % 修改后的新值                % 确保 paramName 转换为字符向量        paramName = char(paramName);                % 确保 newValue 是数值类型 (表格编辑可能返回 char)        if ischar(newValue) || iscell(newValue)            newValue = str2double(newValue);        end        if isnan(newValue)            uialert(fig, [&#x27;参数 &#x27;, paramName, &#x27; 的值无效（非数值）&#x27;], &#x27;导入错误&#x27;);            calllib(&#x27;BWIBridgeDLL&#x27;, &#x27;DeleteProcessor&#x27;, proc);            return;        end                % 获取原始值        originalValue = originalData&#123;i, 2&#125;;                % 检查值是否发生变化        if isequal(newValue, originalValue)            disp([&#x27;参数 &#x27;, paramName, &#x27; 未发生变化，跳过更新&#x27;]);            continue; % 跳过这个参数        end                % 更新参数        result = calllib(&#x27;BWIBridgeDLL&#x27;, &#x27;RewriteBWIIni_Param&#x27;, proc, paramName, newValue, folderPath);                % 检查更新是否成功        if result            disp([&#x27;参数 &#x27;, paramName, &#x27; 修改成功&#x27;]);            % 更新原始数据            originalData&#123;i, 2&#125; = newValue;            updated = true;        else            uialert(fig, [&#x27;参数 &#x27;, paramName, &#x27; 修改失败&#x27;], &#x27;导入错误&#x27;);            calllib(&#x27;BWIBridgeDLL&#x27;, &#x27;DeleteProcessor&#x27;, proc);            return;        end    end        % 更新原始数据    fig.UserData.originalData = originalData;        % 释放处理器    calllib(&#x27;BWIBridgeDLL&#x27;, &#x27;DeleteProcessor&#x27;, proc);        % 在基础工作空间中设置确认标志为 1    assignin(&#x27;base&#x27;, &#x27;confirmationFlag&#x27;, 1);        % 关闭 GUI 窗口    delete(fig);end% 取消按钮的回调function cancel_action(fig)    % 在基础工作空间中设置确认标志为 -1    assignin(&#x27;base&#x27;, &#x27;confirmationFlag&#x27;, -1);        % 关闭 GUI 窗口    delete(fig);end% GUI 关闭回调函数function close_gui(fig)    % 卸载 DLL 如果已加载    if isfield(fig.UserData, &#x27;dllLoaded&#x27;) &amp;&amp; fig.UserData.dllLoaded &amp;&amp; libisloaded(&#x27;BWIBridgeDLL&#x27;)        unloadlibrary(&#x27;BWIBridgeDLL&#x27;);    end    % 清理其他资源如果需要    delete(fig);end
+
+import_data 函数import_data 函数是在用户点击导入按钮时调用的。它弹出一个文件夹选择对话框，允许用户选择包含数据文件的文件夹。如果用户选择了文件夹并且其中包含 bwiparamtemp.ini 文件，程序会调用 DLL 函数读取该文件中的参数并将其显示在表格中。
+confirm_action 函数confirm_action 函数在用户点击“确认”按钮时被调用。它从表格中读取每个参数的名称和值，并将更新的参数通过 DLL 保存到指定路径的 .ini 文件中。如果参数值有变化，则执行更新操作。
+更新成功后，将 confirmationFlag 设置为 1，表示操作已完成，仿真可以开始。
+cancel_action 函数cancel_action 函数在用户点击“取消”按钮时调用。它将 confirmationFlag 设置为 -1，表示取消操作，然后关闭 GUI 窗口。
+close_gui 函数close_gui 函数用于关闭 GUI 窗口时调用。它会卸载已经加载的 DLL，并释放其他资源。
+总结这段代码实现了一个与 Simulink 模型交互的 GUI 系统，允许用户在仿真过程中导入和修改参数，启动或停止仿真。代码通过 S-Function 接口与 Simulink 仿真框架进行集成，并使用 MATLAB 图形界面元素提供用户交互界面。设计上使用了 DWork 数据工作区来存储和管理仿真状态，并通过回调函数实现不同阶段的功能。
+关于文件在不同运行环境下编码不同的问题
+
+其主要原因在于，Matlab的运行环境和Visual Studio不同，而封装的读写代码中用到了windows的API，该API会根据运行编译环境来选择不同的写入方式，而Matlab默认使用UTF-8，从而导致写入数据时中文出现乱码的情况，如下图
+
+如果不需要在多个环境下运行（如Unicode），我们可以固定写入方式，如读写均采用ANSI方式
+char *CIniFile::ReadString(string &amp;m_Sec, string &amp;m_Ident, char *m_Def)&#123;	GetPrivateProfileStringA(m_Sec.c_str(), m_Ident.c_str(), m_Def, Buffer, sizeof(Buffer), m_Name);	return Buffer;&#125;bool CIniFile::WriteString(const char *m_Sec, const char *m_Ident, const char *m_Val)&#123;	return (bool)WritePrivateProfileStringA(m_Sec, m_Ident, m_Val, m_Name);&#125;
+
+也可以使用开源替代库来替代原有的ini操作类，如SimpleIni，或者自己手动检测编码，手动写入，如下
+void CIniFile::detectEncoding() &#123;	m_isUtf8 = false;	m_hasUtf8BOM = false;	unsigned char bom[3] = &#123; 0,0,0 &#125;;	if (FILE* f = std::fopen(m_Name, &quot;rb&quot;)) &#123;		std::fread(bom, 1, 3, f);		std::fclose(f);		if (bom[0] == 0xEF &amp;&amp; bom[1] == 0xBB &amp;&amp; bom[2] == 0xBF) &#123;			m_isUtf8 = true;			m_hasUtf8BOM = true;		&#125;	&#125;	// 如果无 BOM：保守视为 MBCS/ANSI（如 GBK）；这样不会把老文件强转 UTF-8。&#125;bool CIniFile::saveInternal() &#123;	if (!m_loaded) return false;	// UTF-8 文件：是否写 BOM：保持与原文件一致	const bool addSig = (m_isUtf8 &amp;&amp; m_hasUtf8BOM);	// 如果是 GB2312/GBK 编码，保存时不写 BOM	if (!m_isUtf8) &#123;		SI_Error rc = m_ini.SaveFile(m_Name, false); // No BOM for MBCS/ANSI		if (rc &lt; 0) return false;	&#125;	else &#123;		// 保存为 UTF-8 编码，并且根据原文件是否有 BOM 来决定是否加 BOM		SI_Error rc = m_ini.SaveFile(m_Name, addSig);		if (rc &lt; 0) return false;	&#125;	m_dirty = false;	return true;&#125;
+
+
+注意：如果非同一个项目，需要把所有用到的项目进行编译，并把运行需要的dll文件拷贝到Matlab环境下
+
+运行示例
+]]></content>
+      <categories>
+        <category>Simulink仿真</category>
+      </categories>
+      <tags>
+        <tag>Simulink</tag>
+        <tag>Matlab</tag>
+      </tags>
+  </entry>
 </search>
