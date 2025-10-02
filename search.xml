@@ -1459,6 +1459,91 @@ F5运行插件，会启动扩展宿主环境，打开任意文件夹，按下ctr
       </tags>
   </entry>
   <entry>
+    <title>LeetCode热题100(25.09.29)</title>
+    <url>/posts/8c812416.html</url>
+    <content><![CDATA[一：两数之和
+
+1. 暴力
+不写
+2. 哈希表
+哈希表通过用空间换时间，使用哈希函数将任意长度的键转换为一个固定范围的数组下标，时间复杂度为O(1)O(1)O(1)
+class Solution &#123;public:    vector&lt;int&gt; twoSum(vector&lt;int&gt;&amp; nums, int target) &#123;        unordered_map&lt;int, int&gt; hashMap;        for(int i = 0; i &lt; nums.size(); ++i)        &#123;            auto it = hashMap.find(target - nums[i]);       // 返回迭代器            if(it != hashMap.end())             // 和尾后迭代器比对            &#123;                return &#123;it-&gt;second, i&#125;;         // 找到就返回下标            &#125;            hashMap[nums[i]] = i;               // 没找到就把数据添加进hash表        &#125;        return &#123;&#125;;    &#125;&#125;;
+class Solution:    def twoSum(self, nums: List[int], target: int) -&gt; List[int]:        hashMap = dict()        for i, num in enumerate(nums):          # 遍历            if target - nums[i] in hashMap:     # 是否存在，可把nums[i]改为num                return [hashMap[target - num], i]            hashMap[nums[i]] = i        return []        
+class Solution &#123;    public int[] twoSum(int[] nums, int target) &#123;        Map&lt;Integer, Integer&gt; hashMap = new HashMap&lt;Integer, Integer&gt;();         // 初始化一个哈希表        for( int i = 0; i &lt; nums.length; ++i)        &#123;            if(hashMap.containsKey(target - nums[i]))           // 这里的K大写            &#123;                return new int[]&#123;hashMap.get(target - nums[i]), i&#125;;            &#125;            hashMap.put(nums[i], i);        &#125;        return new int[0];              // 返回为空    &#125;&#125;
+
+二：移动零
+
+1. 双指针
+题目要求不能复制，同时保证原有序列的顺序不变，因此只能交换非零值和零值的位置。
+
+思路一：处理零值，将零和右边非零值进行交换
+思路二：处理非零值，将非零值和左边零值进行交换
+
+方式一需要不断寻找非零值，性能稍差，因此采用方式二
+class Solution &#123;public:    void moveZeroes(vector&lt;int&gt;&amp; nums) &#123;        int Left = 0, Right = 0;                // Left的左边均为非零值，其指向第一个零值。Right的右边为未处理的序列，当前指向用于判断零值和非零值        for (int i = 0; i &lt; nums.size(); ++i)        &#123;            if (nums[i])            &#123;                swap(nums[Left], nums[Right]);              // 交换位置                ++Left;            &#125;            ++Right;        &#125;    &#125;&#125;;
+class Solution:    def moveZeroes(self, nums: List[int]) -&gt; None:        &quot;&quot;&quot;        Do not return anything, modify nums in-place instead.        &quot;&quot;&quot;        Left = Right = 0        for num in nums:            if num:                nums[Left], nums[Right] = nums[Right], nums[Left]                Left += 1            Right += 1
+class Solution &#123;    public void moveZeroes(int[] nums) &#123;        int Left = 0;        int Right = 0;        int temp;        for (int i = 0; i &lt; nums.length; ++i)        &#123;            if (nums[i] != 0)            &#123;                temp = nums[Left];                nums[Left] = nums[Right];                nums[Right] = temp;                ++Left;            &#125;            ++Right;        &#125;    &#125;&#125;
+
+三：相交链表
+1. Hash表
+将其中一个链表的数据放入哈希表，第二个链表依次判断是否包含即可
+class Solution &#123;public:    ListNode *getIntersectionNode(ListNode *headA, ListNode *headB) &#123;        unordered_set&lt;ListNode *&gt; hashTalble;        while (headA)        &#123;            hashTalble.insert(headA);            headA = headA-&gt;next;        &#125;        while (headB)        &#123;            if (hashTalble.count(headB))            &#123;                return headB;            &#125;            headB = headB-&gt;next;        &#125;        return nullptr;    &#125;&#125;;
+class Solution:    def getIntersectionNode(self, headA: ListNode, headB: ListNode) -&gt; Optional[ListNode]:        hashTable = set()        while headA:            hashTable.add(headA)            headA = headA.next              # 使用.运算符不是-&gt;，非指针                while headB:            if headB in hashTable:                return headB            headB = headB.next        return None             # 空为None        
+public class Solution &#123;    public ListNode getIntersectionNode(ListNode headA, ListNode headB) &#123;        Set&lt;ListNode&gt; hashTable = new HashSet&lt;ListNode&gt;();        while (headA != null)               // 不能直接判断headA        &#123;            hashTable.add(headA);            headA = headA.next;             // 使用.        &#125;        while (headB != null)        &#123;            if (hashTable.contains(headB))            &#123;                return headB;            &#125;            headB = headB.next;        &#125;        return null;            // 使用null    &#125;&#125;
+
+2. 双指针
+使用两个指针指向两个链表的头结点，判断两个指针是否相等，走到末尾如果两者不相同则将指针赋值为另一个链表的头结点继续遍历，如果有相交结点，在不超过第二次遍历一定会在相交结点使两个指针相等
+class Solution &#123;public:    ListNode *getIntersectionNode(ListNode *headA, ListNode *headB) &#123;        ListNode *pA = headA;        ListNode *pB = headB;        if (!pA || !pB)        &#123;            return nullptr;        &#125;        while (pA != pB)        &#123;            if (pA == nullptr) pA = headB;          // 可用三元运算符替代            else pA = pA-&gt;next;            if (pB == nullptr) pB = headA;            else pB = pB-&gt;next;        &#125;        return pA;    &#125;&#125;;
+class Solution:    def getIntersectionNode(self, headA: ListNode, headB: ListNode) -&gt; Optional[ListNode]:        if not headA or not headB:            return None        pA = headA        pB = headB        while pA != pB:             # 也可以用is not            if not pA:              # 或if pA is None:                pA = headB            else:                pA = pA.next            if not pB:                pB = headA            else:                pB = pB.next        return pA
+public class Solution &#123;    public ListNode getIntersectionNode(ListNode headA, ListNode headB) &#123;        if (headA == null || headB == null)            return null;        ListNode pA = headA, pB = headB;        while (pA != pB)        &#123;            pA = (pA == null) ? headB : pA.next;            pB = pB == null ? headA : pB.next;        &#125;        return pA;    &#125;&#125;
+
+四：反转链表
+
+
+1. 迭代反转
+根据头结点可获取到下一个结点，头结点的先前结点为空，可依次遍历将当前结点的指向进行反转，题目要求输出的结果也是反转的，因此需要返回最后一个结点
+class Solution &#123;public:    ListNode* reverseList(ListNode* head) &#123;        ListNode *pre = nullptr;        ListNode *next = nullptr;        ListNode *cur = head;        while (cur)        &#123;            next = cur-&gt;next;				// 先拿到后继结点            cur-&gt;next = pre;            pre = cur;            cur = next;        &#125;        return pre;    &#125;&#125;;
+class Solution &#123;    public ListNode reverseList(ListNode head) &#123;        ListNode pre = null;        ListNode next = null;        ListNode cur = head;        while (cur != null)        &#123;            next = cur.next;            cur.next = pre;            pre = cur;            cur = next;        &#125;        return pre;    &#125;&#125;
+class Solution:    def reverseList(self, head: Optional[ListNode]) -&gt; Optional[ListNode]:        cur = head        pre = None        while cur:            next = cur.next            cur.next = pre            pre = cur            cur = next        return pre
+
+2. 递归反转
+依次传入下一个结点，并返回最后一个结点，与上一个解法的区别在于由后向前反转，此时不需要前继结点
+class Solution &#123;public:    ListNode* reverseList(ListNode* head) &#123;        if (!head || !head-&gt;next)            // 链表为空或只有单结点        &#123;            return head;        &#125;        ListNode *Last = reverseList(head-&gt;next);           // 最后一个结点在这里        head-&gt;next-&gt;next = head;        // 这里不能用Last，因为Last不动，而head一直向前        head-&gt;next = nullptr;			// 必须设为空，否则第一个结点和第二个结点将互指        return Last;            // 一直返回最后一个结点    &#125;&#125;;
+class Solution &#123;    public ListNode reverseList(ListNode head) &#123;        if (head == null || head.next == null)        &#123;            return head;        &#125;        ListNode Last = reverseList(head.next);        head.next.next = head;        head.next = null;        return Last;    &#125;&#125;
+class Solution:    def reverseList(self, head: Optional[ListNode]) -&gt; Optional[ListNode]:        if not head or not head.next:            return head        Last = self.reverseList(head.next)			// 这里要用self        head.next.next = head        head.next = None        return Last
+
+五：回文链表
+
+1. 数组
+将链表中的数据复制到数组中，然后将数组反转或遍历第一个和最后一个数据进行比较
+class Solution &#123;public:    bool isPalindrome(ListNode* head) &#123;        vector&lt;int&gt; vals;        while (head)        &#123;            vals.emplace_back(head-&gt;val);            head = head-&gt;next;        &#125;        for (int i = 0, j = static_cast&lt;int&gt;(vals.size() - 1); i &lt; j; ++i, --j)        &#123;            if (vals[i] != vals[j]) return false;        &#125;        return true;    &#125;&#125;;
+class Solution &#123;    public boolean isPalindrome(ListNode head) &#123;        List&lt;Integer&gt; vals = new ArrayList&lt;Integer&gt;();        while (head != null)        &#123;            vals.add(head.val);            head = head.next;        &#125;        for (int i = 0, j = vals.size() - 1; i &lt; j; ++i, --j)        &#123;            if (vals.get(i) != vals.get(j)) return false;        &#125;        return true;    &#125;&#125;
+class Solution:    def isPalindrome(self, head: Optional[ListNode]) -&gt; bool:        vals = []        while head:            vals.append(head.val)            head = head.next        return vals == vals[::-1]			# 可直接利用反转列表来比对
+
+2. 递归
+递归可以从后往前遍历，但是也需要从前往后的一个结点来进行对比
+class Solution &#123;private:    ListNode *frontIteration = nullptr;			// 从前往后public:    bool isPalindrome(ListNode* head) &#123;        frontIteration = head;        return recursion(frontIteration);    &#125;    bool recursion(ListNode* head)    &#123;        if (head)        &#123;            if (!recursion(head-&gt;next))		// false继续返回false                &#123;                    return false;                &#125;            if (head-&gt;val != frontIteration-&gt;val) return false;		// true则进行比对            frontIteration = frontIteration-&gt;next;			// 每一层向后遍历        &#125;        return true;		// 末尾返回true    &#125;&#125;;
+class Solution &#123;    private ListNode frontIteration = null;    public boolean isPalindrome(ListNode head) &#123;        // boolean非bool        frontIteration = head;        return recursion(head);    &#125;    public boolean recursion(ListNode head)    &#123;        if (head != null)        &#123;            if (!recursion(head.next))            &#123;                return false;            &#125;            if (head.val != frontIteration.val) return false;            frontIteration = frontIteration.next;        &#125;        return true;    &#125;&#125;
+class Solution:    def isPalindrome(self, head: Optional[ListNode]) -&gt; bool:        self.frontIteration = head              # 成员变量的初始化，如果不在这里需要在__init__中        return self._recursion(head)    def _recursion(self, head: Optional[ListNode]) -&gt; bool:         # _表明内部使用，Optional表示可能的类型，-&gt; bool返回类型        if head:            if not self._recursion(head.next):                return False            if head.val != self.frontIteration.val:                return False            self.frontIteration = self.frontIteration.next        return True
+
+3.快慢指针
+该方法主要是寻找到链表的中间结点，然后将前半部分或者后半部分反转，对两部分进行比较，由于中间需要修改链表，并发处理下需要锁定其他线程或进程对链表的访问。快慢的意思则是通过两个指针，一个步长为2，另一个为1，当快指针到达尾节点时，慢指针到达中间结点，从而减少重复遍历的时间。反转可以使用之前的代码
+class Solution &#123;public:    bool isPalindrome(ListNode* head) &#123;        if (!head) return true;        ListNode *lastNode = reverseList(interMediateNode(head));        while (head != lastNode &amp;&amp; head != nullptr)        &#123;            if (head-&gt;val != lastNode-&gt;val) return false;            head = head-&gt;next;            lastNode = lastNode-&gt;next;        &#125;        return true;    &#125;    // 寻找中间节点，    ListNode* interMediateNode(ListNode* head)    &#123;        ListNode *fastNode = head;        ListNode *slowNode = head;        while (fastNode != nullptr &amp;&amp; fastNode-&gt;next-&gt;next != nullptr)        &#123;            fastNode = fastNode-&gt;next-&gt;next;            slowNode = slowNode-&gt;next;        &#125;        return slowNode;    &#125;    ListNode* reverseList(ListNode* head) &#123;        ListNode *pre = nullptr;        ListNode *next = nullptr;        ListNode *cur = head;        while (cur)        &#123;            next = cur-&gt;next;				// 先拿到后继结点            cur-&gt;next = pre;            pre = cur;            cur = next;        &#125;        return pre;    &#125;&#125;;
+class Solution &#123;    public boolean isPalindrome(ListNode head) &#123;        // boolean非bool        if (head == null) return true;        ListNode lastNode = reverseList(interMediateNode(head));        while (head != lastNode &amp;&amp; head != null)        &#123;            if (head.val != lastNode.val) return false;            head = head.next;            lastNode = lastNode.next;        &#125;        return true;    &#125;    public ListNode reverseList(ListNode head) &#123;        ListNode pre = null;        ListNode next = null;        ListNode cur = head;        while (cur != null)        &#123;            next = cur.next;            cur.next = pre;            pre = cur;            cur = next;        &#125;        return pre;    &#125;    public ListNode interMediateNode(ListNode head)    &#123;        ListNode fastNode = head;        ListNode slowNode = head;        while (fastNode != null &amp;&amp; fastNode.next.next != null)        &#123;            fastNode = fastNode.next.next;            slowNode = slowNode.next;        &#125;        return slowNode;    &#125;&#125;
+class Solution:    def isPalindrome(self, head: Optional[ListNode]) -&gt; bool:        if (not head):            return True        lastNode = self.reverseList(self.interMediateNode(head))        while (head != lastNode and head):            if head.val != lastNode.val:                return False            head = head.next            lastNode = lastNode.next        return True    def reverseList(self, head: Optional[ListNode]) -&gt; Optional[ListNode]:        cur = head        pre = None        while cur:            next = cur.next            cur.next = pre            pre = cur            cur = next        return pre        def interMediateNode(self, head: Optional[ListNode]) -&gt; Optional[ListNode]:        fastNode = head        slowNode = head        while fastNode and fastNode.next.next:            fastNode = fastNode.next.next            slowNode = slowNode.next        return slowNode
+
+]]></content>
+      <categories>
+        <category>算法</category>
+      </categories>
+      <tags>
+        <tag>Python</tag>
+        <tag>LeetCode</tag>
+        <tag>C++</tag>
+        <tag>Java</tag>
+      </tags>
+  </entry>
+  <entry>
     <title>Simulink调用外部Dll交互《三》</title>
     <url>/posts/ee275623.html</url>
     <content><![CDATA[介绍
