@@ -1544,6 +1544,93 @@ class Solution:    def isPalindrome(self, head: Optional[ListNode]) -&gt; bool: 
       </tags>
   </entry>
   <entry>
+    <title>LeetCode热题100(25.09.30)</title>
+    <url>/posts/5c81f568.html</url>
+    <content><![CDATA[一：环形链表
+
+1. 哈希表
+遍历节点并将节点存入哈希表，判断表中是否存在之前的节点即可
+class Solution &#123;public:    bool hasCycle(ListNode *head) &#123;        unordered_set&lt;ListNode*&gt; hashTable;        while (head != nullptr)        &#123;            if (hashTable.count(head)) return true;            hashTable.insert(head);            head = head-&gt;next;        &#125;        return false;    &#125;&#125;;
+public class Solution &#123;    public boolean hasCycle(ListNode head) &#123;        Set&lt;ListNode&gt; hashTable = new HashSet&lt;ListNode&gt;();        while (head != null)        &#123;            if (hashTable.contains(head)) return true;			// 或if (!hashTable.add(head)) return true;            hashTable.add(head);            head = head.next;        &#125;        return false;    &#125;&#125;
+class Solution:    def hasCycle(self, head: Optional[ListNode]) -&gt; bool:        hashTable = set()        while head:            if head in hashTable:                return True            hashTable.add(head)            head = head.next        return False
+
+2. 快慢指针
+通过两个不同的指针来表示行进速度，差值为1，从初始到最后相遇相当于快指针多走了一个环
+class Solution &#123;public:    bool hasCycle(ListNode *head) &#123;        if (head == nullptr || head-&gt;next == nullptr) return false;        ListNode* fastNode = head-&gt;next;        // 相差一个起始位置，从而进入循环        ListNode* slowNode = head;        while (slowNode != fastNode)        &#123;            if (fastNode == nullptr || fastNode-&gt;next == nullptr) return false;            slowNode = slowNode-&gt;next;            fastNode = fastNode-&gt;next-&gt;next;        &#125;        return true;    &#125;&#125;;
+public class Solution &#123;    public boolean hasCycle(ListNode head) &#123;        if (head == null || head.next == null) return false;        ListNode fastNode = head.next;        // 相差一个起始位置，从而进入循环        ListNode slowNode = head;        while (slowNode != fastNode)        &#123;            if (fastNode == null || fastNode.next == null) return false;            slowNode = slowNode.next;            fastNode = fastNode.next.next;        &#125;        return true;    &#125;&#125;
+class Solution:    def hasCycle(self, head: Optional[ListNode]) -&gt; bool:        if head is None or head.next is None:            return False        fastNode = head.next;        # 相差一个起始位置，从而进入循环        slowNode = head        while slowNode != fastNode:            if fastNode is None or fastNode.next is None:                return false            slowNode = slowNode.next            fastNode = fastNode.next.next        return True
+
+二：合并两个有序链表
+
+1. 迭代
+依次比较两个链表中的值，较小值放在较大值的前面
+class Solution &#123;public:    ListNode* mergeTwoLists(ListNode* list1, ListNode* list2) &#123;        ListNode* preNode = new ListNode(0);			// 哨兵节点         ListNode* cur = preNode;        if (!list1) return list2;        if (!list2) return list1;        while (list1 != nullptr &amp;&amp; list2 != nullptr)        &#123;            if (list1-&gt;val &lt; list2-&gt;val)            &#123;                cur-&gt;next = list1;                list1 = list1-&gt;next;            &#125;             else            &#123;                cur-&gt;next = list2;                list2 = list2-&gt;next;            &#125;            cur = cur-&gt;next;        &#125;        cur-&gt;next = list1 == nullptr ? list2 : list1;        return preNode-&gt;next;    &#125;&#125;;
+class Solution &#123;    public ListNode mergeTwoLists(ListNode list1, ListNode list2) &#123;        ListNode preNode = new ListNode(0);        ListNode cur = preNode;        if (list1 == null) return list2;        if (list2 == null) return list1;        while (list1 != null &amp;&amp; list2 != null)        &#123;            if (list1.val &lt; list2.val)            &#123;                cur.next = list1;                list1 = list1.next;            &#125;             else            &#123;                cur.next = list2;                list2 = list2.next;            &#125;            cur = cur.next;        &#125;        cur.next = list1 == null ? list2 : list1;        return preNode.next;    &#125;&#125;
+class Solution:    def mergeTwoLists(self, list1: Optional[ListNode], list2: Optional[ListNode]) -&gt; Optional[ListNode]:        preNode = ListNode(0)			# 没有new        cur = preNode        if not list1:			# 这个判断好像不需要，后面的代码实现同样的功能            return list2        if not list2:            return list1        while list1 and list2:               if list1.val &lt; list2.val:                cur.next = list1                list1 = list1.next            else:                cur.next = list2                list2 = list2.next            cur = cur.next        if list1:            cur.next = list1        else:            cur.next = list2        return preNode.next
+
+2. 递归
+根据最小值按照相反方向逐一返回
+class Solution &#123;public:    ListNode* mergeTwoLists(ListNode* list1, ListNode* list2) &#123;        if (!list1) return list2;        if (!list2) return list1;        if (list1-&gt;val &lt; list2-&gt;val)        &#123;            list1-&gt;next = mergeTwoLists(list1-&gt;next, list2);            return list1;        &#125; else        &#123;            list2-&gt;next = mergeTwoLists(list2-&gt;next, list1);            return list2;        &#125;    &#125;&#125;;
+class Solution &#123;    public ListNode mergeTwoLists(ListNode list1, ListNode list2) &#123;        if (list1 == null) return list2;        if (list2 == null) return list1;        if (list1.val &lt; list2.val)        &#123;            list1.next = mergeTwoLists(list1.next, list2);            return list1;        &#125; else        &#123;            list2.next = mergeTwoLists(list2.next, list1);            return list2;        &#125;    &#125;&#125;
+class Solution:    def mergeTwoLists(self, list1: Optional[ListNode], list2: Optional[ListNode]) -&gt; Optional[ListNode]:        if list1 == None:            return list2        if list2 == None:            return list1        if list1.val &lt; list2.val:            list1.next = self.mergeTwoLists(list1.next, list2)            return list1        else:            list2.next = self.mergeTwoLists(list2.next, list1)            return list2
+
+三：二叉树的中序遍历
+1. 递归
+先逐层访问左节点，然后保存当前值，再访问右节点
+class Solution &#123;private:    vector&lt;int&gt; nodes;public:    vector&lt;int&gt; inorderTraversal(TreeNode* root) &#123;        recursion(root);        return nodes;    &#125;    void recursion(TreeNode* root)    &#123;        if (!root) return;        recursion(root-&gt;left);        nodes.emplace_back(root-&gt;val);        recursion(root-&gt;right);    &#125;&#125;;
+class Solution &#123;    private List&lt;Integer&gt; nodes = new ArrayList&lt;Integer&gt;();		// 需要new    public List&lt;Integer&gt; inorderTraversal(TreeNode root) &#123;        recursion(root);        return nodes;    &#125;    public void recursion(TreeNode root)    &#123;        if (root == null) return;        recursion(root.left);        nodes.add(root.val);        recursion(root.right);    &#125;&#125;
+class Solution:    def inorderTraversal(self, root: Optional[TreeNode]) -&gt; List[int]:        self.nodes = []        self._recursion(root)        return self.nodes    def _recursion(self, root: Optional[TreeNode]):        if not root:            return        self._recursion(root.left)        self.nodes.append(root.val)				# 这里使用append        self._recursion(root.right)
+
+2. 迭代
+这里需要一个栈来维护树的层次
+class Solution &#123;private:    vector&lt;int&gt; nodes;public:    vector&lt;int&gt; inorderTraversal(TreeNode* root) &#123;        stack&lt;TreeNode*&gt; treeStack;        while (root != nullptr || !treeStack.empty())       // 需要保证栈中的内容处理完毕        &#123;            while (root != nullptr)            &#123;                treeStack.push(root);           // 入栈                root = root-&gt;left;            &#125;            root = treeStack.top();             // 栈顶            nodes.emplace_back(root-&gt;val);            treeStack.pop();                    // 拿到数据出栈            root = root-&gt;right;       &#125;        return nodes;    &#125;&#125;;
+class Solution &#123;    public List&lt;Integer&gt; inorderTraversal(TreeNode root) &#123;        List&lt;Integer&gt; nodes = new ArrayList&lt;Integer&gt;();        Deque&lt;TreeNode&gt; treeDeque = new ArrayDeque&lt;TreeNode&gt;();        while (root != null || !treeDeque.isEmpty())        // 使用isEmpty        &#123;            while (root != null)            &#123;                treeDeque.push(root);                root = root.left;            &#125;            root = treeDeque.pop();            nodes.add(root.val);            root = root.right;        &#125;        return nodes;    &#125;&#125;
+class Solution:    def inorderTraversal(self, root: Optional[TreeNode]) -&gt; List[int]:        nodes = []        treeStack = []        while root is not None or treeStack:            while root is not None:                treeStack.append(root)                root = root.left            root = treeStack.pop()            nodes.append(root.val)            root = root.right        return nodes
+
+3. Morris 中序遍历
+查找第一个左节点，然后遍历该结点的右节点，将最后一个右节点指向根节点，依次循环，访问时向右遍历即可
+class Solution &#123;private:    vector&lt;int&gt; nodes;public:    vector&lt;int&gt; inorderTraversal(TreeNode* root) &#123;        TreeNode* cur = nullptr;        while (root)        &#123;            if (root-&gt;left)            &#123;                cur = root-&gt;left;                while (cur-&gt;right != nullptr &amp;&amp; cur-&gt;right != root )                &#123;                    cur = cur-&gt;right;                &#125;                if (cur-&gt;right == nullptr)                &#123;                    cur-&gt;right = root;                    root = root-&gt;left;                &#125; else                &#123;                    nodes.emplace_back(root-&gt;val);                    cur-&gt;right = nullptr;           // 要赋空，否则死循环                    root = root-&gt;right;                &#125;            &#125; else             &#123;                nodes.emplace_back(root-&gt;val);                root = root-&gt;right;            &#125;        &#125;        return nodes;    &#125;&#125;;
+class Solution &#123;    public List&lt;Integer&gt; inorderTraversal(TreeNode root) &#123;        List&lt;Integer&gt; nodes = new ArrayList&lt;Integer&gt;();        TreeNode cur = null;        while (root != null)        &#123;            if (root.left != null)            &#123;                cur = root.left;                while (cur.right != null &amp;&amp; cur.right != root)     // cur.right != root必须有                &#123;                    cur = cur.right;                &#125;                if (cur.right == null)                &#123;                    cur.right = root;                    root = root.left;                &#125; else                &#123;                    nodes.add(root.val);                    cur.right = null;           // 要赋空，否则死循环                    root = root.right;                &#125;            &#125; else             &#123;                nodes.add(root.val);                root = root.right;            &#125;        &#125;        return nodes;    &#125;&#125;
+class Solution:    def inorderTraversal(self, root: Optional[TreeNode]) -&gt; List[int]:        nodes = []        cur = None        while root is not None:            if root.left is not None:                cur = root.left                while cur.right is not None and cur.right is not root:     # cur.right is not root必须有                    cur = cur.right                if cur.right == None:                    cur.right = root                    root = root.left                else:                    nodes.append(root.val)                    cur.right = None           # 要赋空，否则死循环                    root = root.right            else:                nodes.append(root.val)                root = root.right          return nodes
+
+四：二叉树的最大深度
+
+1. 深度优先搜索
+利用递归依次遍历左右节点，取其中的较大值
+class Solution &#123;public:    int maxDepth(TreeNode* root) &#123;        if (root == nullptr) return 0;        return max(maxDepth(root-&gt;left), maxDepth(root-&gt;right)) + 1;    &#125;&#125;;
+class Solution &#123;    public int maxDepth(TreeNode root) &#123;        if (root == null) return 0;        return Math.max(maxDepth(root.left), maxDepth(root.right)) + 1; // 使用Math.max    &#125;&#125;
+class Solution:    def maxDepth(self, root: Optional[TreeNode]) -&gt; int:        if root == None:            return 0        return max(self.maxDepth(root.left), self.maxDepth(root.right)) + 1		# 加self
+
+2. 广度优先搜索
+class Solution &#123;public:    int maxDepth(TreeNode* root) &#123;        if (root == nullptr) return 0;        queue&lt;TreeNode*&gt; treeQueue;        treeQueue.push(root);        int depth = 0;        while (!treeQueue.empty())        &#123;            int size = treeQueue.size();            while (size &gt; 00)            &#123;                TreeNode* root = treeQueue.front();                treeQueue.pop();                if (root-&gt;left) treeQueue.push(root-&gt;left);                if (root-&gt;right) treeQueue.push(root-&gt;right);                --size;            &#125;            ++depth;        &#125;        return depth    &#125;&#125;;
+class Solution &#123;    public int maxDepth(TreeNode root) &#123;        if (root == null) return 0;        Queue&lt;TreeNode&gt; treeQueue = new LinkedList&lt;TreeNode&gt;();        treeQueue.offer(root);      // 使用offer        int depth = 0;        while (treeQueue.isEmpty() == false)        &#123;            int size = treeQueue.size();            while (size &gt; 0)            &#123;                TreeNode newroot = treeQueue.poll();       // 使用poll                if (newroot.left != null) treeQueue.offer(newroot.left);                if (newroot.right != null) treeQueue.offer(newroot.right);                --size;            &#125;            ++depth;        &#125;        return depth;    &#125;&#125;
+class Solution:    def maxDepth(self, root: Optional[TreeNode]) -&gt; int:        if root == None:            return 0        treeQueue = deque([root])         # 使用deque            depth = 0        while treeQueue:            size = len(treeQueue)            while size &gt; 0:                newroot = treeQueue.popleft()       # 使用popleft                if newroot.left:                    treeQueue.append(newroot.left)      # 使用append                if newroot.right:                    treeQueue.append(newroot.right)                size -= 1            depth += 1        return depth
+
+五：翻转二叉树
+
+1. 递归
+左右节点依次递归，找到叶子节点，然后交换左右位置
+class Solution &#123;public:    TreeNode* invertTree(TreeNode* root) &#123;        if (root == nullptr) return nullptr;        TreeNode* temp = root-&gt;left;        root-&gt;left = invertTree(root-&gt;right);        root-&gt;right = invertTree(temp);        return root;    &#125;&#125;;
+class Solution &#123;    public TreeNode invertTree(TreeNode root) &#123;        if (root == null) return null;        TreeNode temp = root.left;        root.left = invertTree(root.right);        root.right = invertTree(temp);        return root;    &#125;&#125;
+class Solution:    def invertTree(self, root: Optional[TreeNode]) -&gt; Optional[TreeNode]:        if root == None:            return None        temp = root.left		# 或平行赋值        root.left = self.invertTree(root.right)        root.right = self.invertTree(temp)        return root
+
+2. 迭代
+class Solution &#123;public:    TreeNode* invertTree(TreeNode* root) &#123;        if (root == nullptr) return nullptr;        stack&lt;TreeNode*&gt; treeStack;        TreeNode* cur = nullptr;        TreeNode* temp = nullptr;        treeStack.push(root);        while (!treeStack.empty())        &#123;            cur = treeStack.top();            treeStack.pop();            if (cur-&gt;left != nullptr) treeStack.push(cur-&gt;left);            if (cur-&gt;right != nullptr) treeStack.push(cur-&gt;right);            temp = cur-&gt;left;            cur-&gt;left = cur-&gt;right;            cur-&gt;right = temp;        &#125;        return root;    &#125;&#125;;
+class Solution &#123;    public TreeNode invertTree(TreeNode root) &#123;        if (root == null) return null;        Stack&lt;TreeNode&gt; treeStack = new Stack&lt;&gt;();        treeStack.add(root);        TreeNode cur = null;        TreeNode temp = null;        while (!treeStack.isEmpty())        &#123;            cur = treeStack.pop();            if (cur.left != null) treeStack.add(cur.left);            if (cur.right != null) treeStack.add(cur.right);            temp = cur.left;            cur.left = cur.right;            cur.right = temp;        &#125;        return root;    &#125;&#125;
+class Solution:    def invertTree(self, root: Optional[TreeNode]) -&gt; Optional[TreeNode]:        if root == None:            return None        treeStack = []        treeStack.append(root)        while treeStack:            cur = treeStack.pop()            if cur.left != None: treeStack.append(cur.left)            if cur.right != None: treeStack.append(cur.right)            cur.left, cur.right = cur.right, cur.left        return root
+
+]]></content>
+      <categories>
+        <category>算法</category>
+      </categories>
+      <tags>
+        <tag>Python</tag>
+        <tag>LeetCode</tag>
+        <tag>C++</tag>
+        <tag>Java</tag>
+      </tags>
+  </entry>
+  <entry>
     <title>Simulink调用外部Dll交互《三》</title>
     <url>/posts/ee275623.html</url>
     <content><![CDATA[介绍
