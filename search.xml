@@ -1703,6 +1703,133 @@ class Solution:    def isValid(self, s: str) -&gt; bool:        if (len(s) % 2 !
       </tags>
   </entry>
   <entry>
+    <title>LeetCode热题100(25.10.2)</title>
+    <url>/posts/ede30f.html</url>
+    <content><![CDATA[一：买卖股票的最佳时机
+
+1. 暴力
+不写
+2. 一次遍历
+记录最低值和利润最高值
+class Solution &#123;public:    int maxProfit(vector&lt;int&gt;&amp; prices) &#123;        int maxP = 0;           // 后面的最大利润        int minP = 1e9;         // 之前的最低值        for (auto price : prices)        &#123;            maxP = max(maxP, price - minP);            minP = min(minP, price);        &#125;        return maxP;    &#125;&#125;;
+class Solution &#123;    public int maxProfit(int[] prices) &#123;        int maxP = 0;                   int minP = Integer.MAX_VALUE;                 for (int i =  0; i &lt; prices.length; ++i)        &#123;            int price = prices[i];            maxP = Math.max(maxP, price - minP);            minP = Math.min(minP, price);        &#125;        return maxP;    &#125;&#125;
+class Solution:    def maxProfit(self, prices: List[int]) -&gt; int:        maxP = 0                   minP = 1e9                 for price in prices:            maxP = max(maxP, price - minP)            minP = min(minP, price)        return maxP
+
+二：爬楼梯
+
+1. 动态规划
+f(x)=f(x−1)+f(x−2)f(x)=f(x−1)+f(x−2)
+f(x)=f(x−1)+f(x−2)
+爬到第 x 级台阶的方案数是爬到第 x−1 级台阶的方案数和爬到第 x−2 级台阶的方案数的和，f(0)=1f(0)=1f(0)=1，f(1)=1f(1)=1f(1)=1，对空间的优化使用滚动数组
+
+class Solution &#123;public:    int climbStairs(int n) &#123;        int sPre = 0, pre = 0, cur = 1;        for (int i = 1; i &lt;= n; ++i)        &#123;            sPre = pre;		// 赋值顺序不能反            pre = cur;            cur = sPre + pre;        &#125;        return cur;    &#125;&#125;;
+class Solution &#123;    public int climbStairs(int n) &#123;        int sPre = 0, pre = 0, cur = 1;        for (int i = 1; i &lt;= n; ++i)        &#123;            sPre = pre;            pre = cur;            cur = sPre + pre;        &#125;        return cur;    &#125;&#125;
+class Solution:    def climbStairs(self, n: int) -&gt; int:        sPre, pre, cur = 0, 0, 1        # 赋值        for _ in range(n):      # 遍历，_不使用            sPre = pre            pre = cur            cur = sPre + pre        return cur
+
+2. 矩阵快速幂
+[1110][f(n)f(n−1)]=[f(n)+f(n−1)f(n)]=[f(n+1)f(n)]\begin{bmatrix} 1 &amp; 1 \\ 1 &amp; 0 \end{bmatrix} \begin{bmatrix} f(n) \\ f(n-1) \end{bmatrix} = \begin{bmatrix} f(n)+f(n-1) \\ f(n) \end{bmatrix} = \begin{bmatrix} f(n+1) \\ f(n) \end{bmatrix}
+[11​10​][f(n)f(n−1)​]=[f(n)+f(n−1)f(n)​]=[f(n+1)f(n)​]
+[f(n+1)f(n)]=[1110]n[f(1)f(0)]\begin{bmatrix} f(n+1) \\ f(n) \end{bmatrix} = \begin{bmatrix} 1 &amp; 1 \\ 1 &amp; 0 \end{bmatrix}^{n} \begin{bmatrix} f(1) \\ f(0) \end{bmatrix}
+[f(n+1)f(n)​]=[11​10​]n[f(1)f(0)​]
+M=[1110]M = \begin{bmatrix} 1 &amp; 1 \\ 1 &amp; 0 \end{bmatrix}
+M=[11​10​]
+常规计算M的n次方时间复杂度同上，这里使用快速幂
+**快速幂是一种用于在 O(log⁡n)O(\log n)O(logn) 时间内计算 ana^nan 的高效算法。它利用了指数的二进制表示来减少乘法运算的次数，通常用于解决指数非常大时可能导致超时的问题。
+基本思想
+传统方法计算 ana^nan 需要进行 n−1n-1n−1 次乘法（即 a×a×⋯×aa \times a \times \dots \times aa×a×⋯×a）。快速幂则利用以下数学性质：
+
+如果 nnn 是偶数，an=an/2×an/2a^n = a^{n/2} \times a^{n/2}an=an/2×an/2。
+如果 nnn 是奇数，an=a(n−1)/2×a(n−1)/2×aa^n = a^{(n-1)/2} \times a^{(n-1)/2} \times aan=a(n−1)/2×a(n−1)/2×a。
+
+这个思想的核心是将指数 nnn 不断折半。通过将 nnn 转换为二进制形式，我们可以将 ana^nan 的计算分解为一系列乘法和平方操作。例如，要计算 a13a^{13}a13，因为 131313 的二进制是 110111011101，即 13=8+4+113 = 8 + 4 + 113=8+4+1，所以：
+a13=a8+4+1=a8×a4×a1a^{13} = a^{8+4+1} = a^8 \times a^4 \times a^1a13=a8+4+1=a8×a4×a1
+我们只需要计算 a1,a2,a4,a8a^1, a^2, a^4, a^8a1,a2,a4,a8（通过不断平方得到），然后将这些项相乘即可。这比直接进行 12 次乘法要快得多。
+算法步骤
+
+初始化结果 res = 1。
+将底数 base 设为 aaa。
+当指数 n&gt;0n &gt; 0n&gt;0 时循环：
+
+如果 nnn 的二进制最后一位是 1（即 nnn 为奇数），将 res 乘以 base。
+将 base 自身相乘（base = base * base）。
+将 nnn 右移一位（n = n &gt;&gt; 1），相当于 n=n/2n = n / 2n=n/2。
+
+
+返回 res。
+
+
+class Solution &#123;public:    int climbStairs(int n) &#123;        vector&lt;vector&lt;long long&gt;&gt; init = &#123;&#123;1, 1&#125;, &#123;1, 0&#125;&#125;;        vector&lt;vector&lt;long long&gt;&gt; result = matrixPow(init, n);        return result[0][0];    &#125;    vector&lt;vector&lt;long long&gt;&gt; multiplication(vector&lt;vector&lt;long long&gt;&gt;&amp; a, vector&lt;vector&lt;long long&gt;&gt;&amp; b)      // 二阶矩阵乘法    &#123;         vector&lt;vector&lt;long long&gt;&gt; c(2, vector&lt;long long&gt;(2));        for (int i = 0; i &lt; a.size(); ++i)        &#123;            for (int j = 0; j &lt; b[0].size(); ++j)            &#123;                c[i][j] = a[i][0] * b[0][j] + a[i][1] * b[1][j];            &#125;        &#125;        return c;    &#125;    vector&lt;vector&lt;long long&gt;&gt; matrixPow(vector&lt;vector&lt;long long&gt;&gt;&amp; a, int n)    &#123;        vector&lt;vector&lt;long long&gt;&gt; unit = &#123;            &#123;1, 0&#125;,            &#123;0, 1&#125;        &#125;;        while (n &gt; 0)        &#123;            if ((n &amp; 1) == 1) unit = multiplication(unit, a);            a = multiplication(a, a);            n &gt;&gt;= 1;        &#125;        return unit;    &#125;&#125;;
+class Solution &#123;    public int climbStairs(int n) &#123;        int[][] init = &#123;&#123;1, 1&#125;, &#123;1, 0&#125;&#125;;        // 使用int[][]或long        int[][] result = matrixPow(init, n);        return result[0][0];    &#125;    public int[][] multiplication(int[][] a, int[][] b)      // 二阶矩阵乘法    &#123;         int[][] c = new int[2][2];         // 基本数据类型        for (int i = 0; i &lt; a.length; ++i)        &#123;            for (int j = 0; j &lt; b[0].length; ++j)            &#123;                c[i][j] = a[i][0] * b[0][j] + a[i][1] * b[1][j];            &#125;        &#125;        return c;    &#125;    public int[][] matrixPow(int[][] a, int n)    &#123;        int[][] unit = &#123;            &#123;1, 0&#125;,            &#123;0, 1&#125;        &#125;;        while (n &gt; 0)        &#123;            if ((n &amp; 1) == 1) unit = multiplication(unit, a);            a = multiplication(a, a);            n &gt;&gt;= 1;        &#125;        return unit;    &#125;&#125;
+class Solution:    def climbStairs(self, n: int) -&gt; int:        init = [[1, 1], [1, 0]]                result = self._matrixPow(init, n)        return result[0][0]    def multiplication(self, a, b):            c = [[1, 1], [1, 0]]              for i in range(2):            for j in range(2):                c[i][j] = a[i][0] * b[0][j] + a[i][1] * b[1][j]        return c    def _matrixPow(self, a, n):        unit = [[1, 0], [0, 1]]          while n &gt; 0:            if ((n &amp; 1) == 1): unit = self.multiplication(unit, a)            a = self.multiplication(a, a)            n &gt;&gt;= 1        return unit
+
+3. 通项公式
+
+class Solution &#123;public:    int climbStairs(int n) &#123;        double sqrt5 = sqrt(5);        return static_cast&lt;int&gt;(round((pow((1 + sqrt5) / 2, n + 1) - pow((1 - sqrt5) / 2, n + 1)) / sqrt5));    &#125;&#125;;
+class Solution &#123;    public int climbStairs(int n) &#123;        double sqrt5 = Math.sqrt(5);        return (int)(Math.round((Math.pow((1 + sqrt5) / 2, n + 1) - Math.pow((1 - sqrt5) / 2, n + 1)) / sqrt5));    &#125;&#125;
+class Solution:    def climbStairs(self, n: int) -&gt; int:        sqrt5 = sqrt(5)        return (int)(round((pow((1 + sqrt5) / 2, n + 1) - pow((1 - sqrt5) / 2, n + 1)) / sqrt5))
+
+三：杨辉三角
+
+1. 数学分析
+
+class Solution &#123;public:    vector&lt;vector&lt;int&gt;&gt; generate(int numRows) &#123;        vector&lt;vector&lt;int&gt;&gt; result(numRows);        for (int i= 0; i &lt; numRows; ++i)        &#123;            result[i].resize(i + 1);            result[i][0] = result[i][i] = 1;            for (int j = 1; j &lt; i; ++j)            &#123;                result[i][j] = result[i - 1][j] + result[i - 1][j - 1];            &#125;        &#125;        return result;    &#125;&#125;;
+class Solution &#123;    public List&lt;List&lt;Integer&gt;&gt; generate(int numRows) &#123;        List&lt;List&lt;Integer&gt;&gt; result = new ArrayList&lt;List&lt;Integer&gt;&gt;();        for (int i= 0; i &lt; numRows; ++i)        &#123;            List&lt;Integer&gt; row = new ArrayList&lt;&gt;();            for (int j = 0; j &lt;= i; ++j)            &#123;                if (j == 0 || j == i) row.add(1);                else row.add(result.get(i - 1).get(j - 1) + result.get(i - 1).get(j));            &#125;            result.add(row);        &#125;        return result;    &#125;&#125;
+class Solution:    def generate(self, numRows: int) -&gt; List[List[int]]:        result = []        for i in range(numRows):            row = []            for j in range(0, i + 1):       # 0-i                if j == 0 or j == i: row.append(1)                else: row.append(result[i - 1][j] + result[i - 1][j - 1])            result.append(row)        return result
+
+四：只出现一次的数字
+
+1. 位运算
+题目要求使用空间复杂度为常量，因此常规解法不可用。这里采用异或，性质如下
+
+class Solution &#123;public:    int singleNumber(vector&lt;int&gt;&amp; nums) &#123;        int result = 0;        for (auto num : nums)            result ^=num;        return result;    &#125;&#125;;
+class Solution &#123;    public int singleNumber(int[] nums) &#123;        int result = 0;        for (int num : nums)        // 没有auto            result ^=num;        return result;    &#125;&#125;
+class Solution:    def singleNumber(self, nums: List[int]) -&gt; int:        result = 0        for num in nums:                   result ^=num        return result		# return reduce(lambda x, y: x ^ y, nums) 使用lambda，reduce从可迭代对象中取出第一个和第二个元素，用指定的函数进行计算，将计算结果与第三个元素再次进行计算，直到所有元素处理完毕
+
+五：多数元素
+
+1. 哈希表
+数组的值作为键，出现的次数作为值
+class Solution &#123;public:    int majorityElement(vector&lt;int&gt;&amp; nums) &#123;        unordered_map&lt;int, int&gt; hashMap;        int count = 0, numberous = 0;        for (auto num : nums)        &#123;            ++hashMap[num];            if (hashMap[num] &gt; count)		// 通过该方式无需再次遍历哈希表            &#123;                count = hashMap[num];                numberous = num;            &#125;        &#125;         return numberous;    &#125;&#125;;
+class Solution &#123;    public int majorityElement(int[] nums) &#123;        Map&lt;Integer, Integer&gt; hashMap = new HashMap&lt;&gt;();        int count = 0, numberous = 0;        for (int num : nums)        &#123;            if (hashMap.containsKey(num)) hashMap.put(num, hashMap.get(num) + 1);            else hashMap.put(num, 1);                        if (hashMap.get(num) &gt; count)            &#123;                count = hashMap.get(num) ;                numberous = num;            &#125;        &#125;         return numberous;    &#125;&#125;
+class Solution:    def majorityElement(self, nums: List[int]) -&gt; int:        counts = collections.Counter(nums)		# 统计每个元素的个数，保存为字典        return max(counts.keys(), key = counts.get)			# 根据键取出对应的值的最大值
+
+2. 排序
+由于多数总是超过元素总和的二分之一，那么排序后中间的元素一定是多数（奇偶均可）
+class Solution:    def majorityElement(self, nums: List[int]) -&gt; int:        counts = collections.Counter(nums)        return max(counts.keys(), key = counts.get)
+class Solution &#123;    public int majorityElement(int[] nums) &#123;        Arrays.sort(nums);      // 使用Arrays        return nums[nums.length / 2];    &#125;&#125;
+class Solution:    def majorityElement(self, nums: List[int]) -&gt; int:        nums.sort()        return nums[len(nums) // 2]
+
+3. 随机化
+随机挑选一个元素作为多数，然后统计
+class Solution &#123;public:    int majorityElement(vector&lt;int&gt;&amp; nums) &#123;        while (true)        &#123;            int count = 0;            int right = nums[rand() % nums.size()];		// 也可以假设第一个为多数，依次尝试，比随机时间稍低，因为不会重复            for (auto num : nums)                if (num == right) ++count;            if (count &gt; nums.size() / 2) return right;        &#125;    &#125;&#125;;
+class Solution &#123;    public int majorityElement(int[] nums) &#123;        Random rand = new Random();        while (true)        &#123;            int right = nums[rand.nextInt(nums.length)];            int count = 0;            for (int num : nums)                if (num == right) ++count;            if (count &gt; nums.length / 2) return right;        &#125;    &#125;&#125;
+class Solution:    def majorityElement(self, nums: List[int]) -&gt; int:        while True:            right = random.choice(nums)            count = 0            for num in nums:		# 或if sum(1 for elem in nums if elem == candidate) &gt; majority_count:                if num == right: count += 1            if count &gt; len(nums) // 2: return right
+
+4. 分治
+将数据分为两组，多数一定会存在其中一组
+class Solution &#123;public:    int majorityElement(vector&lt;int&gt;&amp; nums) &#123;        return recursion(nums, 0, nums.size() - 1);    &#125;    int recursion(vector&lt;int&gt;&amp; nums, int left, int right)    &#123;        if (left == right) return nums[left];        int mid = ((right - left) &gt;&gt; 1) + left;        int leftNum = recursion(nums, left, mid);        int rightNum = recursion(nums, mid + 1, right);		// 两者相等可以直接返回了leftNum == rightNum        if (countNum(nums, leftNum, left, right) &gt; (right - left + 1) / 2) return leftNum;        if (countNum(nums, rightNum, left, right) &gt; (right - left + 1) / 2) return rightNum;        return -1;    &#125;    int countNum(vector&lt;int&gt;&amp; nums, int target, int lo, int hi)    &#123;        int count = 0;        for (int i = lo; i &lt;= hi; ++i)            if (nums[i] == target)                ++count;        return count;    &#125;&#125;;
+class Solution &#123;    public int majorityElement(int[] nums) &#123;        return recursion(nums, 0, nums.length - 1);    &#125;    public int recursion(int[] nums, int left, int right)    &#123;        if (left == right) return nums[left];        int mid = ((right - left) &gt;&gt; 1) + left;        int leftNum = recursion(nums, left, mid);        int rightNum = recursion(nums, mid + 1, right);        if (countNum(nums, leftNum, left, right) &gt; (right - left + 1) / 2) return leftNum;        if (countNum(nums, rightNum, left, right) &gt; (right - left + 1) / 2) return rightNum;        return -1;    &#125;    int countNum(int[] nums, int target, int lo, int hi)    &#123;        int count = 0;        for (int i = lo; i &lt;= hi; ++i)            if (nums[i] == target)                ++count;        return count;    &#125;&#125;
+class Solution:    def majorityElement(self, nums: List[int]) -&gt; int:        return self.recursion(nums, 0, len(nums) - 1)    def recursion(self, nums, left, right):        if (left == right): return nums[left]        mid = ((right - left) // 2) + left        leftNum = self.recursion(nums, left, mid)        rightNum = self.recursion(nums, mid + 1, right)        if (self.countNum(nums, leftNum, left, right) &gt; (right - left + 1) / 2): return leftNum        if (self.countNum(nums, rightNum, left, right) &gt; (right - left + 1) / 2): return rightNum        return -1    def countNum(self, nums, target, lo, hi):        count = 0        for num in nums:            if (num == target):                count +=1        return count    # 官方写法class Solution:    def majorityElement(self, nums: List[int]) -&gt; int:        def majority_elem在·ent_rec(lo, hi) -&gt; int:            if lo == hi:                return nums[lo]                        mid = (hi - lo) // 2 + lo            left = majority_element_rec(lo, mid)            right = majority_element_rec(mid + 1, hi)            if left == right:                return left            left_count = sum(1 for i in range(lo, hi + 1) if nums[i] == left)            right_count = sum(1 for i in range(lo, hi + 1) if nums[i] == right)            return left if left_count &gt; right_count else right        return majority_element_rec(0, len(nums) - 1)
+
+5. Boyer-Moore 投票算法
+
+利用多数大于二分之一的性质，所有元素加减之后一定大于零，最后一个零出现的位置意味着之后的第一个元素一定是多数，因为如果不是多数，后面还会出现零
+class Solution &#123;public:    int majorityElement(vector&lt;int&gt;&amp; nums) &#123;    int right = -1;    int count = 0;    for (auto num : nums)    &#123;        if (count == 0) right = num;        if (num == right) ++count;        else --count;    &#125;    return right;    &#125;&#125;;
+class Solution &#123;    public int majorityElement(int[] nums) &#123;        int right = -1;        int count = 0;        for (int num : nums)        &#123;            if (count == 0) right = num;            if (num == right) ++count;            else --count;        &#125;        return right;    &#125;&#125;
+class Solution:    def majorityElement(self, nums: List[int]) -&gt; int:        right = -1        count = 0        for num in nums:            if (count == 0): right = num            if (num == right): count += 1            else: count -= 1        return right
+
+]]></content>
+      <categories>
+        <category>算法</category>
+      </categories>
+      <tags>
+        <tag>Python</tag>
+        <tag>LeetCode</tag>
+        <tag>C++</tag>
+        <tag>Java</tag>
+      </tags>
+  </entry>
+  <entry>
     <title>Simulink调用外部Dll交互《三》</title>
     <url>/posts/ee275623.html</url>
     <content><![CDATA[介绍
