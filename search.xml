@@ -2743,6 +2743,42 @@ bash run.sh
       </tags>
   </entry>
   <entry>
+    <title>LeetCode热题100(25.10.10)</title>
+    <url>/posts/994990d2.html</url>
+    <content><![CDATA[一：实现Trie（前缀树）
+
+1. 字典树
+这是一种用边表示数据的图，节点主要包含两部分，一个是子节点指针，另一部分是用数组模拟的字符数据
+class Trie &#123;public:    vector&lt;Trie*&gt; sub;    bool endFlag;    Trie() :sub(26), endFlag(false) &#123;&#125;        void insert(string word) &#123;        Trie* root = this;        for (auto&amp; ch : word)         &#123;            if (root-&gt;sub[ch - &#x27;a&#x27;] == nullptr)        // 不存在子节点，创建新的                root-&gt;sub[ch - &#x27;a&#x27;] = new Trie();            root = root-&gt;sub[ch - &#x27;a&#x27;];       // 移动到子节点        &#125;        root-&gt;endFlag = true;       // 单词结尾标识    &#125;        bool search(string word) &#123;        Trie* root = this;        for (auto&amp; ch : word)         &#123;            if (root-&gt;sub[ch - &#x27;a&#x27;] == nullptr) return false;            root = root-&gt;sub[ch - &#x27;a&#x27;];        &#125;        return root-&gt;endFlag;    &#125;        bool startsWith(string prefix) &#123;        Trie* root = this;        for (auto&amp; ch : prefix)         &#123;            if (root-&gt;sub[ch - &#x27;a&#x27;] == nullptr) return false;            root = root-&gt;sub[ch - &#x27;a&#x27;];        &#125;        return true;    &#125;&#125;;
+
+二：全排列
+
+1. 回溯
+其本质很像递归和深度优先搜索，类似于走迷宫，先选择一条路，直到达到目标或者发现无法走通进行回退，主要分为三部分：选择、探索、恢复选择
+class Solution &#123;public:    vector&lt;vector&lt;int&gt;&gt; result;    vector&lt;vector&lt;int&gt;&gt; permute(vector&lt;int&gt;&amp; nums) &#123;        recursion(nums, 0, nums.size());        return result;    &#125;    void recursion(vector&lt;int&gt;&amp; nums, int left, int right)    &#123;        if (left == right)        &#123;            result.emplace_back(nums);            return;        &#125;        for (int i = left; i &lt; right; ++i)        &#123;            swap(nums[i], nums[left]);            recursion(nums, left + 1, right);            swap(nums[left], nums[i]);        &#125;    &#125;&#125;;
+
+三：子集
+
+1. 二进制迭代
+假如数组包含n个元素，子集的所有可能为2n2^n2n，因此可以使用一个数值来表示该二进制，然后求出对应的子集
+class Solution &#123;public:    vector&lt;vector&lt;int&gt;&gt; ans;    vector&lt;vector&lt;int&gt;&gt; subsets(vector&lt;int&gt;&amp; nums) &#123;        int len = nums.size();        for (int i = 0; i &lt; (1 &lt;&lt; len); ++i)			// 2^n        &#123;            vector&lt;int&gt; temp;            for (int j = 0; j &lt; len; ++j)            &#123;                if (i &amp; (1 &lt;&lt; j)) temp.emplace_back(nums[j]);			// 判断第j位的值            &#125;            ans.emplace_back(temp);        &#125;        return ans;    &#125;&#125;;
+
+2. 递归枚举
+逐字符处理，需要考虑每个字符的两种状态
+class Solution &#123;public:    vector&lt;vector&lt;int&gt;&gt; ans;    vector&lt;int&gt; temp;    vector&lt;vector&lt;int&gt;&gt; subsets(vector&lt;int&gt;&amp; nums) &#123;        recursion(0, nums);        return ans;    &#125;    void recursion(int cur, vector&lt;int&gt;&amp; nums)    &#123;        if (cur == nums.size())        &#123;            ans.emplace_back(temp);            return;        &#125;        temp.emplace_back(nums[cur]);       // 添加字符，存在的情况        recursion(cur + 1, nums);       // 下一个        temp.pop_back();            // 该字符不存在的情况        recursion(cur + 1, nums);    &#125;&#125;;
+
+]]></content>
+      <categories>
+        <category>算法</category>
+      </categories>
+      <tags>
+        <tag>LeetCode</tag>
+        <tag>C++</tag>
+        <tag>Python</tag>
+        <tag>Java</tag>
+      </tags>
+  </entry>
+  <entry>
     <title>LeetCode热题100(25.10.9)</title>
     <url>/posts/e3193ac4.html</url>
     <content><![CDATA[一：岛屿数量
@@ -2769,6 +2805,7 @@ class Solution &#123;public:    int orangesRotting(vector&lt;vector&lt;int&gt;&g
 三：课程表
 
 1. 深度优先搜索
+实际上是判断该结构是否为有向无环图，使用0、1、2来表示节点的状态，再次遇到1表示存在环
 class Solution &#123;public:    vector&lt;vector&lt;int&gt;&gt; edge;    vector&lt;int&gt; visit;    bool canFinish(int numCourses, vector&lt;vector&lt;int&gt;&gt;&amp; prerequisites) &#123;        edge.resize(numCourses);        visit.resize(numCourses);         for (auto&amp; it : prerequisites)            edge[it[1]].emplace_back(it[0]);            // 构造节点的有向边        for (int i = 0; i &lt; numCourses; ++i)            if (visit[i] == 0)              // 未访问的节点，每一个都判断防止森林的情况                &#123;                    if (!recursion(i)) return false;                &#125;        return true;            &#125;    bool recursion(int i)    &#123;        visit[i] = 1;               // 表示正在访问，还未完成        for (auto sub : edge[i])        // 寻找子节点        &#123;            if (visit[sub] == 0)                &#123;                    if (!recursion(sub)) return false;                &#125;         // 表明子节点存在环，直接返回无需设为已完成            else if(visit[sub] == 1)      // 访问到正在访问的节点，表明出现环                return false;        &#125;        visit[i] = 2;               // 完成访问        return true;    &#125;&#125;;
 
 2. 广度优先搜索
