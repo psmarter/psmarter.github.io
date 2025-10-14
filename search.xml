@@ -2779,6 +2779,64 @@ class Solution &#123;public:    vector&lt;vector&lt;int&gt;&gt; ans;    vector&l
       </tags>
   </entry>
   <entry>
+    <title>LeetCode热题100(25.10.11)</title>
+    <url>/posts/8052a193.html</url>
+    <content><![CDATA[一：电话号码的字母组合
+
+1. 回溯
+这道题的思路和子集很相似，不过需要使用哈希表处理映射关系
+class Solution &#123;public:    vector&lt;string&gt; ans;    string sub;    unordered_map&lt;char, string&gt; map&#123;            &#123;&#x27;2&#x27;, &quot;abc&quot;&#125;,            &#123;&#x27;3&#x27;, &quot;def&quot;&#125;,            &#123;&#x27;4&#x27;, &quot;ghi&quot;&#125;,            &#123;&#x27;5&#x27;, &quot;jkl&quot;&#125;,            &#123;&#x27;6&#x27;, &quot;mno&quot;&#125;,            &#123;&#x27;7&#x27;, &quot;pqrs&quot;&#125;,            &#123;&#x27;8&#x27;, &quot;tuv&quot;&#125;,            &#123;&#x27;9&#x27;, &quot;wxyz&quot;&#125;        &#125;;    vector&lt;string&gt; letterCombinations(string digits) &#123;        if (digits.empty()) return ans;        recursion(digits, 0);        return ans;    &#125;    void recursion(string&amp; digits, int cur)    &#123;        if (cur == digits.size())        &#123;            ans.emplace_back(sub);            return;        &#125;        char ch = digits[cur];        auto&amp; subLetter = map.at(ch);        for (auto&amp; ch : subLetter)        &#123;            sub.push_back(ch);            recursion(digits, cur + 1);            sub.pop_back();        &#125;    &#125;&#125;;
+
+二：组合总和
+
+1. 搜索回溯
+这道题的思路也和子集很相似，区别在于子集只有选和不选，必须进入下一层，而当前题目可以包含重复值，可以一直选择一个元素
+class Solution &#123;public:    vector&lt;vector&lt;int&gt;&gt; combinationSum(vector&lt;int&gt;&amp; candidates, int target) &#123;        vector&lt;vector&lt;int&gt;&gt; ans;        vector&lt;int&gt; temp;        recursion(candidates, target - 0, ans, temp, 0);        return ans;    &#125;    void recursion(vector&lt;int&gt;&amp; candidates, int&amp;&amp; target, vector&lt;vector&lt;int&gt;&gt;&amp; ans, vector&lt;int&gt;&amp; temp, int cur)    &#123;        if (cur == candidates.size()) return;        if (target == 0)        &#123;            ans.emplace_back(temp);            return;        &#125;        recursion(candidates, target - 0, ans, temp, cur + 1);      // 跳过        if (target - candidates[cur] &gt;= 0)        &#123;            temp.emplace_back(candidates[cur]);     // 选择            recursion(candidates, target - candidates[cur], ans, temp, cur);      // 下一层            temp.pop_back();        &#125;    &#125;&#125;;
+
+三：括号生成
+
+1. 暴力
+使用暴力将所有组合生成并检测是否是有效字符串
+class Solution &#123;public:    vector&lt;string&gt; generateParenthesis(int n) &#123;        vector&lt;string&gt; ans;        string cur;        gengerateAll(ans, cur, n * 2);       // 有double的字符        return ans;    &#125;    void gengerateAll(vector&lt;string&gt;&amp; ans, string&amp; cur, int n)    &#123;        if (cur.size() == n)        // 一个完整的字符串        &#123;            if (isValid(cur)) ans.emplace_back(cur);            return;        &#125;        cur.push_back(&#x27;(&#x27;);        gengerateAll(ans, cur, n);        cur.pop_back();        cur.push_back(&#x27;)&#x27;);        gengerateAll(ans, cur, n);        cur.pop_back();    &#125;    bool isValid(string&amp; str)    &#123;        int index = 0;        for (auto&amp; ch : str)        &#123;            if (ch == &#x27;(&#x27;) ++index;     // 左括号加一，右括号减一            else --index;            if (index &lt; 0) return false;        // 说明前面的字符串右括号多于左括号，肯定不是有效字符串        &#125;        return index == 0;    &#125;&#125;;
+
+2. 回溯
+暴力充斥了很多无效的字符串直到最后才做判断，可以在递归过程中就对字符串进行检查
+class Solution &#123;public:    vector&lt;string&gt; generateParenthesis(int n) &#123;        vector&lt;string&gt; ans;        string cur;        gengerateAll(ans, cur, n * 2, 0, 0);       // 有double的字符        return ans;    &#125;    void gengerateAll(vector&lt;string&gt;&amp; ans, string&amp; cur, int n, int left, int right)    &#123;        if (cur.size() == n)        // 一个完整的字符串        &#123;            ans.emplace_back(cur);            return;        &#125;        if (left &lt; n / 2)        &#123;            cur.push_back(&#x27;(&#x27;);            gengerateAll(ans, cur, n, left + 1, right);            cur.pop_back();        &#125;        if (right &lt; left)        &#123;               cur.push_back(&#x27;)&#x27;);            gengerateAll(ans, cur, n, left, right + 1);            cur.pop_back();        &#125;    &#125;&#125;;
+
+3. 按括号序列的长度递归
+每个有效字符串必是’(‘开头，某个’)'结尾，其组成为“(A)B”，A的可能性为i对，则B为n-i-1对
+class Solution &#123;public:    shared_ptr&lt;vector&lt;string&gt;&gt; cache[10] = &#123;nullptr&#125;;    vector&lt;string&gt; generateParenthesis(int n) &#123;        return *generate(n);    &#125;    shared_ptr&lt;vector&lt;string&gt;&gt; generate(int n) &#123;        if (cache[n] != nullptr)            return cache[n];        if (n == 0) &#123;            cache[0] = shared_ptr&lt;vector&lt;string&gt;&gt;(new vector&lt;string&gt;&#123;&quot;&quot;&#125;);        &#125; else &#123;            auto result = shared_ptr&lt;vector&lt;string&gt;&gt;(new vector&lt;string&gt;);            for (int i = 0; i != n; ++i) &#123;                auto lefts = generate(i);                auto rights = generate(n - i - 1);                for (const string&amp; left : *lefts)                    for (const string&amp; right : *rights)                        result -&gt; push_back(&quot;(&quot; + left + &quot;)&quot; + right);            &#125;            cache[n] = result;        &#125;        return cache[n];    &#125;&#125;;
+
+四：单词搜索
+
+1. 回溯
+使用dfs来逐个访问节点，已访问的需要标记，并在访问后恢复，因为后续还会访问
+class Solution &#123;public:    bool exist(vector&lt;vector&lt;char&gt;&gt;&amp; board, string word) &#123;        int row = board.size();        int col = board[0].size();        vector&lt;vector&lt;int&gt;&gt; visited(row, vector&lt;int&gt;(col));        for (int i = 0; i &lt; row; ++i)            for (int j = 0; j &lt; col; ++j)                if (recursion(board, visited, i, j, word, 0)) return true;        return false;    &#125;    bool recursion(vector&lt;vector&lt;char&gt;&gt;&amp; board, vector&lt;vector&lt;int&gt;&gt;&amp; visited, int i, int j, string&amp; word, int cur)    &#123;        if (board[i][j] != word[cur]) return false;        else if (cur == word.size() - 1) return true;		// 应当减少size的调用        visited[i][j] = 1;		 // 原地标记更快，不需要额外内存        vector&lt;pair&lt;int, int&gt;&gt; directions&#123;&#123;0, 1&#125;, &#123;0, -1&#125;, &#123;1, 0&#125;, &#123;-1, 0&#125;&#125;;		// 这里可使用static提高运行速度        for (auto&amp; dir : directions)        &#123;            int newi = i + dir.first;            int newj = j + dir.second;            if (newi &gt;= 0 &amp;&amp; newi &lt; board.size() &amp;&amp; newj &gt;= 0 &amp;&amp; newj &lt; board[0].size())                if (!visited[newi][newj])                    if (recursion(board, visited, newi, newj, word, cur + 1)) return true;        &#125;        visited[i][j] = 0;        return false;    &#125;&#125;;
+
+五：分割回文串
+
+1. 回溯+动态规划
+本题的难点在于状态转移方程
+
+
+class Solution &#123;public:    vector&lt;vector&lt;string&gt;&gt; result;    vector&lt;vector&lt;int&gt;&gt; flag;    vector&lt;string&gt; cur;    int len;    vector&lt;vector&lt;string&gt;&gt; partition(string s) &#123;        len = s.size();        flag.assign(len, vector&lt;int&gt;(len, true));        for (int i = len - 1; i &gt;= 0; --i)            for (int j = i + 1; j &lt; len; ++j)                flag[i][j] = (s[i] == s[j]) &amp;&amp; flag[i + 1][j - 1];        // i需要减，j需要加，形成上三角矩阵，这是本题的关键        recursion(s, 0);        return result;    &#125;    void recursion(string&amp; s, int i)    &#123;        if (i == len)         &#123;            result.emplace_back(cur);            return;        &#125;        for (int j = i; j &lt; len; ++j)        &#123;            if (flag[i][j])            &#123;                cur.emplace_back(s.substr(i, j + 1 - i));                recursion(s, j + 1);                cur.pop_back();            &#125;        &#125;    &#125;&#125;;
+
+2. 回溯+记忆化搜索
+这里不使用数组来表示子字符串的状态，而是在递归时不断更新
+class Solution &#123;public:    vector&lt;vector&lt;string&gt;&gt; result;    vector&lt;vector&lt;int&gt;&gt; flag;    vector&lt;string&gt; cur;    int len;    vector&lt;vector&lt;string&gt;&gt; partition(string s) &#123;        len = s.size();        flag.assign(len, vector&lt;int&gt;(len));        recursion(s, 0);        return result;    &#125;    void recursion(string&amp; s, int i)    &#123;        if (i == len)         &#123;            result.emplace_back(cur);            return;        &#125;        for (int j = i; j &lt; len; ++j)        &#123;            if (IsPalindrome(s, i, j) == 1)            &#123;                cur.emplace_back(s.substr(i, j + 1 - i));                recursion(s, j + 1);                cur.pop_back();            &#125;        &#125;    &#125;    int IsPalindrome(string&amp; s, int i, int j)      // 0 、1、-1    &#123;        if (flag[i][j]) return flag[i][j];        if (i &gt;= j) return flag[i][j] = 1;        return flag[i][j] = (s[i] == s[j] ? IsPalindrome(s, i + 1, j - 1) : -1);    &#125;&#125;;
+
+]]></content>
+      <categories>
+        <category>算法</category>
+      </categories>
+      <tags>
+        <tag>LeetCode</tag>
+        <tag>C++</tag>
+        <tag>Python</tag>
+        <tag>Java</tag>
+      </tags>
+  </entry>
+  <entry>
     <title>LeetCode热题100(25.10.9)</title>
     <url>/posts/e3193ac4.html</url>
     <content><![CDATA[一：岛屿数量
