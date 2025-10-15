@@ -2837,6 +2837,54 @@ class Solution &#123;public:    vector&lt;vector&lt;string&gt;&gt; result;    ve
       </tags>
   </entry>
   <entry>
+    <title>LeetCode热题100(25.10.12)</title>
+    <url>/posts/ab7ff250.html</url>
+    <content><![CDATA[一：搜索二维矩阵
+
+1. 两次查找
+第一次在每行的第一个元素查找，然后在该行中查找
+class Solution &#123;public:    bool searchMatrix(vector&lt;vector&lt;int&gt;&gt;&amp; matrix, int target) &#123;        auto row = upper_bound(matrix.begin(), matrix.end(), target, [](int target, vector&lt;int&gt;&amp; row)&#123;return target &lt; row[0];&#125;);  // 需要自定义比较函数，因为一个值无法与数组比较        if (row == matrix.begin()) return false;        --row;        return binary_search(row-&gt;begin(), row-&gt;end(), target);    &#125;&#125;;
+
+2. 一次查找
+将二位矩阵展开为一维，然后把索引转换为二维去处理
+class Solution &#123;public:    bool searchMatrix(vector&lt;vector&lt;int&gt;&gt;&amp; matrix, int target) &#123;        int row = matrix.size();        int col = matrix[0].size();        int left = 0, right = row * col - 1;        while (left &lt;= right)        &#123;            int mid = ((right - left) &gt;&gt; 1) + left;            int cur = matrix[mid / col][mid % col];     // 对列处理            if (cur &gt; target) right = mid - 1;            else if (cur &lt; target) left = mid + 1;            else return true;        &#125;        return false;    &#125;&#125;;
+
+二：在排序数组中查找元素的第一个和最后一个位置
+
+1. 二分查找
+先查找左边界，然后寻找右边界，最后验证
+class Solution &#123;public:    vector&lt;int&gt; searchRange(vector&lt;int&gt;&amp; nums, int target) &#123;        int left = BinarySearch(nums, target, true);        int right = BinarySearch(nums, target, false) - 1;        if (left &gt;= 0 &amp;&amp; left &lt;= right &amp;&amp; right &lt; nums.size() &amp;&amp; nums[left] == target &amp;&amp; nums[right] == target)            return vector&lt;int&gt;&#123;left, right&#125;;        return vector&lt;int&gt;&#123;-1, -1&#125;;    &#125;    int BinarySearch(vector&lt;int&gt;&amp; nums, int target, int lowFlag)    &#123;        int left = 0;        int right = nums.size() - 1;        int mid = 0;        int ans = nums.size();        while (left &lt;= right)        &#123;            mid = (right - left) / 2 + left;            if (nums[mid] &gt; target || (nums[mid] &gt;= target &amp;&amp; lowFlag))            &#123;                right = mid - 1;                ans = mid;            &#125;            else                left = mid + 1;        &#125;        return ans;    &#125;&#125;;
+
+三：搜索旋转排序数组
+
+1. 二分查找
+这题比普通的二分稍微复杂一些，主要在于取中间点后，中间点可能大于也可能小于起始元素，但有一边一定是有序的
+class Solution &#123;public:    int search(vector&lt;int&gt;&amp; nums, int target) &#123;        int len = nums.size();        if (len == 0) return false;        if (len == 1) return target == nums[0] ? 0 : -1;        int left = 0, right = len - 1;        int mid = 0;        while (left &lt;= right)        &#123;            mid = (right - left) / 2 + left;            if (nums[mid] == target) return mid;            if (nums[0] &lt;= nums[mid])            &#123;                if (nums[0] &lt;= target &amp;&amp; target &lt; nums[mid])                    right = mid - 1;                else                    left = mid + 1;            &#125; else            &#123;                if (nums[mid] &lt; target &amp;&amp; target &lt;= nums[len - 1])                    left = mid + 1;                else                       right = right -1;            &#125;        &#125;        return -1;    &#125;&#125;;
+
+四：寻找旋转排序数组中的最小值
+
+1. 二分查找
+这题和上题类似，主要利用划分后最小值可能存在的位置，左边或者右边
+class Solution &#123;public:    int findMin(vector&lt;int&gt;&amp; nums) &#123;        int left = 0;        int right = nums.size() - 1;        int mid = 0;        while (left &lt; right)        &#123;            mid = (right - left) / 2 + left;            if (nums[mid] &lt; nums[right])                right = mid;            else                left = mid + 1;        &#125;        return nums[left];    &#125;&#125;;
+
+五：最小栈
+
+1. 辅助栈
+栈的实现可以直接使用stack，但这里需要记录最小值，并且常数查找，因此使用辅助栈来记录每一个元素对应的最小值
+class MinStack &#123;    stack&lt;int&gt; value;    stack&lt;int&gt; min;public:    MinStack() &#123;        min.push(INT_MAX);    &#125;        void push(int val) &#123;        value.push(val);        min.push(std::min(val, min.top()));    &#125;        void pop() &#123;        value.pop();        min.pop();    &#125;        int top() &#123;        return value.top();    &#125;        int getMin() &#123;        return min.top();    &#125;&#125;;
+
+]]></content>
+      <categories>
+        <category>算法</category>
+      </categories>
+      <tags>
+        <tag>LeetCode</tag>
+        <tag>C++</tag>
+        <tag>Python</tag>
+        <tag>Java</tag>
+      </tags>
+  </entry>
+  <entry>
     <title>LeetCode热题100(25.10.9)</title>
     <url>/posts/e3193ac4.html</url>
     <content><![CDATA[一：岛屿数量
