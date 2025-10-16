@@ -2885,6 +2885,50 @@ class MinStack &#123;    stack&lt;int&gt; value;    stack&lt;int&gt; min;public:
       </tags>
   </entry>
   <entry>
+    <title>LeetCode热题100(25.10.13)</title>
+    <url>/posts/b264c311.html</url>
+    <content><![CDATA[一：字符串解码
+
+1. 栈操作
+将数字和左括号入栈，遇到右括号对数据进行处理
+class Solution &#123;public:    string decodeString(string s) &#123;        vector&lt;string&gt; stk;        int cur = 0;        string digits;        while (cur &lt; s.size())        &#123;            char ch = s[cur];            if (isdigit(ch))            &#123;                digits = GetDigits(s, cur, digits);                stk.push_back(digits);            &#125; else if (isalpha(ch) || ch == &#x27;[&#x27;)                stk.push_back(string(1, s[cur++]));            else            &#123;                ++cur;      // ]直接略过                string sub;                string temp;                while (stk.back() != &quot;[&quot;)                &#123;                    sub = stk.back() + sub;                    stk.pop_back();                &#125;                //reverse(sub.begin(), sub.end());                stk.pop_back();     // 左括号略过                int count = stoi(stk.back());                stk.pop_back();                 while (count--) temp += sub;                stk.push_back(temp);            &#125;        &#125;        string result;        for (auto&amp; s : stk) result += s;        return result;    &#125;    string&amp; GetDigits(string&amp; s, int&amp; cur, string&amp; digits)    &#123;        digits.clear();        while (isdigit(s[cur])) digits.push_back(s[cur++]);        return digits;    &#125;&#125;;
+
+2. 递归
+对数字仍做上述处理，左括号过滤，然后递归处理字符，右括号也过滤
+class Solution &#123;public:    string s;    int cur = 0;    string decodeString(string s) &#123;        this-&gt;s = s;        return GetString();    &#125;    int GetDigits()    &#123;        string digits;        while (isdigit(s[cur])) digits.push_back(s[cur++]);        return stoi(digits);    &#125;    string GetString()    &#123;        if (cur == s.size() || s[cur] == &#x27;]&#x27;) return &quot;&quot;;        char ch = s[cur];        string sub;        if (isdigit(ch))        &#123;            int repeatTime = GetDigits();            ++cur;            string str = GetString();            ++cur;            while (repeatTime--) sub += str;        &#125; else if(isalpha(ch))        &#123;            sub = string(1, ch);            ++cur;        &#125;        return sub + GetString();    &#125;&#125;;
+
+二：每日温度
+
+1. 暴力
+该题通过使用一个温度数组来记录当前温度的索引，其中温度为下标，值为数组中的索引，通过向前遍历来记录温度的情况
+class Solution &#123;public:    vector&lt;int&gt; dailyTemperatures(vector&lt;int&gt;&amp; temperatures) &#123;        int len = temperatures.size();        vector&lt;int&gt; result(len);        vector&lt;int&gt; record(101, INT_MAX);        for (int i = len - 1; i &gt;= 0; --i)        &#123;            int index = INT_MAX;            for (int j = temperatures[i] + 1; j &lt;= 100; ++j)                index = min(index, record[j]);            if (index != INT_MAX)                result[i] = (index - i);            record[temperatures[i]] = i;        &#125;        return result;    &#125;&#125;;
+
+2. 单调栈
+使用一个栈来维护温度，使温度递减，如果温度大于栈顶，则把栈顶弹出，并更新天数，因为此时为栈顶索引遇到的第一个升温天气
+class Solution &#123;public:    vector&lt;int&gt; dailyTemperatures(vector&lt;int&gt;&amp; temperatures) &#123;        int len = temperatures.size();        vector&lt;int&gt; result(len);        stack&lt;int&gt; stk;        int temp;        for (int i = 0; i &lt; len; ++i)        &#123;            while (!stk.empty() &amp;&amp; temperatures[i] &gt; temperatures[stk.top()])            &#123;                temp = stk.top();                stk.pop();                result[temp] = i - temp;            &#125;            stk.push(i);        &#125;        return result;    &#125;&#125;;
+
+三：数组中的第K个最大元素
+
+1. 基于快速排序的选择方法
+寻找第K大的元素意味着寻找第n - k小的元素，利用快速排序分治的思想不断递归，可以找到元素所在的位置
+class Solution &#123;public:    int findKthLargest(vector&lt;int&gt;&amp; nums, int k) &#123;        int len = nums.size();        return QuickChoose(nums, len - k, 0, len - 1);    &#125;    int QuickChoose(vector&lt;int&gt;&amp; nums, int index, int left, int right)    &#123;        if (left == right) return nums[left];        int i = left - 1;        int j = right + 1;        int numFlag = nums[left];        while (i &lt; j)        &#123;            do ++i; while (nums[i] &lt; numFlag);            do --j; while (nums[j] &gt; numFlag);            if (i &lt; j) swap(nums[i], nums[j]);        &#125;        if ( index &lt;= j) return QuickChoose(nums, index, left, j);        else return QuickChoose(nums, index, j + 1, right);    &#125;&#125;;
+
+2. 基于堆排序的选择方法
+选择当前数组作为最大堆，然后将其从第一个非叶子节点重新构建，之后逐个删除顶端元素
+class Solution &#123;public:    int findKthLargest(vector&lt;int&gt;&amp; nums, int k) &#123;        int len = nums.size(), size = len;        BuildHeap(nums, len);        for (int i = len - 1; i &gt; len - k; --i)        &#123;            swap(nums[0], nums[i]);            --size;            Heapify(nums, size, 0);        &#125;        return nums[0];    &#125;    void BuildHeap(vector&lt;int&gt;&amp; nums, int size)    &#123;        for (int i = size / 2 - 1; i &gt;= 0; --i)            Heapify(nums, size, i);    &#125;    void Heapify(vector&lt;int&gt;&amp; nums, int size, int cur)    &#123;        int leftNode = cur * 2 + 1;        int rightNode = cur * 2 + 2;        int largest = cur;        if (leftNode &lt; size &amp;&amp; nums[leftNode] &gt; nums[largest]) largest = leftNode;         if (rightNode &lt; size &amp;&amp; nums[rightNode] &gt; nums[largest]) largest = rightNode;         if (cur != largest)        &#123;            swap(nums[largest], nums[cur]);            Heapify(nums, size, largest);        &#125;    &#125;&#125;;
+
+]]></content>
+      <categories>
+        <category>算法</category>
+      </categories>
+      <tags>
+        <tag>LeetCode</tag>
+        <tag>C++</tag>
+        <tag>Python</tag>
+        <tag>Java</tag>
+      </tags>
+  </entry>
+  <entry>
     <title>LeetCode热题100(25.10.9)</title>
     <url>/posts/e3193ac4.html</url>
     <content><![CDATA[一：岛屿数量
