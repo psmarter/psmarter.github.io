@@ -3019,6 +3019,34 @@ class Solution:    def __init__(self):        self.fa = &#123;&#125;        self
     <content><![CDATA[一：划分字母区间
 
 1. 贪心
+该题的思路为通过遍历字符串，得到每一个字符最后出现的位置，然后维护一个起始指针，再次遍历字符串更新结束位置，如果达到end则意味着这个子字符串可划分
+class Solution &#123;public:    vector&lt;int&gt; partitionLabels(string s) &#123;        int array[26];        int len = s.size();        vector&lt;int&gt; result;        for (int i = 0; i &lt; len; ++i)            array[static_cast&lt;int&gt;(s[i] - &#x27;a&#x27;)] = i;        int start = 0, end = 0;        int size = 0;        for (int i = 0; i &lt; len; ++i)        &#123;            size = max(size, array[static_cast&lt;int&gt;(s[i] - &#x27;a&#x27;)]);            end = size;            if (i == end)            &#123;                result.emplace_back(end - start + 1);                start = end + 1;            &#125;        &#125;        return result;    &#125;&#125;;
+
+二：颜色分类
+
+1. 单指针
+使用该方式需要两次遍历，一次用于交换0，一次用于交换1，交换其他数据也可以
+class Solution &#123;public:    void sortColors(vector&lt;int&gt;&amp; nums) &#123;        int len = nums.size();        int cur = 0;        for (int i = 0; i &lt; len; ++i)        &#123;            if (nums[i] == 0)             &#123;                swap(nums[i], nums[cur]);                ++cur;            &#125;        &#125;        for (int i = 0; i &lt; len; ++i)        &#123;            if (nums[i] == 1)             &#123;                swap(nums[i], nums[cur]);                ++cur;            &#125;        &#125;    &#125;&#125;;
+
+2. 双指针
+使用双指针可以同时交换两个数据，比如同时交换0和1，但需要注意交换顺序和对后续交换的影响
+class Solution &#123;public:    void sortColors(vector&lt;int&gt;&amp; nums) &#123;        int len = nums.size();        int cur0 = 0, cur1 = 0;        for (int i = 0; i &lt; len; ++i)        &#123;            if (nums[i] == 1)             &#123;                swap(nums[i], nums[cur1]);                ++cur1;            &#125;            if (nums[i] == 0)             &#123;                swap(nums[i], nums[cur0]);                if (cur0 &lt; cur1)                     swap(nums[i], nums[cur1]);                ++cur0;                ++cur1;            &#125;        &#125;    &#125;&#125;;
+
+3. 双指针
+这里我们使用两端用于交换，但是交换之后的数据可能仍然需要交换，因此需要额外处理，知道它不需要交换
+class Solution &#123;public:    void sortColors(vector&lt;int&gt;&amp; nums) &#123;        int len = nums.size();        int cur0 = 0, cur2 = len - 1;        for (int i = 0; i &lt;= cur2; ++i)        &#123;            while (i &lt;= cur2 &amp;&amp; nums[i] == 2)            &#123;                swap(nums[i], nums[cur2]);                --cur2;            &#125;            if (nums[i] == 0)             &#123;                swap(nums[i], nums[cur0]);                ++cur0;            &#125;        &#125;    &#125;&#125;;
+
+4. 直接遍历
+该题最简单的方式是将数组遍历得到每个元素的数量然后修改原来的数组即可
+class Solution &#123;public:    void sortColors(vector&lt;int&gt;&amp; nums) &#123;        int red = 0, white = 0, blue = 0;        int len = nums.size();        for (int i = 0; i &lt; len; ++i)        &#123;            if (nums[i] == 0) ++red;            if (nums[i] == 1) ++white;            if (nums[i] == 2) ++blue;        &#125;        for (int i = 0; i &lt; len; ++i)        &#123;            if (i &lt; red) nums[i] = 0;            if (i &gt;= red&amp;&amp; i &lt; red + white) nums[i] = 1;            if (i &gt;= red + white &amp;&amp; i &lt; red + white + blue) nums[i] = 2;        &#125;    &#125;&#125;;
+
+三：下一个排列
+
+1. 两遍扫描
+该题需要从后向前找到第一个升序的位置，然后将其与该位置之后的最后一个大于自己的数据进行交换，同时需要对该位置之后的数据重排为升序
+
+class Solution &#123;public:    void nextPermutation(vector&lt;int&gt;&amp; nums) &#123;        int len = nums.size();        int start = len - 2;        while (start &gt;= 0 &amp;&amp; nums[start] &gt;= nums[start + 1])            --start;        if (start &gt;= 0)        &#123;            int j = len - 1;            while (j &gt;= 0 &amp;&amp; nums[j] &lt;= nums[start])                --j;            swap(nums[start], nums[j]);        &#125;        reverse(nums.begin() + start + 1, nums.end());    &#125;&#125;;
+
 ]]></content>
       <categories>
         <category>算法</category>
