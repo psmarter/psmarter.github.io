@@ -393,16 +393,24 @@ class Solution &#123;public:    int findKthLargest(vector&lt;int&gt;&amp; nums, 
 class Solution &#123;public:    vector&lt;int&gt; topKFrequent(vector&lt;int&gt;&amp; nums, int k) &#123;        vector&lt;int&gt; result;        result.reserve(k);        int len = nums.size();        unordered_map&lt;int, int&gt; occour;        occour.reserve(len);        for (auto&amp; num : nums) ++occour[num];        auto commpare = [](const pair&lt;int, int&gt;&amp; a, const pair&lt;int, int&gt;&amp; b)&#123;return a.second &gt; b.second;&#125;;        priority_queue&lt;pair&lt;int, int&gt;, vector&lt;pair&lt;int, int&gt;&gt;, decltype(commpare)&gt; pq(commpare);        for (auto&amp; [num, count] : occour)        &#123;            if (pq.size() &lt; k) pq.emplace(num, count);            else if (pq.top().second &lt; count)             &#123;                pq.pop();                pq.emplace(num, count);            &#125;        &#125;        while (!pq.empty())        &#123;            result.emplace_back(pq.top().first);            pq.pop();        &#125;        return result;    &#125;&#125;;
 
 2. 基于快速排序
+其核心思想在于快排的一次循环过后能够将数据按照选定的某个值分为≥和≤两部分，通过比较左右长度便可判断前k最大值所在位置
+class Solution &#123;public:    vector&lt;int&gt; topKFrequent(vector&lt;int&gt;&amp; nums, int k) &#123;        vector&lt;int&gt; result;        result.reserve(k);        int len = nums.size();        unordered_map&lt;int, int&gt; occour;        occour.reserve(len);        for (auto&amp; num : nums) ++occour[num];        vector&lt;pair&lt;int, int&gt;&gt; values;        for (auto&amp; value : occour) values.emplace_back(value);        QuickChoose(values, k, 0, values.size() - 1, result);        return result;    &#125;    void QuickChoose(vector&lt;pair&lt;int, int&gt;&gt;&amp; values, int k, int left, int right, vector&lt;int&gt;&amp; result)    &#123;        if (left &gt; right) return;        if (left == right) &#123;                 // 基本情形            result.push_back(values[left].first);            return;        &#125;        int picked = rand() % (right - left + 1) + left;        swap(values[picked], values[left]);        int pivot = values[left].second;        int i = left - 1;        int j = right + 1;        while (i &lt; j)        &#123;            do ++i; while (values[i].second &gt; pivot);            do --j; while (values[j].second &lt; pivot);            if (i &lt; j) swap(values[i], values[j]);        &#125;        int leftCount = j - left + 1;          if (k &lt;= leftCount) QuickChoose(values, k, left, j, result);        else         &#123;            for (int i = left; i &lt;= j; ++i)                result.emplace_back(values[i].first);            QuickChoose(values, k - leftCount, j + 1, right, result);        &#125;    &#125;&#125;;
 
 二：跳跃游戏
 
 1. 贪心
+假设当前位于x，那么x+nums[x]范围内的元素都是可达的，因此我们只需要维护一个最大的可达范围即可，如果该范围能够覆盖终点，则意味着终点可达
+class Solution &#123;public:    bool canJump(vector&lt;int&gt;&amp; nums) &#123;        int len = nums.size();        int maxSkip = 0;        for (int i = 0; i &lt; len; ++i)        &#123;            if ( i &lt;= maxSkip) maxSkip = max(maxSkip, i + nums[i]);            if (maxSkip &gt;= len - 1) return true;        &#125;        return false;    &#125;&#125;;
 
 三：跳跃游戏Ⅱ
 
 1. 反向查找出发位置
+我们从最后一个点出发，先找出最后一步到达终点的前面所有点，取最远位置，然后循环直到出发点即可。为什么可行？我们假设终点为n - 1，其最远距离为x，那么x~n - 1区间内的所有位置都是可达的，假设区间中存在一个点的第二步的上一个位置为y，那么y~该点的距离一定包含x，所以x的第二步一定大于等于y，所以求解出来的步数最优
+class Solution &#123;public:    int jump(vector&lt;int&gt;&amp; nums) &#123;        int len = nums.size() - 1;        int cur = len;        int step = 0;        while (cur &gt; 0)        &#123;            for (int i = 0; i &lt;= cur; ++i)            &#123;                if (i + nums[i] &gt;= cur)                &#123;                    cur = i;                    ++step;                    break;                &#125;            &#125;        &#125;        return step;    &#125;&#125;;
 
 2. 正向查找可到达的最大位置
+这里假设第一步的距离为x，由题意知一定会到达终点，那么第二步应该选择0~x之间能够跳出最远的位置，理论和上一个方法相同，最远位置一定包含其中的点，步骤只会小于等于其他元素
+class Solution &#123;public:    int jump(vector&lt;int&gt;&amp; nums) &#123;        int len = nums.size() - 1;        int step = 0, maxStep = 0, end = 0;        for (int i = 0; i &lt; len; ++i)        &#123;            if (i &lt;= maxStep)                maxStep = max(maxStep, i + nums[i]);            if (i == end)            &#123;                end = maxStep;                ++step;            &#125;        &#125;        return step;    &#125;&#125;;
 
 ]]></content>
       <categories>
@@ -2994,6 +3002,23 @@ class Solution &#123;public:    unordered_map&lt;int, TreeNode*&gt; fa;    unord
 class Solution &#123;    Map&lt;Integer, TreeNode&gt; parent = new HashMap&lt;Integer, TreeNode&gt;();    Set&lt;Integer&gt; visited = new HashSet&lt;Integer&gt;();    public void dfs(TreeNode root) &#123;        if (root.left != null) &#123;            parent.put(root.left.val, root);            dfs(root.left);        &#125;        if (root.right != null) &#123;            parent.put(root.right.val, root);            dfs(root.right);        &#125;    &#125;    public TreeNode lowestCommonAncestor(TreeNode root, TreeNode p, TreeNode q) &#123;        dfs(root);        while (p != null) &#123;            visited.add(p.val);            p = parent.get(p.val);        &#125;        while (q != null) &#123;            if (visited.contains(q.val)) &#123;                return q;            &#125;            q = parent.get(q.val);        &#125;        return null;    &#125;&#125;
 class Solution:    def __init__(self):        self.fa = &#123;&#125;        self.visited = set()    def dfs(self, root: &#x27;TreeNode&#x27;):        if root.left:            self.fa[root.left.val] = root            self.dfs(root.left)        if root.right:            self.fa[root.right.val] = root            self.dfs(root.right)    def lowestCommonAncestor(self, root: &#x27;TreeNode&#x27;, p: &#x27;TreeNode&#x27;, q: &#x27;TreeNode&#x27;) -&gt; &#x27;TreeNode&#x27;:        self.fa[root.val] = None  # 根节点没有父节点        self.dfs(root)        while p:            self.visited.add(p.val)            p = self.fa.get(p.val) # 使用.get()避免键不存在时出错        while q:            if q.val in self.visited:                return q            q = self.fa.get(q.val)        return None
 
+]]></content>
+      <categories>
+        <category>算法</category>
+      </categories>
+      <tags>
+        <tag>LeetCode</tag>
+        <tag>C++</tag>
+        <tag>Python</tag>
+        <tag>Java</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>LeetCode热题100(25.10.15)</title>
+    <url>/posts/e43e6497.html</url>
+    <content><![CDATA[一：划分字母区间
+
+1. 贪心
 ]]></content>
       <categories>
         <category>算法</category>
