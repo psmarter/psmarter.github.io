@@ -1,0 +1,744 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>Simulink调用外部Dll可视化《二》 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="介绍 这篇文章主要实现在Simulink中可视化的工作，由于自身求解工具的可视化代码采用C++编程，同时与项目耦合过多，难以独立摘出或通过Matlab重现，因此这里采用新建桥接工程将所有需要用到的可视化代码封装并导出 封装Dll并导出C函数 首先在VS中新建空项目工程并进行配置，主要是关于项目依赖、导出Dll相关，然后将所有可能用到的代码进行简化和封装，我这里采用的类进行管理，由于跟项目相关不进行">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Simulink调用外部Dll可视化《二》">
+<meta property="og:url" content="https://smarter.xin/posts/4e6df0d5/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="介绍 这篇文章主要实现在Simulink中可视化的工作，由于自身求解工具的可视化代码采用C++编程，同时与项目耦合过多，难以独立摘出或通过Matlab重现，因此这里采用新建桥接工程将所有需要用到的可视化代码封装并导出 封装Dll并导出C函数 首先在VS中新建空项目工程并进行配置，主要是关于项目依赖、导出Dll相关，然后将所有可能用到的代码进行简化和封装，我这里采用的类进行管理，由于跟项目相关不进行">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/Simulink.png">
+<meta property="article:published_time" content="2025-07-22T08:46:04.000Z">
+<meta property="article:modified_time" content="2025-08-26T07:51:59.061Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="Simulink">
+<meta property="article:tag" content="Matlab">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/Simulink.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "Simulink调用外部Dll可视化《二》",
+  "url": "https://smarter.xin/posts/4e6df0d5/",
+  "image": "https://smarter.xin/img/Simulink.png",
+  "datePublished": "2025-07-22T08:46:04.000Z",
+  "dateModified": "2025-08-26T07:51:59.061Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/%E7%8B%97.png"><link rel="canonical" href="https://smarter.xin/posts/4e6df0d5/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="preconnect" href="//busuanzi.ibruce.info"/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'Simulink调用外部Dll可视化《二》',
+  isHighlightShrink: true,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"></head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">38</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">16</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">8</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/Simulink.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">Simulink调用外部Dll可视化《二》</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">Simulink调用外部Dll可视化《二》</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2025-07-22T08:46:04.000Z" title="发表于 2025-07-22 16:46:04">2025-07-22</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2025-08-26T07:51:59.061Z" title="更新于 2025-08-26 15:51:59">2025-08-26</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/Simulink%E4%BB%BF%E7%9C%9F/">Simulink仿真</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">5.6k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>25分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="jie-shao" tabindex="-1">介绍</h1>
+<p>这篇文章主要实现在Simulink中可视化的工作，由于自身求解工具的可视化代码采用C++编程，同时与项目耦合过多，难以独立摘出或通过Matlab重现，因此这里采用新建桥接工程将所有需要用到的可视化代码封装并导出</p>
+<h1 id="feng-zhuang-dll-bing-dao-chu-c-han-shu" tabindex="-1">封装Dll并导出C函数</h1>
+<p>首先在VS中新建空项目工程并进行配置，主要是关于项目依赖、导出Dll相关，然后将所有可能用到的代码进行简化和封装，我这里采用的类进行管理，由于跟项目相关不进行展示，新建XXXBridgeDLL.h和XXXBridgeDLL.cpp用于导出C接口供Matlab调用，内容如下</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">pragma</span> once</span></span><br><span class="line"></span><br><span class="line"><span class="meta">#<span class="keyword">ifdef</span> XXXBRIDGEDLL_EXPORTS</span></span><br><span class="line"><span class="meta">#<span class="keyword">define</span> EXPORT_API __declspec(dllexport)</span></span><br><span class="line"><span class="meta">#<span class="keyword">else</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">define</span> EXPORT_API __declspec(dllimport)</span></span><br><span class="line"><span class="meta">#<span class="keyword">endif</span></span></span><br><span class="line"></span><br><span class="line"><span class="meta">#<span class="keyword">ifdef</span> __cplusplus</span></span><br><span class="line"><span class="keyword">extern</span> <span class="string">&quot;C&quot;</span> &#123;</span><br><span class="line"><span class="meta">#<span class="keyword">endif</span></span></span><br><span class="line"></span><br><span class="line">    <span class="function">EXPORT_API <span class="type">void</span>* <span class="title">CreateProcessor</span><span class="params">()</span></span>;</span><br><span class="line">    <span class="function">EXPORT_API <span class="type">void</span> <span class="title">DeleteProcessor</span><span class="params">(<span class="type">void</span>* p)</span></span>;</span><br><span class="line">    <span class="function">EXPORT_API <span class="type">int</span>  <span class="title">ReadXXXDat</span><span class="params">(<span class="type">void</span>* p, <span class="type">const</span> <span class="type">char</span>* folder, <span class="type">int</span>* pNumPts)</span></span>;</span><br><span class="line">    </span><br><span class="line"></span><br><span class="line">    <span class="function">EXPORT_API <span class="type">int</span>   <span class="title">GetPointCount</span><span class="params">(<span class="type">void</span>* p)</span></span>;                      <span class="comment">/* 返回总点数         */</span></span><br><span class="line">    <span class="function">EXPORT_API <span class="type">int</span>   <span class="title">CopyX_mm</span><span class="params">(<span class="type">void</span>* p, <span class="type">double</span>* out, <span class="type">int</span> max)</span></span>;  <span class="comment">/* 轴向坐标 (mm)     */</span></span><br><span class="line">    <span class="function">EXPORT_API <span class="type">int</span>   <span class="title">CopyPower</span><span class="params">(<span class="type">void</span>* p, <span class="type">double</span>* out, <span class="type">int</span> max)</span></span>;  <span class="comment">/* 输出功率 (W)      */</span></span><br><span class="line">    <span class="function">EXPORT_API <span class="type">int</span>   <span class="title">CopyGain</span><span class="params">(<span class="type">void</span>* p, <span class="type">double</span>* out, <span class="type">int</span> max)</span></span>;  <span class="comment">/* 增益 (dB)         */</span></span><br><span class="line">    <span class="function">EXPORT_API <span class="type">int</span>   <span class="title">CopyEff</span><span class="params">(<span class="type">void</span>* p, <span class="type">double</span>* out, <span class="type">int</span> max)</span></span>;  <span class="comment">/* 效率 (%)          */</span></span><br><span class="line"></span><br><span class="line"><span class="meta">#<span class="keyword">ifdef</span> __cplusplus</span></span><br><span class="line">&#125;</span><br><span class="line"><span class="meta">#<span class="keyword">endif</span></span></span><br></pre></td></tr></table></figure>
+<p>这段代码是一个 C/C++ 动态链接库（DLL）的头文件（<code>.h</code>），用于定义向外部导出的一组函数接口。</p>
+<hr>
+<h3 id="dll-dao-chu-hong-ding-yi-bu-fen" tabindex="-1" id="DLL-导出宏定义部分">DLL 导出宏定义部分</h3>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">ifdef</span> XXXBRIDGEDLL_EXPORTS</span></span><br><span class="line"><span class="meta">#<span class="keyword">define</span> EXPORT_API __declspec(dllexport)</span></span><br><span class="line"><span class="meta">#<span class="keyword">else</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">define</span> EXPORT_API __declspec(dllimport)</span></span><br><span class="line"><span class="meta">#<span class="keyword">endif</span></span></span><br></pre></td></tr></table></figure>
+<ul>
+<li><strong>作用</strong>：用于在不同编译阶段切换导出/导入。
+<ul>
+<li>如果编译的是 DLL 本身（定义了 <code>XXXBRIDGEDLL_EXPORTS</code>），则 <code>EXPORT_API</code> 展开为 <code>__declspec(dllexport)</code>，导出符号；</li>
+<li>如果是使用 DLL 的客户端程序，则展开为 <code>__declspec(dllimport)</code>，用于导入符号。</li>
+</ul>
+</li>
+</ul>
+<hr>
+<h3 id="code-extern-quot-c-quot-code-kuai" tabindex="-1" id="extern-C-块"><code>extern &quot;C&quot;</code> 块</h3>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">ifdef</span> __cplusplus</span></span><br><span class="line"><span class="keyword">extern</span> <span class="string">&quot;C&quot;</span> &#123;</span><br><span class="line"><span class="meta">#<span class="keyword">endif</span></span></span><br><span class="line">...</span><br><span class="line"><span class="meta">#<span class="keyword">ifdef</span> __cplusplus</span></span><br><span class="line">&#125;</span><br><span class="line"><span class="meta">#<span class="keyword">endif</span></span></span><br></pre></td></tr></table></figure>
+<ul>
+<li>使得这些函数按照 <strong>C语言方式</strong> 进行链接（不进行 C++ 名字改编 / name mangling），以便在 C/C++/Python/MATLAB 等跨语言调用时保持接口兼容。</li>
+</ul>
+<hr>
+<h3 id="dao-chu-de-han-shu-jie-kou" tabindex="-1" id="导出的函数接口">导出的函数接口</h3>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="function">EXPORT_API <span class="type">void</span>* <span class="title">CreateProcessor</span><span class="params">()</span></span>;</span><br></pre></td></tr></table></figure>
+<ul>
+<li>创建一个处理器对象，返回一个 <code>void*</code> 指针（通常是一个类的实例地址）。</li>
+</ul>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="function">EXPORT_API <span class="type">void</span> <span class="title">DeleteProcessor</span><span class="params">(<span class="type">void</span>* p)</span></span>;</span><br></pre></td></tr></table></figure>
+<ul>
+<li>删除处理器对象，释放资源。</li>
+</ul>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="function">EXPORT_API <span class="type">int</span> <span class="title">ReadXXXDat</span><span class="params">(<span class="type">void</span>* p, <span class="type">const</span> <span class="type">char</span>* folder, <span class="type">int</span>* pNumPts)</span></span>;</span><br></pre></td></tr></table></figure>
+<ul>
+<li>从指定文件夹读取数据，<code>p</code> 是处理器对象指针，<code>folder</code> 是数据路径，<code>pNumPts</code> 用于返回读取到的点数。</li>
+</ul>
+<hr>
+<h3 id="shu-ju-fang-wen-han-shu-shu-ju-cong-nei-cun-fu-zhi-chu-lai" tabindex="-1" id="数据访问函数（数据从内存复制出来）">数据访问函数（数据从内存复制出来）</h3>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="function">EXPORT_API <span class="type">int</span> <span class="title">GetPointCount</span><span class="params">(<span class="type">void</span>* p)</span></span>;</span><br></pre></td></tr></table></figure>
+<ul>
+<li>获取数据点总数。</li>
+</ul>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="function">EXPORT_API <span class="type">int</span> <span class="title">CopyX_mm</span><span class="params">(<span class="type">void</span>* p, <span class="type">double</span>* out, <span class="type">int</span> max)</span></span>;</span><br></pre></td></tr></table></figure>
+<ul>
+<li>复制轴向坐标数据（单位：mm）到 <code>out</code> 指针所指向的数组，<code>max</code> 是允许写入的最大点数。</li>
+</ul>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="function">EXPORT_API <span class="type">int</span> <span class="title">CopyPower</span><span class="params">(<span class="type">void</span>* p, <span class="type">double</span>* out, <span class="type">int</span> max)</span></span>;</span><br></pre></td></tr></table></figure>
+<ul>
+<li>复制输出功率数据（单位：瓦特）。</li>
+</ul>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="function">EXPORT_API <span class="type">int</span> <span class="title">CopyGain</span><span class="params">(<span class="type">void</span>* p, <span class="type">double</span>* out, <span class="type">int</span> max)</span></span>;</span><br></pre></td></tr></table></figure>
+<ul>
+<li>复制增益数据（单位：dB）。</li>
+</ul>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="function">EXPORT_API <span class="type">int</span> <span class="title">CopyEff</span><span class="params">(<span class="type">void</span>* p, <span class="type">double</span>* out, <span class="type">int</span> max)</span></span>;</span><br></pre></td></tr></table></figure>
+<ul>
+<li>复制电子效率数据（单位：百分比）。</li>
+</ul>
+<p>这个 DLL 接口提供了一个基于文件夹读取仿真结果（XXX仿真输出），并通过一系列函数获取：</p>
+<ul>
+<li>坐标（X）</li>
+<li>功率（Power）</li>
+<li>增益（Gain）</li>
+<li>效率（Eff）</li>
+</ul>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">define</span> XXXBRIDGEDLL_EXPORTS</span></span><br><span class="line"></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&quot;XXXBridgeDLL.h&quot;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&quot;CXXXProcessor.h&quot;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;algorithm&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;vector&gt;</span></span></span><br><span class="line"></span><br><span class="line"><span class="keyword">namespace</span> &#123;</span><br><span class="line">    <span class="function"><span class="keyword">template</span>&lt;<span class="keyword">typename</span> SRC_GETTER&gt;</span></span><br><span class="line"><span class="function">    <span class="type">int</span> <span class="title">copyVector</span><span class="params">(CXXXProcessor* proc, <span class="type">double</span>* out, <span class="type">int</span> max, SRC_GETTER getter)</span></span></span><br><span class="line"><span class="function">    </span>&#123;</span><br><span class="line">        <span class="keyword">if</span> (!proc || !out || max &lt;= <span class="number">0</span>) <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">        <span class="type">const</span> <span class="keyword">auto</span>&amp; vec = <span class="built_in">getter</span>(proc);</span><br><span class="line">        <span class="type">int</span> n = std::<span class="built_in">min</span>&lt;<span class="type">int</span>&gt;(vec.<span class="built_in">size</span>(), max);</span><br><span class="line">        std::<span class="built_in">copy</span>(vec.<span class="built_in">begin</span>(), vec.<span class="built_in">begin</span>() + n, out);</span><br><span class="line">        <span class="keyword">return</span> n;</span><br><span class="line">    &#125;</span><br><span class="line">&#125; </span><br><span class="line"></span><br><span class="line"><span class="keyword">extern</span> <span class="string">&quot;C&quot;</span> &#123;</span><br><span class="line">    <span class="function">EXPORT_API <span class="type">void</span>* <span class="title">CreateProcessor</span><span class="params">()</span> </span>&#123; <span class="keyword">return</span> <span class="keyword">new</span> <span class="built_in">CXXXProcessor</span>(); &#125;</span><br><span class="line">    <span class="function">EXPORT_API <span class="type">void</span>  <span class="title">DeleteProcessor</span><span class="params">(<span class="type">void</span>* p)</span> </span>&#123; <span class="keyword">delete</span> <span class="built_in">static_cast</span>&lt;CXXXProcessor*&gt;(p); &#125;</span><br><span class="line"></span><br><span class="line">    <span class="function">EXPORT_API <span class="type">int</span> <span class="title">ReadXXXDat</span><span class="params">(<span class="type">void</span>* p, <span class="type">const</span> <span class="type">char</span>* folder, <span class="type">int</span>* pts)</span> </span>&#123;</span><br><span class="line">        <span class="keyword">if</span> (!p || !folder || !pts) <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">        <span class="keyword">auto</span> proc = <span class="built_in">static_cast</span>&lt;CXXXProcessor*&gt;(p);</span><br><span class="line">        <span class="type">bool</span> ok = proc-&gt;<span class="built_in">ReadXXXDat</span>(folder);</span><br><span class="line">        *pts = ok ? <span class="built_in">static_cast</span>&lt;<span class="type">int</span>&gt;(proc-&gt;m_vdpX.<span class="built_in">size</span>()) : <span class="number">0</span>;</span><br><span class="line">        <span class="keyword">return</span> ok;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="function">EXPORT_API <span class="type">int</span> <span class="title">GetPointCount</span><span class="params">(<span class="type">void</span>* p)</span> </span>&#123;</span><br><span class="line">        <span class="keyword">return</span> p ? <span class="built_in">static_cast</span>&lt;<span class="type">int</span>&gt;(<span class="built_in">static_cast</span>&lt;CXXXProcessor*&gt;(p)-&gt;m_vdpX.<span class="built_in">size</span>()) : <span class="number">0</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="function">EXPORT_API <span class="type">int</span> <span class="title">CopyX_mm</span><span class="params">(<span class="type">void</span>* p, <span class="type">double</span>* out, <span class="type">int</span> max)</span> </span>&#123;</span><br><span class="line">        <span class="keyword">if</span> (!p || !out || max &lt;= <span class="number">0</span>) <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">        <span class="keyword">auto</span> proc = <span class="built_in">static_cast</span>&lt;CXXXProcessor*&gt;(p);</span><br><span class="line">        <span class="type">int</span> n = std::<span class="built_in">min</span>&lt;<span class="type">int</span>&gt;(proc-&gt;m_vdpX.<span class="built_in">size</span>(), max);</span><br><span class="line">        <span class="keyword">for</span> (<span class="type">int</span> i = <span class="number">0</span>; i &lt; n; ++i) out[i] = proc-&gt;m_vdpX[i] * <span class="number">1000.0</span>;</span><br><span class="line">        <span class="keyword">return</span> n;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="function">EXPORT_API <span class="type">int</span> <span class="title">CopyPower</span><span class="params">(<span class="type">void</span>* p, <span class="type">double</span>* o, <span class="type">int</span> m)</span> </span>&#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="built_in">copyVector</span>(<span class="built_in">static_cast</span>&lt;CXXXProcessor*&gt;(p), o, m,</span><br><span class="line">            [](CXXXProcessor* q)-&gt;<span class="type">const</span> std::vector&lt;<span class="type">double</span>&gt;&amp;&#123;<span class="keyword">return</span> q-&gt;PowerOut; &#125;);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="function">EXPORT_API <span class="type">int</span> <span class="title">CopyGain</span><span class="params">(<span class="type">void</span>* p, <span class="type">double</span>* o, <span class="type">int</span> m)</span> </span>&#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="built_in">copyVector</span>(<span class="built_in">static_cast</span>&lt;CXXXProcessor*&gt;(p), o, m,</span><br><span class="line">            [](CXXXProcessor* q)-&gt;<span class="type">const</span> std::vector&lt;<span class="type">double</span>&gt;&amp;&#123;<span class="keyword">return</span> q-&gt;Gain; &#125;);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="function">EXPORT_API <span class="type">int</span> <span class="title">CopyEff</span><span class="params">(<span class="type">void</span>* p, <span class="type">double</span>* o, <span class="type">int</span> m)</span> </span>&#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="built_in">copyVector</span>(<span class="built_in">static_cast</span>&lt;CXXXProcessor*&gt;(p), o, m,</span><br><span class="line">            [](CXXXProcessor* q)-&gt;<span class="type">const</span> std::vector&lt;<span class="type">double</span>&gt;&amp;&#123;<span class="keyword">return</span> q-&gt;Eff; &#125;);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>这段代码是 <code>XXXBridgeDLL.dll</code> 的 <strong>实现部分（C++源文件）</strong>，与之前的头文件 <code>XXXBridgeDLL.h</code> 搭配使用，向外部程序提供接口来访问 XXX 仿真数据</p>
+<hr>
+<h2 id="wen-jian-tou-bu-she-zhi" tabindex="-1" id="文件头部设置">文件头部设置</h2>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">define</span> XXXBRIDGEDLL_EXPORTS</span></span><br></pre></td></tr></table></figure>
+<ul>
+<li>定义此宏意味着当前正在编译 DLL，因此头文件中的 <code>EXPORT_API</code> 会变成 <code>__declspec(dllexport)</code>，导出接口。</li>
+</ul>
+<hr>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&quot;XXXBridgeDLL.h&quot;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&quot;CXXXProcessor.h&quot;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;algorithm&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;vector&gt;</span></span></span><br></pre></td></tr></table></figure>
+<ul>
+<li>引入头文件和 STL 库。<code>CXXXProcessor</code> 是处理器类，核心功能由它实现，接口只是封装。</li>
+</ul>
+<hr>
+<h2 id="ni-ming-ming-ming-kong-jian-code-copy-vector-code" tabindex="-1" id="匿名命名空间-copyVector">匿名命名空间 <code>copyVector</code></h2>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">namespace</span> &#123;</span><br><span class="line">    <span class="function"><span class="keyword">template</span>&lt;<span class="keyword">typename</span> SRC_GETTER&gt;</span></span><br><span class="line"><span class="function">    <span class="type">int</span> <span class="title">copyVector</span><span class="params">(CXXXProcessor* proc, <span class="type">double</span>* out, <span class="type">int</span> max, SRC_GETTER getter)</span></span></span><br><span class="line"><span class="function">    </span>&#123;</span><br><span class="line">        <span class="keyword">if</span> (!proc || !out || max &lt;= <span class="number">0</span>) <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">        <span class="type">const</span> <span class="keyword">auto</span>&amp; vec = <span class="built_in">getter</span>(proc);</span><br><span class="line">        <span class="type">int</span> n = std::<span class="built_in">min</span>&lt;<span class="type">int</span>&gt;(vec.<span class="built_in">size</span>(), max);</span><br><span class="line">        std::<span class="built_in">copy</span>(vec.<span class="built_in">begin</span>(), vec.<span class="built_in">begin</span>() + n, out);</span><br><span class="line">        <span class="keyword">return</span> n;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<ul>
+<li><strong>作用</strong>：通用的向 <code>double* out</code> 中复制数据的函数模板。</li>
+<li><code>SRC_GETTER</code> 是一个 Lambda，返回某个 <code>vector&lt;double&gt;</code> 的引用。</li>
+<li>使用匿名命名空间是为了限定作用域（防止链接冲突）。</li>
+</ul>
+<hr>
+<h2 id="dao-chu-jie-kou-code-extern-quot-c-quot-code" tabindex="-1" id="导出接口（extern-C-）">导出接口（<code>extern &quot;C&quot;</code>）</h2>
+<ol>
+<li><code>CreateProcessor</code></li>
+</ol>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="function">EXPORT_API <span class="type">void</span>* <span class="title">CreateProcessor</span><span class="params">()</span> </span>&#123;</span><br><span class="line">    <span class="keyword">return</span> <span class="keyword">new</span> <span class="built_in">CXXXProcessor</span>();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<ul>
+<li>返回新建的处理器对象（指针以 <code>void*</code> 形式传出，保持 C 接口风格）。</li>
+</ul>
+<ol start="2">
+<li><code>DeleteProcessor</code></li>
+</ol>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="function">EXPORT_API <span class="type">void</span> <span class="title">DeleteProcessor</span><span class="params">(<span class="type">void</span>* p)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">delete</span> <span class="built_in">static_cast</span>&lt;CXXXProcessor*&gt;(p);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<ul>
+<li>释放 <code>CreateProcessor()</code> 创建的对象。</li>
+</ul>
+<ol start="3">
+<li><code>ReadXXXDat</code></li>
+</ol>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="function">EXPORT_API <span class="type">int</span> <span class="title">ReadXXXDat</span><span class="params">(<span class="type">void</span>* p, <span class="type">const</span> <span class="type">char</span>* folder, <span class="type">int</span>* pts)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">if</span> (!p || !folder || !pts) <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">    <span class="keyword">auto</span> proc = <span class="built_in">static_cast</span>&lt;CXXXProcessor*&gt;(p);</span><br><span class="line">    <span class="type">bool</span> ok = proc-&gt;<span class="built_in">ReadXXXDat</span>(folder);</span><br><span class="line">    *pts = ok ? <span class="built_in">static_cast</span>&lt;<span class="type">int</span>&gt;(proc-&gt;m_vdpX.<span class="built_in">size</span>()) : <span class="number">0</span>;</span><br><span class="line">    <span class="keyword">return</span> ok;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<ul>
+<li>调用 <code>CXXXProcessor::ReadXXXDat(folder)</code> 加载文件夹中的数据。</li>
+<li>加载成功后将数据点数写入 <code>pts</code>。</li>
+<li><code>m_vdpX</code> 是轴向坐标数组。</li>
+</ul>
+<ol start="4">
+<li><code>GetPointCount</code></li>
+</ol>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="function">EXPORT_API <span class="type">int</span> <span class="title">GetPointCount</span><span class="params">(<span class="type">void</span>* p)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">return</span> p ? <span class="built_in">static_cast</span>&lt;<span class="type">int</span>&gt;(<span class="built_in">static_cast</span>&lt;CXXXProcessor*&gt;(p)-&gt;m_vdpX.<span class="built_in">size</span>()) : <span class="number">0</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<ul>
+<li>返回总的数据点数（坐标数量）。</li>
+</ul>
+<ol start="5">
+<li><code>CopyX_mm</code></li>
+</ol>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="function">EXPORT_API <span class="type">int</span> <span class="title">CopyX_mm</span><span class="params">(<span class="type">void</span>* p, <span class="type">double</span>* out, <span class="type">int</span> max)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">if</span> (!p || !out || max &lt;= <span class="number">0</span>) <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">    <span class="keyword">auto</span> proc = <span class="built_in">static_cast</span>&lt;CXXXProcessor*&gt;(p);</span><br><span class="line">    <span class="type">int</span> n = std::<span class="built_in">min</span>&lt;<span class="type">int</span>&gt;(proc-&gt;m_vdpX.<span class="built_in">size</span>(), max);</span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> i = <span class="number">0</span>; i &lt; n; ++i) out[i] = proc-&gt;m_vdpX[i] * <span class="number">1000.0</span>;</span><br><span class="line">    <span class="keyword">return</span> n;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<ul>
+<li>将轴向坐标 <code>m_vdpX</code>（单位：米）转换为毫米（乘以 1000）并复制到 <code>out</code> 缓冲区。</li>
+</ul>
+<ol start="6">
+<li><code>CopyPower</code>, <code>CopyGain</code>, <code>CopyEff</code></li>
+</ol>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="function">EXPORT_API <span class="type">int</span> <span class="title">CopyPower</span><span class="params">(<span class="type">void</span>* p, <span class="type">double</span>* o, <span class="type">int</span> m)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">return</span> <span class="built_in">copyVector</span>(<span class="built_in">static_cast</span>&lt;CXXXProcessor*&gt;(p), o, m,</span><br><span class="line">        [](CXXXProcessor* q)-&gt;<span class="type">const</span> std::vector&lt;<span class="type">double</span>&gt;&amp;&#123;<span class="keyword">return</span> q-&gt;PowerOut; &#125;);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<ul>
+<li>通过 <code>copyVector</code> 模板复制 <code>PowerOut</code> 数据。</li>
+</ul>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="function">EXPORT_API <span class="type">int</span> <span class="title">CopyGain</span><span class="params">(<span class="type">void</span>* p, <span class="type">double</span>* o, <span class="type">int</span> m)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">return</span> <span class="built_in">copyVector</span>(<span class="built_in">static_cast</span>&lt;CXXXProcessor*&gt;(p), o, m,</span><br><span class="line">        [](CXXXProcessor* q)-&gt;<span class="type">const</span> std::vector&lt;<span class="type">double</span>&gt;&amp;&#123;<span class="keyword">return</span> q-&gt;Gain; &#125;);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<ul>
+<li>复制增益（Gain）数据。</li>
+</ul>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="function">EXPORT_API <span class="type">int</span> <span class="title">CopyEff</span><span class="params">(<span class="type">void</span>* p, <span class="type">double</span>* o, <span class="type">int</span> m)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">return</span> <span class="built_in">copyVector</span>(<span class="built_in">static_cast</span>&lt;CXXXProcessor*&gt;(p), o, m,</span><br><span class="line">        [](CXXXProcessor* q)-&gt;<span class="type">const</span> std::vector&lt;<span class="type">double</span>&gt;&amp;&#123;<span class="keyword">return</span> q-&gt;Eff; &#125;);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<ul>
+<li>复制效率（Eff）数据。</li>
+</ul>
+<hr>
+<h2 id="mo-kuai-yong-tu-gai-lan" tabindex="-1" id="模块用途概览">模块用途概览</h2>
+<table>
+<thead>
+<tr>
+<th>函数名</th>
+<th>功能描述</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>CreateProcessor</code></td>
+<td>创建处理器对象</td>
+</tr>
+<tr>
+<td><code>DeleteProcessor</code></td>
+<td>释放处理器对象</td>
+</tr>
+<tr>
+<td><code>ReadXXXDat</code></td>
+<td>从指定目录读取 XXX 数据文件</td>
+</tr>
+<tr>
+<td><code>GetPointCount</code></td>
+<td>获取总数据点数</td>
+</tr>
+<tr>
+<td><code>CopyX_mm</code></td>
+<td>获取轴向坐标（单位 mm）</td>
+</tr>
+<tr>
+<td><code>CopyPower</code></td>
+<td>获取输出功率（单位 W）</td>
+</tr>
+<tr>
+<td><code>CopyGain</code></td>
+<td>获取增益（单位 dB）</td>
+</tr>
+<tr>
+<td><code>CopyEff</code></td>
+<td>获取电子效率（单位 %）</td>
+</tr>
+</tbody>
+</table>
+<p>编译成功后会在指定目录生成dll文件，把dll文件和导出函数头文件放到Matlab的工作目录下供其使用</p>
+<h1 id="matlab-ji-simulink-diao-yong-dll" tabindex="-1">Matlab及Simulink调用Dll</h1>
+<p>在Matlab中新建m文件，内容如下</p>
+<figure class="highlight matlab"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">% 0. 环境与路径</span></span><br><span class="line">dll = <span class="string">&#x27;H:\Matlab\bin\XXXBridgeDLL.dll&#x27;</span>;</span><br><span class="line">hdr = <span class="string">&#x27;H:\Matlab\bin\XXXBridgeDLL.h&#x27;</span>;</span><br><span class="line">dir = <span class="string">&#x27;C:\Users\pc\Desktop\XXX&#x27;</span>;</span><br><span class="line"></span><br><span class="line"><span class="keyword">if</span> ~libisloaded(<span class="string">&#x27;XXXBridgeDLL&#x27;</span>)</span><br><span class="line">    loadlibrary(dll,hdr);</span><br><span class="line"><span class="keyword">end</span></span><br><span class="line"></span><br><span class="line">p   = calllib(<span class="string">&#x27;XXXBridgeDLL&#x27;</span>,<span class="string">&#x27;CreateProcessor&#x27;</span>);</span><br><span class="line">nPt = libpointer(<span class="string">&#x27;int32Ptr&#x27;</span>,<span class="number">0</span>);</span><br><span class="line">assert(calllib(<span class="string">&#x27;XXXBridgeDLL&#x27;</span>,<span class="string">&#x27;ReadXXXDat&#x27;</span>,p,dir,nPt)==<span class="number">1</span>,<span class="string">&#x27;读取失败&#x27;</span>);</span><br><span class="line">N = nPt.Value;</span><br><span class="line"></span><br><span class="line"><span class="comment">% --- 指针缓冲区 ---</span></span><br><span class="line">xPtr   = libpointer(<span class="string">&#x27;doublePtr&#x27;</span>, <span class="built_in">zeros</span>(N,<span class="number">1</span>));</span><br><span class="line">powPtr = libpointer(<span class="string">&#x27;doublePtr&#x27;</span>, <span class="built_in">zeros</span>(N,<span class="number">1</span>));</span><br><span class="line">gainPtr= libpointer(<span class="string">&#x27;doublePtr&#x27;</span>, <span class="built_in">zeros</span>(N,<span class="number">1</span>));</span><br><span class="line">effPtr = libpointer(<span class="string">&#x27;doublePtr&#x27;</span>, <span class="built_in">zeros</span>(N,<span class="number">1</span>));</span><br><span class="line"></span><br><span class="line">calllib(<span class="string">&#x27;XXXBridgeDLL&#x27;</span>,<span class="string">&#x27;CopyX_mm&#x27;</span>, p, xPtr,   N);</span><br><span class="line">calllib(<span class="string">&#x27;XXXBridgeDLL&#x27;</span>,<span class="string">&#x27;CopyPower&#x27;</span>,p, powPtr, N);</span><br><span class="line">calllib(<span class="string">&#x27;XXXBridgeDLL&#x27;</span>,<span class="string">&#x27;CopyGain&#x27;</span>, p, gainPtr,N);</span><br><span class="line">calllib(<span class="string">&#x27;XXXBridgeDLL&#x27;</span>,<span class="string">&#x27;CopyEff&#x27;</span>,  p, effPtr ,N);</span><br><span class="line"></span><br><span class="line">x    = xPtr.Value;</span><br><span class="line">pow  = powPtr.Value;</span><br><span class="line">gain = gainPtr.Value;</span><br><span class="line">eff  = effPtr.Value;</span><br><span class="line"></span><br><span class="line"><span class="comment">% --- 绘图 ---</span></span><br><span class="line"><span class="built_in">figure</span>;</span><br><span class="line">subplot(<span class="number">3</span>,<span class="number">1</span>,<span class="number">1</span>); <span class="built_in">plot</span>(x,pow,<span class="string">&#x27;-b&#x27;</span>);  title(<span class="string">&#x27;输出功率曲线&#x27;</span>);xlabel(<span class="string">&#x27;z / mm&#x27;</span>);ylabel(<span class="string">&#x27;W&#x27;</span>);</span><br><span class="line">subplot(<span class="number">3</span>,<span class="number">1</span>,<span class="number">2</span>); <span class="built_in">plot</span>(x,gain,<span class="string">&#x27;-b&#x27;</span>); title(<span class="string">&#x27;增益曲线&#x27;</span>);    xlabel(<span class="string">&#x27;z / mm&#x27;</span>);ylabel(<span class="string">&#x27;dB&#x27;</span>);</span><br><span class="line">subplot(<span class="number">3</span>,<span class="number">1</span>,<span class="number">3</span>); <span class="built_in">plot</span>(x,eff ,<span class="string">&#x27;-b&#x27;</span>); title(<span class="string">&#x27;效率曲线&#x27;</span>);    xlabel(<span class="string">&#x27;z / mm&#x27;</span>);ylabel(<span class="string">&#x27;%&#x27;</span>);</span><br><span class="line"></span><br><span class="line"><span class="comment">% --- 清理 ---</span></span><br><span class="line">calllib(<span class="string">&#x27;XXXBridgeDLL&#x27;</span>,<span class="string">&#x27;DeleteProcessor&#x27;</span>,p);</span><br><span class="line">unloadlibrary(<span class="string">&#x27;XXXBridgeDLL&#x27;</span>);</span><br></pre></td></tr></table></figure>
+<p>这段 MATLAB 代码演示了如何通过调用 C++ 动态链接库 <code>XXXBridgeDLL.dll</code> 来读取 XXX 仿真数据，并绘制输出功率、增益和效率随轴向位置变化的曲线</p>
+<hr>
+<h2 id="strong-1-jia-zai-dll-yu-she-zhi-lu-jing-strong" tabindex="-1" id="1-加载-DLL-与设置路径"><strong>1. 加载 DLL 与设置路径</strong></h2>
+<figure class="highlight matlab"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">dll = <span class="string">&#x27;H:\Matlab\bin\XXXBridgeDLL.dll&#x27;</span>;</span><br><span class="line">hdr = <span class="string">&#x27;H:\Matlab\bin\XXXBridgeDLL.h&#x27;</span>;</span><br><span class="line">dir = <span class="string">&#x27;C:\Users\pc\Desktop\XXX&#x27;</span>;</span><br><span class="line"></span><br><span class="line"><span class="keyword">if</span> ~libisloaded(<span class="string">&#x27;XXXBridgeDLL&#x27;</span>)</span><br><span class="line">    loadlibrary(dll,hdr);</span><br><span class="line"><span class="keyword">end</span></span><br></pre></td></tr></table></figure>
+<ul>
+<li>设置 DLL 文件路径、头文件路径和数据文件夹路径。</li>
+<li>如果 DLL 尚未加载，则调用 <code>loadlibrary</code> 加载 DLL 并注册其接口函数。</li>
+</ul>
+<hr>
+<h2 id="strong-2-chuang-jian-chu-li-qi-bing-du-qu-shu-ju-strong" tabindex="-1" id="2-创建处理器并读取数据"><strong>2. 创建处理器并读取数据</strong></h2>
+<figure class="highlight matlab"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">p   = calllib(<span class="string">&#x27;XXXBridgeDLL&#x27;</span>,<span class="string">&#x27;CreateProcessor&#x27;</span>);</span><br><span class="line">nPt = libpointer(<span class="string">&#x27;int32Ptr&#x27;</span>,<span class="number">0</span>);</span><br><span class="line">assert(calllib(<span class="string">&#x27;XXXBridgeDLL&#x27;</span>,<span class="string">&#x27;ReadXXXDat&#x27;</span>,p,dir,nPt)==<span class="number">1</span>,<span class="string">&#x27;读取失败&#x27;</span>);</span><br><span class="line">N = nPt.Value;</span><br></pre></td></tr></table></figure>
+<ul>
+<li>创建处理器实例 <code>p</code>（C++ 对象的指针）。</li>
+<li>申请一个 <code>int32</code> 类型的指针 <code>nPt</code> 用于返回数据点数量。</li>
+<li>调用 <code>ReadXXXDat</code> 从 <code>dir</code> 文件夹读取仿真数据。</li>
+<li>将数据点个数保存在 <code>N</code> 中。</li>
+</ul>
+<hr>
+<h2 id="strong-3-fen-pei-shu-chu-huan-chong-qu-bing-fu-zhi-shu-ju-strong" tabindex="-1" id="3-分配输出缓冲区并复制数据"><strong>3. 分配输出缓冲区并复制数据</strong></h2>
+<figure class="highlight matlab"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">xPtr   = libpointer(<span class="string">&#x27;doublePtr&#x27;</span>, <span class="built_in">zeros</span>(N,<span class="number">1</span>));</span><br><span class="line">powPtr = libpointer(<span class="string">&#x27;doublePtr&#x27;</span>, <span class="built_in">zeros</span>(N,<span class="number">1</span>));</span><br><span class="line">gainPtr= libpointer(<span class="string">&#x27;doublePtr&#x27;</span>, <span class="built_in">zeros</span>(N,<span class="number">1</span>));</span><br><span class="line">effPtr = libpointer(<span class="string">&#x27;doublePtr&#x27;</span>, <span class="built_in">zeros</span>(N,<span class="number">1</span>));</span><br><span class="line"></span><br><span class="line">calllib(<span class="string">&#x27;XXXBridgeDLL&#x27;</span>,<span class="string">&#x27;CopyX_mm&#x27;</span>, p, xPtr,   N);</span><br><span class="line">calllib(<span class="string">&#x27;XXXBridgeDLL&#x27;</span>,<span class="string">&#x27;CopyPower&#x27;</span>,p, powPtr, N);</span><br><span class="line">calllib(<span class="string">&#x27;XXXBridgeDLL&#x27;</span>,<span class="string">&#x27;CopyGain&#x27;</span>, p, gainPtr,N);</span><br><span class="line">calllib(<span class="string">&#x27;XXXBridgeDLL&#x27;</span>,<span class="string">&#x27;CopyEff&#x27;</span>,  p, effPtr ,N);</span><br></pre></td></tr></table></figure>
+<ul>
+<li>为四类数据创建指针缓冲区，长度为 <code>N</code>。</li>
+<li>通过调用 DLL 中的接口函数将数据从 C++ 内部复制到 MATLAB 缓冲区中。</li>
+</ul>
+<hr>
+<h2 id="strong-4-jiang-zhi-zhen-zhi-zhuan-huan-wei-matlab-xiang-liang-strong" tabindex="-1" id="4-将指针值转换为-MATLAB-向量"><strong>4. 将指针值转换为 MATLAB 向量</strong></h2>
+<figure class="highlight matlab"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">x    = xPtr.Value;</span><br><span class="line">pow  = powPtr.Value;</span><br><span class="line">gain = gainPtr.Value;</span><br><span class="line">eff  = effPtr.Value;</span><br></pre></td></tr></table></figure>
+<ul>
+<li>将指针对象中的数据取出，转换为 MATLAB 可用的数组。</li>
+</ul>
+<hr>
+<h2 id="strong-5-hui-zhi-fang-zhen-jie-guo-qu-xian-strong" tabindex="-1" id="5-绘制仿真结果曲线"><strong>5. 绘制仿真结果曲线</strong></h2>
+<figure class="highlight matlab"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">figure</span>;</span><br><span class="line">subplot(<span class="number">3</span>,<span class="number">1</span>,<span class="number">1</span>); <span class="built_in">plot</span>(x,pow,<span class="string">&#x27;-b&#x27;</span>);  title(<span class="string">&#x27;输出功率曲线&#x27;</span>);xlabel(<span class="string">&#x27;z / mm&#x27;</span>);ylabel(<span class="string">&#x27;W&#x27;</span>);</span><br><span class="line">subplot(<span class="number">3</span>,<span class="number">1</span>,<span class="number">2</span>); <span class="built_in">plot</span>(x,gain,<span class="string">&#x27;-b&#x27;</span>); title(<span class="string">&#x27;增益曲线&#x27;</span>);    xlabel(<span class="string">&#x27;z / mm&#x27;</span>);ylabel(<span class="string">&#x27;dB&#x27;</span>);</span><br><span class="line">subplot(<span class="number">3</span>,<span class="number">1</span>,<span class="number">3</span>); <span class="built_in">plot</span>(x,eff ,<span class="string">&#x27;-b&#x27;</span>); title(<span class="string">&#x27;效率曲线&#x27;</span>);    xlabel(<span class="string">&#x27;z / mm&#x27;</span>);ylabel(<span class="string">&#x27;%&#x27;</span>);</span><br></pre></td></tr></table></figure>
+<ul>
+<li>打开一个新图像窗口，将三种数据绘制在三个子图中：
+<ul>
+<li>输出功率 vs. 坐标</li>
+<li>增益 vs. 坐标</li>
+<li>效率 vs. 坐标</li>
+</ul>
+</li>
+</ul>
+<hr>
+<h2 id="strong-6-qing-li-zi-yuan-strong" tabindex="-1" id="6-清理资源"><strong>6. 清理资源</strong></h2>
+<figure class="highlight matlab"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">calllib(<span class="string">&#x27;XXXBridgeDLL&#x27;</span>,<span class="string">&#x27;DeleteProcessor&#x27;</span>,p);</span><br><span class="line">unloadlibrary(<span class="string">&#x27;XXXBridgeDLL&#x27;</span>);</span><br></pre></td></tr></table></figure>
+<ul>
+<li>释放处理器对象 <code>p</code>。</li>
+<li>卸载 DLL，释放系统资源。</li>
+</ul>
+<p>这段代码实现了：</p>
+<ol>
+<li>加载 DLL 并创建处理器。</li>
+<li>调用 C++ 函数读取 XXX 仿真数据。</li>
+<li>将结果复制到 MATLAB 并绘图。</li>
+<li>使用完后清理资源，避免内存泄漏。</li>
+</ol>
+<p>运行效果如下</p>
+<p><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="https://cdn.jsdelivr.net/gh/psmarter/blog-imgs/Simulink%E8%B0%83%E7%94%A8%E5%A4%96%E9%83%A8Dll%E5%8F%AF%E8%A7%86%E5%8C%96%E3%80%8A%E4%BA%8C%E3%80%8B%2F2025-07-23-11-44-11-990a08.png" alt="image-20250723111646923"></p>
+<h1 id="yu-qiu-jie-gong-ju-lian-jie" tabindex="-1">与求解工具链接</h1>
+<p>现在的可视化模块只是通过硬编码的方式读取指定文件，下面需要把求解工具和可视化链接，通过求解工具输出的参数来进行泛型可视化</p>
+<p>修改现有的调用求解工具S Function代码</p>
+<figure class="highlight matlab"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br><span class="line">101</span><br><span class="line">102</span><br><span class="line">103</span><br><span class="line">104</span><br><span class="line">105</span><br><span class="line">106</span><br><span class="line">107</span><br><span class="line">108</span><br><span class="line">109</span><br><span class="line">110</span><br><span class="line">111</span><br><span class="line">112</span><br><span class="line">113</span><br><span class="line">114</span><br><span class="line">115</span><br><span class="line">116</span><br><span class="line">117</span><br><span class="line">118</span><br><span class="line">119</span><br><span class="line">120</span><br><span class="line">121</span><br><span class="line">122</span><br><span class="line">123</span><br><span class="line">124</span><br><span class="line">125</span><br><span class="line">126</span><br><span class="line">127</span><br><span class="line">128</span><br><span class="line">129</span><br><span class="line">130</span><br><span class="line">131</span><br><span class="line">132</span><br><span class="line">133</span><br><span class="line">134</span><br><span class="line">135</span><br><span class="line">136</span><br><span class="line">137</span><br><span class="line">138</span><br><span class="line">139</span><br><span class="line">140</span><br><span class="line">141</span><br><span class="line">142</span><br><span class="line">143</span><br><span class="line">144</span><br><span class="line">145</span><br><span class="line">146</span><br><span class="line">147</span><br><span class="line">148</span><br><span class="line">149</span><br><span class="line">150</span><br><span class="line">151</span><br><span class="line">152</span><br><span class="line">153</span><br><span class="line">154</span><br><span class="line">155</span><br><span class="line">156</span><br><span class="line">157</span><br><span class="line">158</span><br><span class="line">159</span><br><span class="line">160</span><br><span class="line">161</span><br><span class="line">162</span><br><span class="line">163</span><br><span class="line">164</span><br><span class="line">165</span><br><span class="line">166</span><br><span class="line">167</span><br><span class="line">168</span><br><span class="line">169</span><br><span class="line">170</span><br><span class="line">171</span><br><span class="line">172</span><br><span class="line">173</span><br><span class="line">174</span><br><span class="line">175</span><br><span class="line">176</span><br><span class="line">177</span><br><span class="line">178</span><br><span class="line">179</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">function</span> <span class="title">sfun_callXXX</span><span class="params">(block)</span></span></span><br><span class="line">    setup(block);</span><br><span class="line"><span class="keyword">end</span></span><br><span class="line"></span><br><span class="line"><span class="comment">% ─────────────────── SETUP ────────────────────</span></span><br><span class="line"><span class="function"><span class="keyword">function</span> <span class="title">setup</span><span class="params">(block)</span></span></span><br><span class="line">    <span class="comment">%— I/O 配置 —————————————————————————————————————————————</span></span><br><span class="line">    block.NumInputPorts  = <span class="number">1</span>;</span><br><span class="line">    block.NumOutputPorts = <span class="number">1</span>;</span><br><span class="line">    block.InputPort(<span class="number">1</span>).Dimensions        = <span class="number">1</span>;</span><br><span class="line">    block.InputPort(<span class="number">1</span>).DatatypeID        = <span class="number">0</span>;   <span class="comment">% double</span></span><br><span class="line">    block.InputPort(<span class="number">1</span>).DirectFeedthrough = <span class="built_in">true</span>;</span><br><span class="line">    block.OutputPort(<span class="number">1</span>).Dimensions       = <span class="number">1</span>;</span><br><span class="line">    block.OutputPort(<span class="number">1</span>).DatatypeID       = <span class="number">0</span>;</span><br><span class="line"></span><br><span class="line">    <span class="comment">%— SampleTime 配置 ———————————————————————</span></span><br><span class="line">    block.SampleTimes        = [<span class="number">0.5</span> <span class="number">0</span>];         <span class="comment">% 0.5 s 轮询</span></span><br><span class="line">    block.SimStateCompliance = <span class="string">&#x27;DefaultSimState&#x27;</span>;</span><br><span class="line"></span><br><span class="line">    <span class="comment">%— 注册方法 —————————————————————————</span></span><br><span class="line">    block.RegBlockMethod(<span class="string">&#x27;PostPropagationSetup&#x27;</span>, @PostProp);</span><br><span class="line">    block.RegBlockMethod(<span class="string">&#x27;InitializeConditions&#x27;</span>, @InitCond);</span><br><span class="line">    block.RegBlockMethod(<span class="string">&#x27;Outputs&#x27;</span>,              @Outputs);</span><br><span class="line">    block.RegBlockMethod(<span class="string">&#x27;Terminate&#x27;</span>,            @Terminate);</span><br><span class="line"></span><br><span class="line">    <span class="comment">%— 设置仿真时间为无限，直到进程完成 —————</span></span><br><span class="line">    set_param(bdroot(block.BlockHandle), <span class="string">&#x27;StopTime&#x27;</span>, <span class="string">&#x27;inf&#x27;</span>);</span><br><span class="line"><span class="keyword">end</span></span><br><span class="line"></span><br><span class="line"><span class="comment">% ─── PostPropagationSetup：声明 DWork ───</span></span><br><span class="line"><span class="function"><span class="keyword">function</span> <span class="title">PostProp</span><span class="params">(block)</span></span></span><br><span class="line">    block.NumDworks = <span class="number">3</span>;</span><br><span class="line">    names = &#123;<span class="string">&#x27;prevU&#x27;</span>, <span class="string">&#x27;exeState&#x27;</span>, <span class="string">&#x27;pid&#x27;</span>&#125;;</span><br><span class="line">    <span class="keyword">for</span> k = <span class="number">1</span>:<span class="number">3</span></span><br><span class="line">        block.Dwork(k).Name            = names&#123;k&#125;;</span><br><span class="line">        block.Dwork(k).Dimensions      = <span class="number">1</span>;</span><br><span class="line">        block.Dwork(k).DatatypeID      = <span class="number">0</span>;</span><br><span class="line">        block.Dwork(k).Complexity      = <span class="string">&#x27;Real&#x27;</span>;</span><br><span class="line">        block.Dwork(k).UsedAsDiscState = <span class="built_in">true</span>;</span><br><span class="line">    <span class="keyword">end</span></span><br><span class="line"><span class="keyword">end</span></span><br><span class="line"></span><br><span class="line"><span class="comment">% ─── 初始化 ───</span></span><br><span class="line"><span class="function"><span class="keyword">function</span> <span class="title">InitCond</span><span class="params">(block)</span></span></span><br><span class="line">    block.Dwork(<span class="number">1</span>).Data = <span class="number">0</span>;</span><br><span class="line">    block.Dwork(<span class="number">2</span>).Data = <span class="number">0</span>;</span><br><span class="line">    block.Dwork(<span class="number">3</span>).Data = <span class="number">0</span>;</span><br><span class="line"><span class="keyword">end</span></span><br><span class="line"></span><br><span class="line"><span class="comment">% ─────────────────── Outputs ───────────────────</span></span><br><span class="line"><span class="function"><span class="keyword">function</span> <span class="title">Outputs</span><span class="params">(block)</span></span></span><br><span class="line">    u        = block.InputPort(<span class="number">1</span>).Data;</span><br><span class="line">    prevU    = block.Dwork(<span class="number">1</span>).Data;</span><br><span class="line">    exeState = block.Dwork(<span class="number">2</span>).Data;</span><br><span class="line">    pid      = block.Dwork(<span class="number">3</span>).Data;</span><br><span class="line"></span><br><span class="line">    <span class="comment">%— 持久变量：进程句柄 —————————————</span></span><br><span class="line">    <span class="keyword">persistent</span> procObj</span><br><span class="line">    <span class="keyword">if</span> <span class="built_in">isempty</span>(procObj), procObj = []; <span class="keyword">end</span></span><br><span class="line"></span><br><span class="line">    <span class="comment">%— 配置区：路径 —————————</span></span><br><span class="line">    exePath   = <span class="string">&#x27;.\Solver\XXX.exe&#x27;</span>;</span><br><span class="line">    paramPath = <span class="string">&#x27;C:\Users\pc\Desktop\XXX&#x27;</span>;</span><br><span class="line"></span><br><span class="line">    <span class="comment">%— ① Rising-edge → 启动 EXE —————————</span></span><br><span class="line">    <span class="keyword">if</span> u == <span class="number">1</span> &amp;&amp; prevU == <span class="number">0</span> &amp;&amp; exeState == <span class="number">0</span></span><br><span class="line">        [ok, procObj, pid, exeState] = launchExe(exePath, paramPath);</span><br><span class="line">        <span class="keyword">if</span> ok</span><br><span class="line">            fprintf(<span class="string">&#x27;[XXX] PID=%d 已启动\n&#x27;</span>, pid);</span><br><span class="line">        <span class="keyword">else</span></span><br><span class="line">            exeState = <span class="number">-1</span>;  <span class="comment">% 启动失败</span></span><br><span class="line">        <span class="keyword">end</span></span><br><span class="line">    <span class="keyword">end</span></span><br><span class="line"></span><br><span class="line">    <span class="comment">%— ② 运行中 → 轮询进程是否退出 —————</span></span><br><span class="line">    <span class="keyword">if</span> exeState == <span class="number">1</span></span><br><span class="line">        [exeState, pid] = pollProcessExitStatus(procObj, pid);</span><br><span class="line">        <span class="keyword">if</span> exeState == <span class="number">2</span> || exeState == <span class="number">-1</span></span><br><span class="line">            stopSimulation(block);</span><br><span class="line">        <span class="keyword">end</span></span><br><span class="line">    <span class="keyword">end</span></span><br><span class="line"></span><br><span class="line">    <span class="comment">%— ③ 输出 &amp; 保存 —————————</span></span><br><span class="line">    block.OutputPort(<span class="number">1</span>).Data = exeState;</span><br><span class="line">    block.Dwork(<span class="number">1</span>).Data      = u;</span><br><span class="line">    block.Dwork(<span class="number">2</span>).Data      = exeState;</span><br><span class="line">    block.Dwork(<span class="number">3</span>).Data      = pid;</span><br><span class="line"><span class="keyword">end</span></span><br><span class="line"></span><br><span class="line"><span class="comment">% ─── Terminate：处理进程退出 —──</span></span><br><span class="line"><span class="function"><span class="keyword">function</span> <span class="title">Terminate</span><span class="params">(~)</span></span></span><br><span class="line">    <span class="keyword">persistent</span> procObj</span><br><span class="line">    <span class="keyword">if</span> ~<span class="built_in">isempty</span>(procObj)</span><br><span class="line">        <span class="keyword">try</span></span><br><span class="line">            terminateProcess(procObj);</span><br><span class="line">        <span class="keyword">catch</span></span><br><span class="line">            <span class="comment">% Ignore if the process has already been terminated</span></span><br><span class="line">        <span class="keyword">end</span></span><br><span class="line">    <span class="keyword">end</span></span><br><span class="line"><span class="keyword">end</span></span><br><span class="line"></span><br><span class="line"><span class="comment">% ─── helper：启动进程 ───</span></span><br><span class="line"><span class="function"><span class="keyword">function</span> <span class="params">[ok, proc, pid, exeState]</span> = <span class="title">launchExe</span><span class="params">(exePath, paramPath)</span></span></span><br><span class="line">    ok = <span class="built_in">false</span>; proc = []; pid = <span class="number">0</span>; exeState = <span class="number">0</span>;</span><br><span class="line">    <span class="keyword">try</span></span><br><span class="line">        <span class="keyword">if</span> exist(exePath, <span class="string">&#x27;file&#x27;</span>) ~= <span class="number">2</span></span><br><span class="line">            warning(<span class="string">&#x27;[XXX] EXE 不存在: %s&#x27;</span>, exePath); <span class="keyword">return</span>; <span class="keyword">end</span></span><br><span class="line">        <span class="keyword">if</span> exist(paramPath, <span class="string">&#x27;dir&#x27;</span>) ~= <span class="number">7</span></span><br><span class="line">            warning(<span class="string">&#x27;[XXX] 参数路径不存在: %s&#x27;</span>, paramPath); <span class="keyword">return</span>; <span class="keyword">end</span></span><br><span class="line"></span><br><span class="line">        argStr = [<span class="string">&#x27;1|1|&#x27;</span> paramPath];  <span class="comment">% 启动参数</span></span><br><span class="line">        proc = System.Diagnostics.Process();</span><br><span class="line">        info = proc.StartInfo;</span><br><span class="line">        info.FileName        = exePath;</span><br><span class="line">        info.Arguments       = argStr;</span><br><span class="line">        info.UseShellExecute = <span class="built_in">false</span>;</span><br><span class="line">        info.CreateNoWindow  = <span class="built_in">true</span>;</span><br><span class="line">        ok = proc.Start();</span><br><span class="line">        <span class="keyword">if</span> ok</span><br><span class="line">            pid = double(proc.Id);</span><br><span class="line">            exeState = <span class="number">1</span>;   <span class="comment">% 运行中</span></span><br><span class="line">        <span class="keyword">end</span></span><br><span class="line">    <span class="keyword">catch</span> ME</span><br><span class="line">        warning(<span class="string">&#x27;[XXX] 启动 EXE 异常: %s&#x27;</span>, E.message);</span><br><span class="line">    <span class="keyword">end</span></span><br><span class="line"><span class="keyword">end</span></span><br><span class="line"></span><br><span class="line"><span class="comment">% ─── helper：轮询进程退出状态 ───</span></span><br><span class="line"><span class="function"><span class="keyword">function</span> <span class="params">[exeState, pid]</span> = <span class="title">pollProcessExitStatus</span><span class="params">(procObj, pid)</span></span></span><br><span class="line">    finished = <span class="built_in">false</span>;</span><br><span class="line">    <span class="keyword">try</span></span><br><span class="line">        procObj.Refresh();</span><br><span class="line">        finished = procObj.HasExited;</span><br><span class="line">        <span class="keyword">if</span> ~finished</span><br><span class="line">            finished = procObj.WaitForExit(<span class="number">50</span>);  <span class="comment">% 等待 50 ms</span></span><br><span class="line">        <span class="keyword">end</span></span><br><span class="line">    <span class="keyword">catch</span></span><br><span class="line">        finished = ~isProcAlive(pid);</span><br><span class="line">    <span class="keyword">end</span></span><br><span class="line">    </span><br><span class="line">    <span class="keyword">if</span> finished</span><br><span class="line">        exitC = getExitCodeSafe(procObj);</span><br><span class="line">        exeState = (exitC == <span class="number">0</span>) * <span class="number">2</span> + (exitC ~= <span class="number">0</span>) * (<span class="number">-1</span>);</span><br><span class="line">        pid = <span class="number">0</span>;</span><br><span class="line">    <span class="keyword">else</span></span><br><span class="line">        exeState = <span class="number">1</span>; <span class="comment">% Running</span></span><br><span class="line">    <span class="keyword">end</span></span><br><span class="line"><span class="keyword">end</span></span><br><span class="line"></span><br><span class="line"><span class="comment">% ─── helper：检查 PID 是否仍存活 ───</span></span><br><span class="line"><span class="function"><span class="keyword">function</span> <span class="title">alive</span> = <span class="title">isProcAlive</span><span class="params">(pid)</span></span></span><br><span class="line">    alive = <span class="built_in">false</span>;</span><br><span class="line">    <span class="keyword">if</span> pid &lt;= <span class="number">0</span>, <span class="keyword">return</span>; <span class="keyword">end</span></span><br><span class="line">    <span class="keyword">try</span></span><br><span class="line">        pchk = System.Diagnostics.Process.GetProcessById(pid);</span><br><span class="line">        alive = ~pchk.HasExited;</span><br><span class="line">    <span class="keyword">catch</span></span><br><span class="line">        <span class="comment">% Process not found</span></span><br><span class="line">    <span class="keyword">end</span></span><br><span class="line"><span class="keyword">end</span></span><br><span class="line"></span><br><span class="line"><span class="comment">% ─── helper：读取 ExitCode ───</span></span><br><span class="line"><span class="function"><span class="keyword">function</span> <span class="title">code</span> = <span class="title">getExitCodeSafe</span><span class="params">(procObj)</span></span></span><br><span class="line">    code = <span class="number">-1</span>;</span><br><span class="line">    <span class="keyword">try</span> code = procObj.ExitCode; <span class="keyword">catch</span>, <span class="keyword">end</span></span><br><span class="line"><span class="keyword">end</span></span><br><span class="line"></span><br><span class="line"><span class="comment">% ─── helper：终止进程 ───</span></span><br><span class="line"><span class="function"><span class="keyword">function</span> <span class="title">terminateProcess</span><span class="params">(procObj)</span></span></span><br><span class="line">    <span class="keyword">if</span> ~procObj.HasExited</span><br><span class="line">        procObj.Kill();</span><br><span class="line">    <span class="keyword">end</span></span><br><span class="line">    procObj.Dispose();</span><br><span class="line"><span class="keyword">end</span></span><br><span class="line"></span><br><span class="line"><span class="comment">% ─── helper：停止仿真 ───</span></span><br><span class="line"><span class="function"><span class="keyword">function</span> <span class="title">stopSimulation</span><span class="params">(block)</span></span></span><br><span class="line">    set_param(bdroot(block.BlockHandle), <span class="string">&#x27;SimulationCommand&#x27;</span>, <span class="string">&#x27;stop&#x27;</span>);</span><br><span class="line"><span class="keyword">end</span></span><br></pre></td></tr></table></figure>
+<p>这段代码是一个 <strong>Level-2 MATLAB S-Function</strong>，用于在 Simulink 中检测输入信号的 <strong>上升沿</strong>（从0变为1），然后<strong>异步启动一个外部 EXE 程序（XXX.exe）</strong>，并<strong>轮询进程状态，完成后自动停止仿真</strong>。</p>
+<table>
+<thead>
+<tr>
+<th>步骤</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>①</td>
+<td>输入信号从 0 → 1，触发启动 XXX.exe</td>
+</tr>
+<tr>
+<td>②</td>
+<td>启动进程，记录 PID 和运行状态</td>
+</tr>
+<tr>
+<td>③</td>
+<td>每 0.5 秒轮询一次，判断进程是否结束</td>
+</tr>
+<tr>
+<td>④</td>
+<td>若 EXE 正常退出，则输出状态为 2，仿真停止；否则输出 -1 并停止</td>
+</tr>
+<tr>
+<td>⑤</td>
+<td>清理进程资源，防止残留</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="diao-yong-gong-ju-dai-ma-jie-shi" tabindex="-1" id="调用工具代码解释">调用工具代码解释</h2>
+<ol>
+<li>顶部函数入口</li>
+</ol>
+<figure class="highlight matlab"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">function</span> <span class="title">sfun_callXXX</span><span class="params">(block)</span></span></span><br><span class="line">    setup(block);</span><br><span class="line"><span class="keyword">end</span></span><br></pre></td></tr></table></figure>
+<ul>
+<li>S-Function 的主函数入口，调用 <code>setup()</code> 注册接口。</li>
+</ul>
+<ol start="2">
+<li><code>setup(block)</code>：配置端口、采样、方法等</li>
+</ol>
+<figure class="highlight matlab"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">block.NumInputPorts  = <span class="number">1</span>;  <span class="comment">% 输入1个信号（控制启动）</span></span><br><span class="line">block.NumOutputPorts = <span class="number">1</span>;  <span class="comment">% 输出当前状态（0, 1, 2, -1）</span></span><br><span class="line"></span><br><span class="line">block.SampleTimes = [<span class="number">0.5</span> <span class="number">0</span>];  <span class="comment">% 每 0.5 秒执行一次</span></span><br><span class="line">block.RegBlockMethod(...)    <span class="comment">% 注册各阶段的回调函数</span></span><br><span class="line">set_param(..., <span class="string">&#x27;StopTime&#x27;</span>, <span class="string">&#x27;inf&#x27;</span>);  <span class="comment">% 设置仿真不主动终止</span></span><br></pre></td></tr></table></figure>
+<ol start="3">
+<li><code>PostProp</code>：声明离散状态（DWork）</li>
+</ol>
+<figure class="highlight matlab"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">block.NumDworks = <span class="number">3</span>;</span><br><span class="line">names = &#123;<span class="string">&#x27;prevU&#x27;</span>, <span class="string">&#x27;exeState&#x27;</span>, <span class="string">&#x27;pid&#x27;</span>&#125;;</span><br></pre></td></tr></table></figure>
+<ul>
+<li><code>prevU</code>：上一时刻输入值（检测上升沿用）</li>
+<li><code>exeState</code>：执行状态（0=未启动，1=运行中，2=正常退出，-1=错误）</li>
+<li><code>pid</code>：外部进程 PID</li>
+</ul>
+<ol start="4">
+<li><code>InitCond</code>：初始化 DWork 数据</li>
+</ol>
+<figure class="highlight matlab"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">block.Dwork(<span class="number">1</span>).Data = <span class="number">0</span>;  <span class="comment">% 上一时刻输入值</span></span><br><span class="line">block.Dwork(<span class="number">2</span>).Data = <span class="number">0</span>;  <span class="comment">% exeState</span></span><br><span class="line">block.Dwork(<span class="number">3</span>).Data = <span class="number">0</span>;  <span class="comment">% pid</span></span><br></pre></td></tr></table></figure>
+<ol start="5">
+<li><code>Outputs(block)</code>：主逻辑处理区</li>
+</ol>
+<figure class="highlight matlab"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">u = block.InputPort(<span class="number">1</span>).Data;</span><br></pre></td></tr></table></figure>
+<p>上升沿触发：启动外部 EXE</p>
+<figure class="highlight matlab"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">if</span> u == <span class="number">1</span> &amp;&amp; prevU == <span class="number">0</span> &amp;&amp; exeState == <span class="number">0</span></span><br><span class="line">    [ok, procObj, pid, exeState] = launchExe(...);</span><br><span class="line"><span class="keyword">end</span></span><br></pre></td></tr></table></figure>
+<p>运行中：轮询状态（每次采样调用）</p>
+<figure class="highlight matlab"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">if</span> exeState == <span class="number">1</span></span><br><span class="line">    [exeState, pid] = pollProcessExitStatus(...);</span><br><span class="line">    <span class="keyword">if</span> exeState == <span class="number">2</span> || exeState == <span class="number">-1</span></span><br><span class="line">        stopSimulation(block);  <span class="comment">% 进程完成 → 停止仿真</span></span><br><span class="line">    <span class="keyword">end</span></span><br><span class="line"><span class="keyword">end</span></span><br></pre></td></tr></table></figure>
+<p>输出当前状态并保存状态数据</p>
+<figure class="highlight matlab"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">block.OutputPort(<span class="number">1</span>).Data = exeState;</span><br></pre></td></tr></table></figure>
+<ol start="6">
+<li><code>Terminate</code>：终止残留进程（防挂后台）</li>
+</ol>
+<figure class="highlight matlab"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">if</span> ~<span class="built_in">isempty</span>(procObj)</span><br><span class="line">    terminateProcess(procObj);</span><br><span class="line"><span class="keyword">end</span></span><br></pre></td></tr></table></figure>
+<h3 id="nei-bu-helper-han-shu-shuo-ming" tabindex="-1" id="内部-helper-函数说明">内部 helper 函数说明</h3>
+<p><code>launchExe(exePath, paramPath)</code></p>
+<ul>
+<li>启动 XXX.exe</li>
+<li>参数格式是 <code>'1|1|参数路径'</code></li>
+<li>返回是否成功、进程对象、PID、状态</li>
+</ul>
+<p><code>pollProcessExitStatus(procObj, pid)</code></p>
+<ul>
+<li>检查进程是否已退出</li>
+<li>如果异常，也尝试通过 PID 判断</li>
+<li>根据 <code>ExitCode</code> 判断：
+<ul>
+<li><code>0</code> → 正常结束（返回状态 <code>2</code>）</li>
+<li>非 <code>0</code> → 异常（状态 <code>-1</code>）</li>
+</ul>
+</li>
+</ul>
+<p><code>isProcAlive(pid)</code></p>
+<ul>
+<li>尝试通过 PID 检查进程是否还活着</li>
+</ul>
+<p><code>terminateProcess(procObj)</code></p>
+<ul>
+<li>如果进程还在运行，则强制结束并释放资源</li>
+</ul>
+<p><code>stopSimulation(block)</code></p>
+<ul>
+<li>调用 Simulink 命令强制停止整个仿真</li>
+</ul>
+<h3 id="zhuang-tai-ma-han-yi-zong-jie" tabindex="-1" id="状态码含义总结">状态码含义总结</h3>
+<table>
+<thead>
+<tr>
+<th>状态码</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>0</code></td>
+<td>初始未启动</td>
+</tr>
+<tr>
+<td><code>1</code></td>
+<td>正在运行 EXE</td>
+</tr>
+<tr>
+<td><code>2</code></td>
+<td>EXE 正常退出</td>
+</tr>
+<tr>
+<td><code>-1</code></td>
+<td>启动或执行异常</td>
+</tr>
+</tbody>
+</table>
+<h2 id="xiu-gai-m-wen-jian" tabindex="-1" id="修改M文件">修改M文件</h2>
+<p>将调用dll的Matlab代码改为S Function的方式，并通过1→2来进行触发，代码如下</p>
+<figure class="highlight matlab"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br><span class="line">101</span><br><span class="line">102</span><br><span class="line">103</span><br><span class="line">104</span><br><span class="line">105</span><br><span class="line">106</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">function</span> <span class="title">sfun_callXXXProcess</span><span class="params">(block)</span></span></span><br><span class="line">    setup(block);</span><br><span class="line"><span class="keyword">end</span></span><br><span class="line"></span><br><span class="line"><span class="comment">% ─────────────────── SETUP ────────────────────</span></span><br><span class="line"><span class="function"><span class="keyword">function</span> <span class="title">setup</span><span class="params">(block)</span></span></span><br><span class="line">    block.NumInputPorts  = <span class="number">1</span>;</span><br><span class="line">    block.NumOutputPorts = <span class="number">0</span>;</span><br><span class="line">    block.InputPort(<span class="number">1</span>).Dimensions        = <span class="number">1</span>;</span><br><span class="line">    block.InputPort(<span class="number">1</span>).DatatypeID        = <span class="number">0</span>;   <span class="comment">% double</span></span><br><span class="line">    block.InputPort(<span class="number">1</span>).Complexity        = <span class="string">&#x27;Real&#x27;</span>;</span><br><span class="line">    block.InputPort(<span class="number">1</span>).DirectFeedthrough = <span class="built_in">true</span>;</span><br><span class="line"></span><br><span class="line">    block.SampleTimes        = [<span class="number">0.5</span> <span class="number">0</span>];         <span class="comment">% 0.5 s 轮询</span></span><br><span class="line">    block.SimStateCompliance = <span class="string">&#x27;DefaultSimState&#x27;</span>;</span><br><span class="line"></span><br><span class="line">    block.RegBlockMethod(<span class="string">&#x27;PostPropagationSetup&#x27;</span>, @PostProp);</span><br><span class="line">    block.RegBlockMethod(<span class="string">&#x27;InitializeConditions&#x27;</span>, @InitCond);</span><br><span class="line">    block.RegBlockMethod(<span class="string">&#x27;Outputs&#x27;</span>,              @Outputs);</span><br><span class="line">    block.RegBlockMethod(<span class="string">&#x27;Terminate&#x27;</span>,            @Terminate);</span><br><span class="line"><span class="keyword">end</span></span><br><span class="line"></span><br><span class="line"><span class="comment">% ─── PostPropagationSetup：声明 DWork ───</span></span><br><span class="line"><span class="function"><span class="keyword">function</span> <span class="title">PostProp</span><span class="params">(block)</span></span></span><br><span class="line">    block.NumDworks = <span class="number">1</span>;                       <span class="comment">% prevU</span></span><br><span class="line">    block.Dwork(<span class="number">1</span>).Name            = <span class="string">&#x27;prevU&#x27;</span>;</span><br><span class="line">    block.Dwork(<span class="number">1</span>).Dimensions      = <span class="number">1</span>;</span><br><span class="line">    block.Dwork(<span class="number">1</span>).DatatypeID      = <span class="number">0</span>;</span><br><span class="line">    block.Dwork(<span class="number">1</span>).Complexity      = <span class="string">&#x27;Real&#x27;</span>;</span><br><span class="line">    block.Dwork(<span class="number">1</span>).UsedAsDiscState = <span class="built_in">true</span>;</span><br><span class="line"><span class="keyword">end</span></span><br><span class="line"></span><br><span class="line"><span class="comment">% ─── 初始化 ───</span></span><br><span class="line"><span class="function"><span class="keyword">function</span> <span class="title">InitCond</span><span class="params">(block)</span></span></span><br><span class="line">    block.Dwork(<span class="number">1</span>).Data = <span class="number">0</span>;</span><br><span class="line"><span class="keyword">end</span></span><br><span class="line"></span><br><span class="line"><span class="comment">% ─────────────────── Outputs ───────────────────</span></span><br><span class="line"><span class="function"><span class="keyword">function</span> <span class="title">Outputs</span><span class="params">(block)</span></span></span><br><span class="line">    u = block.InputPort(<span class="number">1</span>).Data;</span><br><span class="line">    prevU = block.Dwork(<span class="number">1</span>).Data;</span><br><span class="line"></span><br><span class="line">    <span class="comment">% 如果脉冲信号为2，则开始执行数据读取</span></span><br><span class="line">    <span class="keyword">if</span> u == <span class="number">2</span> &amp;&amp; prevU ~= <span class="number">2</span></span><br><span class="line">        <span class="comment">% --- 读取数据并绘图 ---</span></span><br><span class="line">        dll = <span class="string">&#x27;.\bin\XXXBridgeDLL.dll&#x27;</span>;</span><br><span class="line">        hdr = <span class="string">&#x27;.\bin\XXXBridgeDLL.h&#x27;</span>;</span><br><span class="line">        dir = <span class="string">&#x27;C:\Users\pc\Desktop\XXX&#x27;</span>;</span><br><span class="line"></span><br><span class="line">        <span class="keyword">if</span> ~libisloaded(<span class="string">&#x27;XXXBridgeDLL&#x27;</span>)</span><br><span class="line">            loadlibrary(dll, hdr);</span><br><span class="line">        <span class="keyword">end</span></span><br><span class="line"></span><br><span class="line">        p   = calllib(<span class="string">&#x27;XXXBridgeDLL&#x27;</span>, <span class="string">&#x27;CreateProcessor&#x27;</span>);</span><br><span class="line">        nPt = libpointer(<span class="string">&#x27;int32Ptr&#x27;</span>, <span class="number">0</span>);</span><br><span class="line">        assert(calllib(<span class="string">&#x27;XXXBridgeDLL&#x27;</span>, <span class="string">&#x27;ReadXXXDat&#x27;</span>, p, dir, nPt) == <span class="number">1</span>, <span class="string">&#x27;读取失败&#x27;</span>);</span><br><span class="line">        N = nPt.Value;</span><br><span class="line"></span><br><span class="line">        <span class="comment">% --- 指针缓冲区 ---</span></span><br><span class="line">        xPtr   = libpointer(<span class="string">&#x27;doublePtr&#x27;</span>, <span class="built_in">zeros</span>(N, <span class="number">1</span>));</span><br><span class="line">        powPtr = libpointer(<span class="string">&#x27;doublePtr&#x27;</span>, <span class="built_in">zeros</span>(N, <span class="number">1</span>));</span><br><span class="line">        gainPtr= libpointer(<span class="string">&#x27;doublePtr&#x27;</span>, <span class="built_in">zeros</span>(N, <span class="number">1</span>));</span><br><span class="line">        effPtr = libpointer(<span class="string">&#x27;doublePtr&#x27;</span>, <span class="built_in">zeros</span>(N, <span class="number">1</span>));</span><br><span class="line"></span><br><span class="line">        calllib(<span class="string">&#x27;XXXBridgeDLL&#x27;</span>, <span class="string">&#x27;CopyX_mm&#x27;</span>, p, xPtr, N);</span><br><span class="line">        calllib(<span class="string">&#x27;XXXBridgeDLL&#x27;</span>, <span class="string">&#x27;CopyPower&#x27;</span>, p, powPtr, N);</span><br><span class="line">        calllib(<span class="string">&#x27;XXXBridgeDLL&#x27;</span>, <span class="string">&#x27;CopyGain&#x27;</span>, p, gainPtr, N);</span><br><span class="line">        calllib(<span class="string">&#x27;XXXBridgeDLL&#x27;</span>, <span class="string">&#x27;CopyEff&#x27;</span>,  p, effPtr, N);</span><br><span class="line"></span><br><span class="line">        x    = xPtr.Value;</span><br><span class="line">        pow  = powPtr.Value;</span><br><span class="line">        gain = gainPtr.Value;</span><br><span class="line">        eff  = effPtr.Value;</span><br><span class="line"></span><br><span class="line">        <span class="comment">% --- 绘图 ---</span></span><br><span class="line">        <span class="built_in">figure</span>;</span><br><span class="line">        subplot(<span class="number">3</span>, <span class="number">1</span>, <span class="number">1</span>);</span><br><span class="line">        <span class="built_in">plot</span>(x, pow, <span class="string">&#x27;-b&#x27;</span>);</span><br><span class="line">        title(<span class="string">&#x27;输出功率曲线&#x27;</span>);</span><br><span class="line">        xlabel(<span class="string">&#x27;z / mm&#x27;</span>);</span><br><span class="line">        ylabel(<span class="string">&#x27;W&#x27;</span>);</span><br><span class="line"></span><br><span class="line">        subplot(<span class="number">3</span>, <span class="number">1</span>, <span class="number">2</span>);</span><br><span class="line">        <span class="built_in">plot</span>(x, gain, <span class="string">&#x27;-b&#x27;</span>);</span><br><span class="line">        title(<span class="string">&#x27;增益曲线&#x27;</span>);</span><br><span class="line">        xlabel(<span class="string">&#x27;z / mm&#x27;</span>);</span><br><span class="line">        ylabel(<span class="string">&#x27;dB&#x27;</span>);</span><br><span class="line"></span><br><span class="line">        subplot(<span class="number">3</span>, <span class="number">1</span>, <span class="number">3</span>);</span><br><span class="line">        <span class="built_in">plot</span>(x, eff, <span class="string">&#x27;-b&#x27;</span>);</span><br><span class="line">        title(<span class="string">&#x27;效率曲线&#x27;</span>);</span><br><span class="line">        xlabel(<span class="string">&#x27;z / mm&#x27;</span>);</span><br><span class="line">        ylabel(<span class="string">&#x27;%&#x27;</span>);</span><br><span class="line"></span><br><span class="line">        <span class="comment">% --- 清理 ---</span></span><br><span class="line">        calllib(<span class="string">&#x27;XXXBridgeDLL&#x27;</span>, <span class="string">&#x27;DeleteProcessor&#x27;</span>, p);</span><br><span class="line">        unloadlibrary(<span class="string">&#x27;XXXBridgeDLL&#x27;</span>);</span><br><span class="line">    <span class="keyword">end</span></span><br><span class="line"></span><br><span class="line">    <span class="comment">% 保存当前脉冲值</span></span><br><span class="line">    block.Dwork(<span class="number">1</span>).Data = u;</span><br><span class="line"><span class="keyword">end</span></span><br><span class="line"></span><br><span class="line"><span class="comment">% ─── Terminate：处理退出 —──</span></span><br><span class="line"><span class="function"><span class="keyword">function</span> <span class="title">Terminate</span><span class="params">(~)</span></span></span><br><span class="line"><span class="keyword">end</span></span><br></pre></td></tr></table></figure>
+<p>这段代码实现了一个 MATLAB Level-2 S-Function，主要功能是当输入信号为 <code>2</code> 时触发外部 DLL（<code>XXXBridgeDLL.dll</code>）的数据读取和处理，之后进行数据的可视化。</p>
+<h3 id="zong-ti-gong-neng-liu-cheng" tabindex="-1" id="总体功能流程">总体功能流程</h3>
+<ol>
+<li><strong>输入信号</strong>：该 S-Function 监听一个输入信号 <code>u</code>。</li>
+<li><strong>脉冲触发</strong>：当信号 <code>u == 2</code> 且前一时刻 <code>prevU != 2</code> 时，触发读取数据。</li>
+<li><strong>调用 DLL</strong>：加载外部 DLL (<code>XXXBridgeDLL.dll</code>)，读取 XXX 仿真数据。</li>
+<li><strong>数据处理与绘图</strong>：读取坐标、功率、增益和效率数据，并绘制图形。</li>
+<li><strong>清理资源</strong>：在操作完成后，清理 DLL 资源。</li>
+</ol>
+<h3 id="dai-ma-fen-jie" tabindex="-1" id="代码分解">代码分解</h3>
+<ol>
+<li><code>sfun_callXXXProcess(block)</code></li>
+</ol>
+<figure class="highlight matlab"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">function</span> <span class="title">sfun_callXXXProcess</span><span class="params">(block)</span></span></span><br><span class="line">    setup(block);</span><br><span class="line"><span class="keyword">end</span></span><br></pre></td></tr></table></figure>
+<ul>
+<li>这是 S-Function 的入口函数，调用 <code>setup(block)</code> 设置仿真模块的基本配置。</li>
+</ul>
+<ol start="2">
+<li><code>setup(block)</code>: 配置端口、采样时间与方法</li>
+</ol>
+<figure class="highlight matlab"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">function</span> <span class="title">setup</span><span class="params">(block)</span></span></span><br><span class="line">    block.NumInputPorts  = <span class="number">1</span>;  <span class="comment">% 一个输入端口</span></span><br><span class="line">    block.NumOutputPorts = <span class="number">0</span>;  <span class="comment">% 无输出端口</span></span><br><span class="line"></span><br><span class="line">    block.SampleTimes        = [<span class="number">0.5</span> <span class="number">0</span>];  <span class="comment">% 每 0.5 秒触发一次</span></span><br><span class="line">    block.SimStateCompliance = <span class="string">&#x27;DefaultSimState&#x27;</span>;  <span class="comment">% 默认的仿真状态兼容性</span></span><br><span class="line"></span><br><span class="line">    block.RegBlockMethod(<span class="string">&#x27;PostPropagationSetup&#x27;</span>, @PostProp);</span><br><span class="line">    block.RegBlockMethod(<span class="string">&#x27;InitializeConditions&#x27;</span>, @InitCond);</span><br><span class="line">    block.RegBlockMethod(<span class="string">&#x27;Outputs&#x27;</span>, @Outputs);</span><br><span class="line">    block.RegBlockMethod(<span class="string">&#x27;Terminate&#x27;</span>, @Terminate);</span><br><span class="line"><span class="keyword">end</span></span><br></pre></td></tr></table></figure>
+<ul>
+<li>配置输入端口和采样时间（每 0.5 秒触发一次）。</li>
+<li>注册方法：<code>PostPropagationSetup</code>、<code>InitializeConditions</code>、<code>Outputs</code> 和 <code>Terminate</code>。</li>
+</ul>
+<ol start="3">
+<li><code>PostProp(block)</code>: 声明 DWork 状态变量</li>
+</ol>
+<figure class="highlight matlab"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">function</span> <span class="title">PostProp</span><span class="params">(block)</span></span></span><br><span class="line">    block.NumDworks = <span class="number">1</span>;</span><br><span class="line">    block.Dwork(<span class="number">1</span>).Name            = <span class="string">&#x27;prevU&#x27;</span>;  <span class="comment">% 存储上一时刻的输入信号</span></span><br><span class="line">    block.Dwork(<span class="number">1</span>).Dimensions      = <span class="number">1</span>;</span><br><span class="line">    block.Dwork(<span class="number">1</span>).DatatypeID      = <span class="number">0</span>;  <span class="comment">% double 类型</span></span><br><span class="line">    block.Dwork(<span class="number">1</span>).Complexity      = <span class="string">&#x27;Real&#x27;</span>;</span><br><span class="line">    block.Dwork(<span class="number">1</span>).UsedAsDiscState = <span class="built_in">true</span>;</span><br><span class="line"><span class="keyword">end</span></span><br></pre></td></tr></table></figure>
+<ul>
+<li>声明一个名为 <code>prevU</code> 的 DWork 变量，用于保存前一时刻的输入信号值。</li>
+</ul>
+<ol start="4">
+<li><code>InitCond(block)</code>: 初始化 DWork 数据</li>
+</ol>
+<figure class="highlight matlab"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">function</span> <span class="title">InitCond</span><span class="params">(block)</span></span></span><br><span class="line">    block.Dwork(<span class="number">1</span>).Data = <span class="number">0</span>;  <span class="comment">% 初始化 `prevU` 为 0</span></span><br><span class="line"><span class="keyword">end</span></span><br></pre></td></tr></table></figure>
+<ul>
+<li>初始化时，<code>prevU</code> 设置为 0，表示初始状态。</li>
+</ul>
+<ol start="5">
+<li><code>Outputs(block)</code>: 主逻辑处理区</li>
+</ol>
+<figure class="highlight matlab"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">function</span> <span class="title">Outputs</span><span class="params">(block)</span></span></span><br><span class="line">    u = block.InputPort(<span class="number">1</span>).Data;  <span class="comment">% 获取当前输入信号</span></span><br><span class="line">    prevU = block.Dwork(<span class="number">1</span>).Data;  <span class="comment">% 获取前一时刻的输入信号</span></span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span> u == <span class="number">2</span> &amp;&amp; prevU ~= <span class="number">2</span></span><br><span class="line">        <span class="comment">% 读取 XXX 数据</span></span><br><span class="line">        dll = <span class="string">&#x27;.\bin\XXXBridgeDLL.dll&#x27;</span>;</span><br><span class="line">        hdr = <span class="string">&#x27;.\bin\XXXBridgeDLL.h&#x27;</span>;</span><br><span class="line">        dir = <span class="string">&#x27;C:\Users\pc\Desktop\XXX&#x27;</span>;</span><br><span class="line"></span><br><span class="line">        <span class="keyword">if</span> ~libisloaded(<span class="string">&#x27;XXXBridgeDLL&#x27;</span>)</span><br><span class="line">            loadlibrary(dll, hdr);  <span class="comment">% 加载 DLL</span></span><br><span class="line">        <span class="keyword">end</span></span><br><span class="line"></span><br><span class="line">        p   = calllib(<span class="string">&#x27;XXXBridgeDLL&#x27;</span>, <span class="string">&#x27;CreateProcessor&#x27;</span>);  <span class="comment">% 创建处理器对象</span></span><br><span class="line">        nPt = libpointer(<span class="string">&#x27;int32Ptr&#x27;</span>, <span class="number">0</span>);</span><br><span class="line">        assert(calllib(<span class="string">&#x27;XXXBridgeDLL&#x27;</span>, <span class="string">&#x27;ReadXXXDat&#x27;</span>, p, dir, nPt) == <span class="number">1</span>, <span class="string">&#x27;读取失败&#x27;</span>);  <span class="comment">% 读取数据</span></span><br><span class="line">        N = nPt.Value;  <span class="comment">% 获取数据点数量</span></span><br><span class="line"></span><br><span class="line">        <span class="comment">% 初始化指针缓冲区</span></span><br><span class="line">        xPtr   = libpointer(<span class="string">&#x27;doublePtr&#x27;</span>, <span class="built_in">zeros</span>(N, <span class="number">1</span>));</span><br><span class="line">        powPtr = libpointer(<span class="string">&#x27;doublePtr&#x27;</span>, <span class="built_in">zeros</span>(N, <span class="number">1</span>));</span><br><span class="line">        gainPtr= libpointer(<span class="string">&#x27;doublePtr&#x27;</span>, <span class="built_in">zeros</span>(N, <span class="number">1</span>));</span><br><span class="line">        effPtr = libpointer(<span class="string">&#x27;doublePtr&#x27;</span>, <span class="built_in">zeros</span>(N, <span class="number">1</span>));</span><br><span class="line"></span><br><span class="line">        <span class="comment">% 从 DLL 中复制数据到指针</span></span><br><span class="line">        calllib(<span class="string">&#x27;XXXBridgeDLL&#x27;</span>, <span class="string">&#x27;CopyX_mm&#x27;</span>, p, xPtr, N);</span><br><span class="line">        calllib(<span class="string">&#x27;XXXBridgeDLL&#x27;</span>, <span class="string">&#x27;CopyPower&#x27;</span>, p, powPtr, N);</span><br><span class="line">        calllib(<span class="string">&#x27;XXXBridgeDLL&#x27;</span>, <span class="string">&#x27;CopyGain&#x27;</span>, p, gainPtr, N);</span><br><span class="line">        calllib(<span class="string">&#x27;XXXBridgeDLL&#x27;</span>, <span class="string">&#x27;CopyEff&#x27;</span>, p, effPtr, N);</span><br><span class="line"></span><br><span class="line">        <span class="comment">% 获取数据</span></span><br><span class="line">        x    = xPtr.Value;</span><br><span class="line">        pow  = powPtr.Value;</span><br><span class="line">        gain = gainPtr.Value;</span><br><span class="line">        eff  = effPtr.Value;</span><br><span class="line"></span><br><span class="line">        <span class="comment">% 绘图</span></span><br><span class="line">        <span class="built_in">figure</span>;</span><br><span class="line">        subplot(<span class="number">3</span>, <span class="number">1</span>, <span class="number">1</span>);</span><br><span class="line">        <span class="built_in">plot</span>(x, pow, <span class="string">&#x27;-b&#x27;</span>);</span><br><span class="line">        title(<span class="string">&#x27;输出功率曲线&#x27;</span>);</span><br><span class="line">        xlabel(<span class="string">&#x27;z / mm&#x27;</span>);</span><br><span class="line">        ylabel(<span class="string">&#x27;W&#x27;</span>);</span><br><span class="line"></span><br><span class="line">        subplot(<span class="number">3</span>, <span class="number">1</span>, <span class="number">2</span>);</span><br><span class="line">        <span class="built_in">plot</span>(x, gain, <span class="string">&#x27;-b&#x27;</span>);</span><br><span class="line">        title(<span class="string">&#x27;增益曲线&#x27;</span>);</span><br><span class="line">        xlabel(<span class="string">&#x27;z / mm&#x27;</span>);</span><br><span class="line">        ylabel(<span class="string">&#x27;dB&#x27;</span>);</span><br><span class="line"></span><br><span class="line">        subplot(<span class="number">3</span>, <span class="number">1</span>, <span class="number">3</span>);</span><br><span class="line">        <span class="built_in">plot</span>(x, eff, <span class="string">&#x27;-b&#x27;</span>);</span><br><span class="line">        title(<span class="string">&#x27;效率曲线&#x27;</span>);</span><br><span class="line">        xlabel(<span class="string">&#x27;z / mm&#x27;</span>);</span><br><span class="line">        ylabel(<span class="string">&#x27;%&#x27;</span>);</span><br><span class="line"></span><br><span class="line">        <span class="comment">% 清理资源</span></span><br><span class="line">        calllib(<span class="string">&#x27;XXXBridgeDLL&#x27;</span>, <span class="string">&#x27;DeleteProcessor&#x27;</span>, p);</span><br><span class="line">        unloadlibrary(<span class="string">&#x27;XXXBridgeDLL&#x27;</span>);</span><br><span class="line">    <span class="keyword">end</span></span><br><span class="line"></span><br><span class="line">    <span class="comment">% 保存当前脉冲值</span></span><br><span class="line">    block.Dwork(<span class="number">1</span>).Data = u;</span><br><span class="line"><span class="keyword">end</span></span><br></pre></td></tr></table></figure>
+<ul>
+<li>当 <code>u == 2</code> 时，调用 <code>XXXBridgeDLL.dll</code> 进行数据读取，获取 <code>x</code>（坐标）、<code>pow</code>（功率）、<code>gain</code>（增益）和 <code>eff</code>（效率）数据。</li>
+<li>使用 <code>figure</code> 绘制三张子图，显示输出功率、增益和效率随坐标的变化。</li>
+<li>在操作完成后，清理 DLL 资源。</li>
+</ul>
+<ol start="6">
+<li><code>Terminate(~)</code>: 清理</li>
+</ol>
+<figure class="highlight matlab"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="keyword">function</span> <span class="title">Terminate</span><span class="params">(~)</span></span></span><br><span class="line"><span class="keyword">end</span></span><br></pre></td></tr></table></figure>
+<ul>
+<li>在仿真结束时，<code>Terminate</code> 函数被调用，但在这个实现中没有进行额外操作。</li>
+</ul>
+<h3 id="gong-zuo-liu-cheng" tabindex="-1" id="工作流程">工作流程</h3>
+<ol>
+<li><strong>输入信号</strong>：当输入信号为 <code>2</code> 时，触发外部 EXE 进程。</li>
+<li><strong>调用 DLL</strong>：通过 <code>XXXBridgeDLL.dll</code> 读取 XXX 仿真数据。</li>
+<li><strong>数据处理与绘图</strong>：读取数据并绘制输出功率、增益和效率曲线。</li>
+<li><strong>清理</strong>：仿真结束后清理 DLL 资源。</li>
+</ol>
+<h1 id="yun-xing-shi-li" tabindex="-1">运行示例</h1>
+<p><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="https://cdn.jsdelivr.net/gh/psmarter/blog-imgs/Simulink%E8%B0%83%E7%94%A8%E5%A4%96%E9%83%A8Dll%E5%8F%AF%E8%A7%86%E5%8C%96%E3%80%8A%E4%BA%8C%E3%80%8B%2F2025-07-23-11-44-11-8c2be4.gif" alt="20250723-113309"></p>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/4e6df0d5/">https://smarter.xin/posts/4e6df0d5/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Simulink/">Simulink</a><a class="post-meta__tags" href="/tags/Matlab/">Matlab</a></div><div class="post-share"><div class="social-share" data-image="/img/Simulink.png" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/ee275623/" title="Simulink调用外部Dll交互《三》"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Simulink.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">Simulink调用外部Dll交互《三》</div></div></div></a><a class="pagination-related  no-desc" href="/posts/71a5f1f6/" title="Python实战之Web开发-续"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/alien.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">Python实战之Web开发-续</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/ee275623/" title="Simulink调用外部Dll交互《三》"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Simulink.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2025-08-26</div><div class="info-item-2">Simulink调用外部Dll交互《三》</div></div></div></a><a class="pagination-related no-desc" href="/posts/51a3b25e/" title="Simulink调用外部工具仿真《一》"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Simulink.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2025-07-08</div><div class="info-item-2">Simulink调用外部工具仿真《一》</div></div></div></a><a class="pagination-related no-desc" href="/posts/fcf42186/" title="关于Simulink中参数传递的解决方案"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Simulink.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2025-08-27</div><div class="info-item-2">关于Simulink中参数传递的解决方案</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">它侧身于生活的污泥中，虽不甘心，却又畏首畏尾</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">38</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">16</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">8</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">Welcome to Smarter's blog</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#jie-shao"><span class="toc-number">1.</span> <span class="toc-text">介绍</span></a></li><li class="toc-item toc-level-1"><a class="toc-link" href="#feng-zhuang-dll-bing-dao-chu-c-han-shu"><span class="toc-number">2.</span> <span class="toc-text">封装Dll并导出C函数</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#dll-dao-chu-hong-ding-yi-bu-fen"><span class="toc-number">2.0.1.</span> <span class="toc-text">DLL 导出宏定义部分</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#code-extern-quot-c-quot-code-kuai"><span class="toc-number">2.0.2.</span> <span class="toc-text">extern &quot;C&quot; 块</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#dao-chu-de-han-shu-jie-kou"><span class="toc-number">2.0.3.</span> <span class="toc-text">导出的函数接口</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#shu-ju-fang-wen-han-shu-shu-ju-cong-nei-cun-fu-zhi-chu-lai"><span class="toc-number">2.0.4.</span> <span class="toc-text">数据访问函数（数据从内存复制出来）</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#wen-jian-tou-bu-she-zhi"><span class="toc-number">2.1.</span> <span class="toc-text">文件头部设置</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#ni-ming-ming-ming-kong-jian-code-copy-vector-code"><span class="toc-number">2.2.</span> <span class="toc-text">匿名命名空间 copyVector</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#dao-chu-jie-kou-code-extern-quot-c-quot-code"><span class="toc-number">2.3.</span> <span class="toc-text">导出接口（extern &quot;C&quot;）</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#mo-kuai-yong-tu-gai-lan"><span class="toc-number">2.4.</span> <span class="toc-text">模块用途概览</span></a></li></ol></li><li class="toc-item toc-level-1"><a class="toc-link" href="#matlab-ji-simulink-diao-yong-dll"><span class="toc-number">3.</span> <span class="toc-text">Matlab及Simulink调用Dll</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#strong-1-jia-zai-dll-yu-she-zhi-lu-jing-strong"><span class="toc-number">3.1.</span> <span class="toc-text">1. 加载 DLL 与设置路径</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#strong-2-chuang-jian-chu-li-qi-bing-du-qu-shu-ju-strong"><span class="toc-number">3.2.</span> <span class="toc-text">2. 创建处理器并读取数据</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#strong-3-fen-pei-shu-chu-huan-chong-qu-bing-fu-zhi-shu-ju-strong"><span class="toc-number">3.3.</span> <span class="toc-text">3. 分配输出缓冲区并复制数据</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#strong-4-jiang-zhi-zhen-zhi-zhuan-huan-wei-matlab-xiang-liang-strong"><span class="toc-number">3.4.</span> <span class="toc-text">4. 将指针值转换为 MATLAB 向量</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#strong-5-hui-zhi-fang-zhen-jie-guo-qu-xian-strong"><span class="toc-number">3.5.</span> <span class="toc-text">5. 绘制仿真结果曲线</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#strong-6-qing-li-zi-yuan-strong"><span class="toc-number">3.6.</span> <span class="toc-text">6. 清理资源</span></a></li></ol></li><li class="toc-item toc-level-1"><a class="toc-link" href="#yu-qiu-jie-gong-ju-lian-jie"><span class="toc-number">4.</span> <span class="toc-text">与求解工具链接</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#diao-yong-gong-ju-dai-ma-jie-shi"><span class="toc-number">4.1.</span> <span class="toc-text">调用工具代码解释</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#nei-bu-helper-han-shu-shuo-ming"><span class="toc-number">4.1.1.</span> <span class="toc-text">内部 helper 函数说明</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#zhuang-tai-ma-han-yi-zong-jie"><span class="toc-number">4.1.2.</span> <span class="toc-text">状态码含义总结</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xiu-gai-m-wen-jian"><span class="toc-number">4.2.</span> <span class="toc-text">修改M文件</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#zong-ti-gong-neng-liu-cheng"><span class="toc-number">4.2.1.</span> <span class="toc-text">总体功能流程</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#dai-ma-fen-jie"><span class="toc-number">4.2.2.</span> <span class="toc-text">代码分解</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#gong-zuo-liu-cheng"><span class="toc-number">4.2.3.</span> <span class="toc-text">工作流程</span></a></li></ol></li></ol></li><li class="toc-item toc-level-1"><a class="toc-link" href="#yun-xing-shi-li"><span class="toc-number">5.</span> <span class="toc-text">运行示例</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/78c6fb80/" title="关于Clash开启TUN无法联网的问题"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Clash.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="关于Clash开启TUN无法联网的问题"/></a><div class="content"><a class="title" href="/posts/78c6fb80/" title="关于Clash开启TUN无法联网的问题">关于Clash开启TUN无法联网的问题</a><time datetime="2025-12-19T08:19:26.000Z" title="发表于 2025-12-19 16:19:26">2025-12-19</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/a129a992/" title="Modelica之带迁移的掠食者猎物方程"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Modelica.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Modelica之带迁移的掠食者猎物方程"/></a><div class="content"><a class="title" href="/posts/a129a992/" title="Modelica之带迁移的掠食者猎物方程">Modelica之带迁移的掠食者猎物方程</a><time datetime="2025-11-05T13:11:16.000Z" title="发表于 2025-11-05 21:11:16">2025-11-05</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/a9394c09/" title="LeetCode热题100(25.10.22)"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/LeetCode.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="LeetCode热题100(25.10.22)"/></a><div class="content"><a class="title" href="/posts/a9394c09/" title="LeetCode热题100(25.10.22)">LeetCode热题100(25.10.22)</a><time datetime="2025-10-27T13:56:01.000Z" title="发表于 2025-10-27 21:56:01">2025-10-27</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="false"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/1a56256/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/alien.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-07-10</span><a class="blog-slider__title" href="posts/1a56256/" alt="">Python实战之Web开发</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/1a56256/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/51a3b25e/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Simulink.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-07-08</span><a class="blog-slider__title" href="posts/51a3b25e/" alt="">Simulink调用外部工具仿真《一》</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/51a3b25e/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/25297ba4/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/alien.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-07-04</span><a class="blog-slider__title" href="posts/25297ba4/" alt="">Python实战之外星人入侵《一》</a><div class="blog-slider__text">简简单单</div><a class="blog-slider__button" href="posts/25297ba4/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/7d850c90/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/vscode1.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-07-02</span><a class="blog-slider__title" href="posts/7d850c90/" alt="">创建VS Code插件</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/7d850c90/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>

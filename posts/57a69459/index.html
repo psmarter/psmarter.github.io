@@ -1,0 +1,414 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>VSCode插件开发-文件统计功能 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="插件功能测试之文件信息统计">
+<meta property="og:type" content="article">
+<meta property="og:title" content="VSCode插件开发-文件统计功能">
+<meta property="og:url" content="https://smarter.xin/posts/57a69459/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="插件功能测试之文件信息统计">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/vscode-file-statistics.webp">
+<meta property="article:published_time" content="2025-07-09T12:20:03.000Z">
+<meta property="article:modified_time" content="2025-08-26T07:52:27.701Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="VSCode">
+<meta property="article:tag" content="插件">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/vscode-file-statistics.webp"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "VSCode插件开发-文件统计功能",
+  "url": "https://smarter.xin/posts/57a69459/",
+  "image": "https://smarter.xin/img/vscode-file-statistics.webp",
+  "datePublished": "2025-07-09T12:20:03.000Z",
+  "dateModified": "2025-08-26T07:52:27.701Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/%E7%8B%97.png"><link rel="canonical" href="https://smarter.xin/posts/57a69459/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="preconnect" href="//busuanzi.ibruce.info"/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'VSCode插件开发-文件统计功能',
+  isHighlightShrink: true,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"></head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">38</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">16</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">8</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/vscode-file-statistics.webp);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">VSCode插件开发-文件统计功能</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">VSCode插件开发-文件统计功能</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2025-07-09T12:20:03.000Z" title="发表于 2025-07-09 20:20:03">2025-07-09</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2025-08-26T07:52:27.701Z" title="更新于 2025-08-26 15:52:27">2025-08-26</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/VSCode%E6%8F%92%E4%BB%B6/">VSCode插件</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">1.2k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>5分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="xiu-gai-package-json" tabindex="-1">修改package.json</h1>
+<p>在开发 VS Code 插件时，<code>package.json</code> 是整个插件的“说明书”。这里以一个简单的功能为例进行测试</p>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">&quot;activationEvents&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span><span class="string">&quot;onCommand:code-auto-test.getFileState&quot;</span><span class="punctuation">]</span><span class="punctuation">,</span></span><br><span class="line"><span class="attr">&quot;main&quot;</span><span class="punctuation">:</span> <span class="string">&quot;./out/extension.js&quot;</span><span class="punctuation">,</span></span><br><span class="line"><span class="attr">&quot;contributes&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line">  <span class="attr">&quot;commands&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span></span><br><span class="line">    <span class="punctuation">&#123;</span></span><br><span class="line">      <span class="attr">&quot;command&quot;</span><span class="punctuation">:</span> <span class="string">&quot;code-auto-test.getFileState&quot;</span><span class="punctuation">,</span></span><br><span class="line">      <span class="attr">&quot;title&quot;</span><span class="punctuation">:</span> <span class="string">&quot;File State&quot;</span><span class="punctuation">,</span></span><br><span class="line">      <span class="attr">&quot;category&quot;</span><span class="punctuation">:</span> <span class="string">&quot;Code Auto Test&quot;</span></span><br><span class="line">    <span class="punctuation">&#125;</span></span><br><span class="line">  <span class="punctuation">]</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;menus&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line">    <span class="attr">&quot;editor/context&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span></span><br><span class="line">      <span class="punctuation">&#123;</span></span><br><span class="line">        <span class="attr">&quot;when&quot;</span><span class="punctuation">:</span> <span class="string">&quot;editorFocus&quot;</span><span class="punctuation">,</span></span><br><span class="line">        <span class="attr">&quot;command&quot;</span><span class="punctuation">:</span> <span class="string">&quot;code-auto-test.getFileState&quot;</span><span class="punctuation">,</span></span><br><span class="line">        <span class="attr">&quot;group&quot;</span><span class="punctuation">:</span> <span class="string">&quot;navigation&quot;</span></span><br><span class="line">      <span class="punctuation">&#125;</span></span><br><span class="line">    <span class="punctuation">]</span><span class="punctuation">,</span></span><br><span class="line">    <span class="attr">&quot;explorer/context&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span></span><br><span class="line">      <span class="punctuation">&#123;</span></span><br><span class="line">        <span class="attr">&quot;command&quot;</span><span class="punctuation">:</span> <span class="string">&quot;code-auto-test.getFileState&quot;</span><span class="punctuation">,</span></span><br><span class="line">        <span class="attr">&quot;group&quot;</span><span class="punctuation">:</span> <span class="string">&quot;navigation&quot;</span></span><br><span class="line">      <span class="punctuation">&#125;</span></span><br><span class="line">    <span class="punctuation">]</span></span><br><span class="line">  <span class="punctuation">&#125;</span></span><br><span class="line"><span class="punctuation">&#125;</span></span><br></pre></td></tr></table></figure>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">&quot;activationEvents&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span><span class="string">&quot;onCommand:code-auto-test.getFileState&quot;</span><span class="punctuation">]</span></span><br></pre></td></tr></table></figure>
+<ul>
+<li>意义：插件不会在 VS Code 启动时就加载，而是在用户执行命令 <code>code-auto-test.getFileState</code> 时激活。</li>
+<li>优势：提升启动性能，遵循 VS Code 插件的延迟加载机制。</li>
+</ul>
+<h2 id="zhi-ding-cha-jian-de-zhu-ru-kou" tabindex="-1" id="指定插件的主入口">指定插件的主入口</h2>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">&quot;main&quot;</span><span class="punctuation">:</span> <span class="string">&quot;./out/extension.js&quot;</span></span><br></pre></td></tr></table></figure>
+<ul>
+<li>指向插件的主模块，通常是 TypeScript 编译后的文件。</li>
+<li><code>extension.js</code> 中通常包含 <code>activate(context)</code> 和 <code>deactivate()</code> 函数，用于插件的生命周期管理。</li>
+</ul>
+<h2 id="zhu-ce-zi-ding-yi-ming-ling" tabindex="-1" id="注册自定义命令">注册自定义命令</h2>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">&quot;commands&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span></span><br><span class="line">  <span class="punctuation">&#123;</span></span><br><span class="line">    <span class="attr">&quot;command&quot;</span><span class="punctuation">:</span> <span class="string">&quot;code-auto-test.getFileState&quot;</span><span class="punctuation">,</span></span><br><span class="line">    <span class="attr">&quot;title&quot;</span><span class="punctuation">:</span> <span class="string">&quot;File State&quot;</span><span class="punctuation">,</span></span><br><span class="line">    <span class="attr">&quot;category&quot;</span><span class="punctuation">:</span> <span class="string">&quot;Code Auto Test&quot;</span></span><br><span class="line">  <span class="punctuation">&#125;</span></span><br><span class="line"><span class="punctuation">]</span></span><br></pre></td></tr></table></figure>
+<ul>
+<li><code>command</code>：命令的唯一标识符，供代码调用。</li>
+<li><code>title</code>：在命令面板（Ctrl+Shift+P）中的显示名称。</li>
+<li><code>category</code>：命令分类，显示为 <code>&quot;Code Auto Test: File State&quot;</code>。</li>
+</ul>
+<p>执行位置包括：</p>
+<ul>
+<li>命令面板</li>
+<li>上下文菜单（通过 <code>menus</code> 配置）</li>
+</ul>
+<h2 id="ji-cheng-dao-you-jian-cai-dan-zhong" tabindex="-1" id="集成到右键菜单中">集成到右键菜单中</h2>
+<h3 id="bian-ji-qi-you-jian-cai-dan" tabindex="-1" id="编辑器右键菜单">编辑器右键菜单</h3>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">&quot;editor/context&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span></span><br><span class="line">  <span class="punctuation">&#123;</span></span><br><span class="line">    <span class="attr">&quot;when&quot;</span><span class="punctuation">:</span> <span class="string">&quot;editorFocus&quot;</span><span class="punctuation">,</span></span><br><span class="line">    <span class="attr">&quot;command&quot;</span><span class="punctuation">:</span> <span class="string">&quot;code-auto-test.getFileState&quot;</span><span class="punctuation">,</span></span><br><span class="line">    <span class="attr">&quot;group&quot;</span><span class="punctuation">:</span> <span class="string">&quot;navigation&quot;</span></span><br><span class="line">  <span class="punctuation">&#125;</span></span><br><span class="line"><span class="punctuation">]</span></span><br></pre></td></tr></table></figure>
+<ul>
+<li>插入位置：当编辑器中有焦点时，在右键菜单的“导航”区域显示。</li>
+<li><code>when</code>: 上下文条件，这里为 <code>editorFocus</code> 表示编辑器有焦点时才显示。</li>
+</ul>
+<h3 id="zi-yuan-guan-li-qi-you-jian-cai-dan" tabindex="-1" id="资源管理器右键菜单">资源管理器右键菜单</h3>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">&quot;explorer/context&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span></span><br><span class="line">  <span class="punctuation">&#123;</span></span><br><span class="line">    <span class="attr">&quot;command&quot;</span><span class="punctuation">:</span> <span class="string">&quot;code-auto-test.getFileState&quot;</span><span class="punctuation">,</span></span><br><span class="line">    <span class="attr">&quot;group&quot;</span><span class="punctuation">:</span> <span class="string">&quot;navigation&quot;</span></span><br><span class="line">  <span class="punctuation">&#125;</span></span><br><span class="line"><span class="punctuation">]</span></span><br></pre></td></tr></table></figure>
+<ul>
+<li>插入位置：资源管理器（文件树）右键菜单中。</li>
+<li>可用于对选中的文件/文件夹执行操作。</li>
+</ul>
+<p>通过这段简单的配置，我们实现了一个功能完整的 VS Code 插件功能点：</p>
+<table>
+<thead>
+<tr>
+<th>功能</th>
+<th>实现方式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>延迟激活</td>
+<td><code>activationEvents</code> 指定命令触发激活</td>
+</tr>
+<tr>
+<td>注册命令</td>
+<td><code>contributes.commands</code></td>
+</tr>
+<tr>
+<td>集成编辑器右键菜单</td>
+<td><code>menus.editor/context</code></td>
+</tr>
+<tr>
+<td>集成资源管理器右键菜单</td>
+<td><code>menus.explorer/context</code></td>
+</tr>
+</tbody>
+</table>
+<p>这套模式是编写 VS Code 插件的基础，适用于各种需要通过右键或命令面板触发逻辑的场景，比如自动测试、代码分析、格式化工具等。</p>
+<h1 id="xiu-gai-extension-ts" tabindex="-1">修改extension.ts</h1>
+<h2 id="cha-kan-wen-jian-zhuang-tai-de-ming-ling-shi-xian-code-extension-ts-code" tabindex="-1" id="查看文件状态的命令实现（extension-ts）">查看文件状态的命令实现（<code>extension.ts</code>）</h2>
+<p>我们前面在 <code>package.json</code> 中注册了命令 <code>code-auto-test.getFileState</code>，接下来在插件主入口文件中进行具体实现。</p>
+<h3 id="wen-jian-lu-jing-code-src-extension-ts-code" tabindex="-1" id="文件路径：src-extension-ts">文件路径：<code>src/extension.ts</code></h3>
+<figure class="highlight ts"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 引入 VS Code 扩展 API</span></span><br><span class="line"><span class="keyword">import</span> * <span class="keyword">as</span> vscode <span class="keyword">from</span> <span class="string">&#x27;vscode&#x27;</span>;</span><br><span class="line"><span class="keyword">import</span> * <span class="keyword">as</span> fs <span class="keyword">from</span> <span class="string">&#x27;fs&#x27;</span>;</span><br><span class="line"></span><br><span class="line"><span class="comment">// 插件激活时触发</span></span><br><span class="line"><span class="keyword">export</span> <span class="keyword">function</span> <span class="title function_">activate</span>(<span class="params"><span class="attr">context</span>: vscode.<span class="title class_">ExtensionContext</span></span>) &#123;</span><br><span class="line">	<span class="variable language_">console</span>.<span class="title function_">log</span>(<span class="string">&#x27;插件已激活：code-auto-test&#x27;</span>);</span><br><span class="line"></span><br><span class="line">	<span class="comment">// 注册 getFileState 命令</span></span><br><span class="line">	<span class="keyword">const</span> disposable = vscode.<span class="property">commands</span>.<span class="title function_">registerCommand</span>(<span class="string">&#x27;code-auto-test.getFileState&#x27;</span>, <span class="function">(<span class="params"><span class="attr">uri</span>: vscode.<span class="title class_">Uri</span></span>) =&gt;</span> &#123;</span><br><span class="line">		<span class="comment">// 获取文件路径</span></span><br><span class="line">		<span class="keyword">const</span> filePath = uri.<span class="property">fsPath</span>;</span><br><span class="line"></span><br><span class="line">		<span class="comment">// 异步获取文件信息</span></span><br><span class="line">		fs.<span class="title function_">stat</span>(filePath, <span class="function">(<span class="params">err, stats</span>) =&gt;</span> &#123;</span><br><span class="line">			<span class="keyword">if</span> (err) &#123;</span><br><span class="line">				vscode.<span class="property">window</span>.<span class="title function_">showErrorMessage</span>(<span class="string">`获取文件信息失败: <span class="subst">$&#123;err.message&#125;</span>`</span>);</span><br><span class="line">				<span class="keyword">return</span>;</span><br><span class="line">			&#125;</span><br><span class="line"></span><br><span class="line">			<span class="comment">// 判断是否为文件夹</span></span><br><span class="line">			<span class="keyword">if</span> (stats.<span class="title function_">isDirectory</span>()) &#123;</span><br><span class="line">				vscode.<span class="property">window</span>.<span class="title function_">showWarningMessage</span>(<span class="string">&#x27;检测的是文件夹，不是文件，请重新选择！&#x27;</span>);</span><br><span class="line">				<span class="keyword">return</span>;</span><br><span class="line">			&#125;</span><br><span class="line"></span><br><span class="line">			<span class="comment">// 若是普通文件，显示基本信息</span></span><br><span class="line">			<span class="keyword">if</span> (stats.<span class="title function_">isFile</span>()) &#123;</span><br><span class="line">				<span class="keyword">const</span> size = stats.<span class="property">size</span>;</span><br><span class="line">				<span class="keyword">const</span> createTime = stats.<span class="property">birthtime</span>.<span class="title function_">toLocaleString</span>();</span><br><span class="line">				<span class="keyword">const</span> modifyTime = stats.<span class="property">mtime</span>.<span class="title function_">toLocaleString</span>();</span><br><span class="line"></span><br><span class="line">				vscode.<span class="property">window</span>.<span class="title function_">showInformationMessage</span>(</span><br><span class="line">					<span class="string">` 文件大小: <span class="subst">$&#123;size&#125;</span> 字节\n 创建时间: <span class="subst">$&#123;createTime&#125;</span>\n 修改时间: <span class="subst">$&#123;modifyTime&#125;</span>`</span>,</span><br><span class="line">					&#123; <span class="attr">modal</span>: <span class="literal">true</span> &#125;</span><br><span class="line">				);</span><br><span class="line">			&#125;</span><br><span class="line">		&#125;);</span><br><span class="line"></span><br><span class="line">		<span class="comment">// 调试用：同步读取 stat 信息输出日志</span></span><br><span class="line">		<span class="keyword">try</span> &#123;</span><br><span class="line">			<span class="keyword">const</span> statsSync = fs.<span class="title function_">statSync</span>(filePath);</span><br><span class="line">			<span class="variable language_">console</span>.<span class="title function_">log</span>(<span class="string">&#x27;statSync:&#x27;</span>, statsSync);</span><br><span class="line">			<span class="variable language_">console</span>.<span class="title function_">log</span>(<span class="string">&#x27;isFile:&#x27;</span>, statsSync.<span class="title function_">isFile</span>());</span><br><span class="line">		&#125; <span class="keyword">catch</span> (err) &#123;</span><br><span class="line">			<span class="variable language_">console</span>.<span class="title function_">error</span>(<span class="string">&#x27;statSync 读取失败:&#x27;</span>, err);</span><br><span class="line">		&#125;</span><br><span class="line">	&#125;);</span><br><span class="line"></span><br><span class="line">	<span class="comment">// 将命令加入插件上下文中</span></span><br><span class="line">	context.<span class="property">subscriptions</span>.<span class="title function_">push</span>(disposable);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// 插件被卸载时触发</span></span><br><span class="line"><span class="keyword">export</span> <span class="keyword">function</span> <span class="title function_">deactivate</span>(<span class="params"></span>) &#123;&#125;</span><br></pre></td></tr></table></figure>
+<table>
+<thead>
+<tr>
+<th>功能点</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>vscode.Uri</code></td>
+<td>命令参数自动传入，支持从资源管理器中点击文件触发命令。</td>
+</tr>
+<tr>
+<td><code>fs.stat()</code></td>
+<td>异步获取文件状态，包含文件大小、创建时间、修改时间等。</td>
+</tr>
+<tr>
+<td><code>fs.statSync()</code></td>
+<td>同步版本，用于调试或日志输出。</td>
+</tr>
+<tr>
+<td><code>vscode.window.showInformationMessage(..., &#123; modal: true &#125;)</code></td>
+<td>使用模态窗口展示信息，确保用户注意查看。</td>
+</tr>
+</tbody>
+</table>
+<h3 id="zai-bian-ji-qi-zhong-you-jian-wen-jian" tabindex="-1" id="在编辑器中右键文件：">在编辑器中右键文件：</h3>
+<ul>
+<li>显示：<strong>File State</strong></li>
+<li>点击后弹出文件大小、创建时间、修改时间</li>
+</ul>
+<h3 id="zai-zi-yuan-guan-li-qi-zhong-you-jian-wen-jian" tabindex="-1" id="在资源管理器中右键文件：">在资源管理器中右键文件：</h3>
+<ul>
+<li>同样支持显示该命令</li>
+<li>若选中文件夹则给出提示</li>
+</ul>
+<p><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="https://cdn.jsdelivr.net/gh/psmarter/blog-imgs/VSCode%E6%8F%92%E4%BB%B6%E5%BC%80%E5%8F%91-%E6%96%87%E4%BB%B6%E7%BB%9F%E8%AE%A1%E5%8A%9F%E8%83%BD%2F2025-07-09-22-33-05-408cc5.gif" alt="20250709-223156"></p>
+<p>通过 <code>package.json + extension.ts</code>，我们构建了一个结构完整、功能清晰的 VS Code 插件，具备以下特征：</p>
+<ul>
+<li>延迟激活（按需加载）</li>
+<li>支持右键菜单调用</li>
+<li>使用原生 Node.js 文件系统 API 获取信息</li>
+<li>弹出信息提示（用户交互友好）</li>
+</ul>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/57a69459/">https://smarter.xin/posts/57a69459/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/VSCode/">VSCode</a><a class="post-meta__tags" href="/tags/%E6%8F%92%E4%BB%B6/">插件</a></div><div class="post-share"><div class="social-share" data-image="/img/vscode-file-statistics.webp" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/1a56256/" title="Python实战之Web开发"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/alien.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">Python实战之Web开发</div></div></div></a><a class="pagination-related  no-desc" href="/posts/51a3b25e/" title="Simulink调用外部工具仿真《一》"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Simulink.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">Simulink调用外部工具仿真《一》</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/7d850c90/" title="创建VS Code插件"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/vscode1.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2025-07-02</div><div class="info-item-2">创建VS Code插件</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">它侧身于生活的污泥中，虽不甘心，却又畏首畏尾</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">38</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">16</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">8</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">Welcome to Smarter's blog</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#xiu-gai-package-json"><span class="toc-number">1.</span> <span class="toc-text">修改package.json</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#zhi-ding-cha-jian-de-zhu-ru-kou"><span class="toc-number">1.1.</span> <span class="toc-text">指定插件的主入口</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#zhu-ce-zi-ding-yi-ming-ling"><span class="toc-number">1.2.</span> <span class="toc-text">注册自定义命令</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#ji-cheng-dao-you-jian-cai-dan-zhong"><span class="toc-number">1.3.</span> <span class="toc-text">集成到右键菜单中</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#bian-ji-qi-you-jian-cai-dan"><span class="toc-number">1.3.1.</span> <span class="toc-text">编辑器右键菜单</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#zi-yuan-guan-li-qi-you-jian-cai-dan"><span class="toc-number">1.3.2.</span> <span class="toc-text">资源管理器右键菜单</span></a></li></ol></li></ol></li><li class="toc-item toc-level-1"><a class="toc-link" href="#xiu-gai-extension-ts"><span class="toc-number">2.</span> <span class="toc-text">修改extension.ts</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#cha-kan-wen-jian-zhuang-tai-de-ming-ling-shi-xian-code-extension-ts-code"><span class="toc-number">2.1.</span> <span class="toc-text">查看文件状态的命令实现（extension.ts）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#wen-jian-lu-jing-code-src-extension-ts-code"><span class="toc-number">2.1.1.</span> <span class="toc-text">文件路径：src&#x2F;extension.ts</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#zai-bian-ji-qi-zhong-you-jian-wen-jian"><span class="toc-number">2.1.2.</span> <span class="toc-text">在编辑器中右键文件：</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#zai-zi-yuan-guan-li-qi-zhong-you-jian-wen-jian"><span class="toc-number">2.1.3.</span> <span class="toc-text">在资源管理器中右键文件：</span></a></li></ol></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/78c6fb80/" title="关于Clash开启TUN无法联网的问题"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Clash.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="关于Clash开启TUN无法联网的问题"/></a><div class="content"><a class="title" href="/posts/78c6fb80/" title="关于Clash开启TUN无法联网的问题">关于Clash开启TUN无法联网的问题</a><time datetime="2025-12-19T08:19:26.000Z" title="发表于 2025-12-19 16:19:26">2025-12-19</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/a129a992/" title="Modelica之带迁移的掠食者猎物方程"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Modelica.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Modelica之带迁移的掠食者猎物方程"/></a><div class="content"><a class="title" href="/posts/a129a992/" title="Modelica之带迁移的掠食者猎物方程">Modelica之带迁移的掠食者猎物方程</a><time datetime="2025-11-05T13:11:16.000Z" title="发表于 2025-11-05 21:11:16">2025-11-05</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/a9394c09/" title="LeetCode热题100(25.10.22)"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/LeetCode.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="LeetCode热题100(25.10.22)"/></a><div class="content"><a class="title" href="/posts/a9394c09/" title="LeetCode热题100(25.10.22)">LeetCode热题100(25.10.22)</a><time datetime="2025-10-27T13:56:01.000Z" title="发表于 2025-10-27 21:56:01">2025-10-27</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="false"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/1a56256/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/alien.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-07-10</span><a class="blog-slider__title" href="posts/1a56256/" alt="">Python实战之Web开发</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/1a56256/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/51a3b25e/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Simulink.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-07-08</span><a class="blog-slider__title" href="posts/51a3b25e/" alt="">Simulink调用外部工具仿真《一》</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/51a3b25e/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/25297ba4/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/alien.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-07-04</span><a class="blog-slider__title" href="posts/25297ba4/" alt="">Python实战之外星人入侵《一》</a><div class="blog-slider__text">简简单单</div><a class="blog-slider__button" href="posts/25297ba4/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/7d850c90/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/vscode1.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-07-02</span><a class="blog-slider__title" href="posts/7d850c90/" alt="">创建VS Code插件</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/7d850c90/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>

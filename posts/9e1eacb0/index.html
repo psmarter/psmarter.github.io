@@ -1,0 +1,445 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>Ascend C算子开发能力认证（中级） | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="认证要求 实现Ascend C算子Sigmoid,算子命名为SigmoidCustom,编写其kernel侧代码、host侧代码,并完成aclnn算子调用测试。 相关算法: sigmoid(x)&#x3D;1&#x2F;(1+exp(−x))sigmoid(x) &#x3D; 1&#x2F;(1 + exp(-x)) sigmoid(x)&#x3D;1&#x2F;(1+exp(−x))  实现流程 环境初始配置 由于华为的ModelAtrs平台每次重启会把">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Ascend C算子开发能力认证（中级）">
+<meta property="og:url" content="https://smarter.xin/posts/9e1eacb0/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="认证要求 实现Ascend C算子Sigmoid,算子命名为SigmoidCustom,编写其kernel侧代码、host侧代码,并完成aclnn算子调用测试。 相关算法: sigmoid(x)&#x3D;1&#x2F;(1+exp(−x))sigmoid(x) &#x3D; 1&#x2F;(1 + exp(-x)) sigmoid(x)&#x3D;1&#x2F;(1+exp(−x))  实现流程 环境初始配置 由于华为的ModelAtrs平台每次重启会把">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/AscendC.png">
+<meta property="article:published_time" content="2025-09-10T02:03:46.000Z">
+<meta property="article:modified_time" content="2025-10-08T10:08:05.122Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="Ascend C">
+<meta property="article:tag" content="算子开发">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/AscendC.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "Ascend C算子开发能力认证（中级）",
+  "url": "https://smarter.xin/posts/9e1eacb0/",
+  "image": "https://smarter.xin/img/AscendC.png",
+  "datePublished": "2025-09-10T02:03:46.000Z",
+  "dateModified": "2025-10-08T10:08:05.122Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/%E7%8B%97.png"><link rel="canonical" href="https://smarter.xin/posts/9e1eacb0/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="preconnect" href="//busuanzi.ibruce.info"/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'Ascend C算子开发能力认证（中级）',
+  isHighlightShrink: true,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"></head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">38</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">16</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">8</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/AscendC.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">Ascend C算子开发能力认证（中级）</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">Ascend C算子开发能力认证（中级）</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2025-09-10T02:03:46.000Z" title="发表于 2025-09-10 10:03:46">2025-09-10</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2025-10-08T10:08:05.122Z" title="更新于 2025-10-08 18:08:05">2025-10-08</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/%E5%8D%8E%E4%B8%BA%E7%AE%97%E5%AD%90%E6%8C%91%E6%88%98%E8%B5%9B/">华为算子挑战赛</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">3.7k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>14分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="ren-zheng-yao-qiu" tabindex="-1">认证要求</h1>
+<p>实现Ascend C算子Sigmoid,算子命名为SigmoidCustom,编写其kernel侧代码、host侧代码,并完成aclnn算子调用测试。<br>
+相关算法:</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>s</mi><mi>i</mi><mi>g</mi><mi>m</mi><mi>o</mi><mi>i</mi><mi>d</mi><mo stretchy="false">(</mo><mi>x</mi><mo stretchy="false">)</mo><mo>=</mo><mn>1</mn><mi mathvariant="normal">/</mi><mo stretchy="false">(</mo><mn>1</mn><mo>+</mo><mi>e</mi><mi>x</mi><mi>p</mi><mo stretchy="false">(</mo><mo>−</mo><mi>x</mi><mo stretchy="false">)</mo><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">sigmoid(x) = 1/(1 + exp(-x))
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal">s</span><span class="mord mathnormal">i</span><span class="mord mathnormal" style="margin-right:0.03588em;">g</span><span class="mord mathnormal">m</span><span class="mord mathnormal">o</span><span class="mord mathnormal">i</span><span class="mord mathnormal">d</span><span class="mopen">(</span><span class="mord mathnormal">x</span><span class="mclose">)</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord">1/</span><span class="mopen">(</span><span class="mord">1</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal">e</span><span class="mord mathnormal">x</span><span class="mord mathnormal">p</span><span class="mopen">(</span><span class="mord">−</span><span class="mord mathnormal">x</span><span class="mclose">))</span></span></span></span></span></p>
+<p><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="https://cdn.jsdelivr.net/gh/psmarter/blog-imgs/%E5%8D%8E%E4%B8%BAAscend-C%E7%AE%97%E5%AD%90%E5%BC%80%E5%8F%91%E8%83%BD%E5%8A%9B%E8%AE%A4%E8%AF%81%EF%BC%88%E4%B8%AD%E7%BA%A7%EF%BC%89%2F2025-09-10-11-28-09-a07a23.png" alt="image-20250910101907938"></p>
+<h1 id="shi-xian-liu-cheng" tabindex="-1">实现流程</h1>
+<h2 id="huan-jing-chu-shi-pei-zhi" tabindex="-1" id="环境初始配置">环境初始配置</h2>
+<p>由于华为的ModelAtrs平台每次重启会把环境中除work目录之外的内容全部清除，因此每次需要重新设置环境，执行</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">bash init_env.sh</span><br><span class="line"><span class="built_in">source</span> ~/.bashrc</span><br><span class="line"><span class="built_in">source</span> /home/ma-user/Ascend/ascend-toolkit/set_env.sh</span><br><span class="line"><span class="built_in">chmod</span> +x -R *</span><br></pre></td></tr></table></figure>
+<p>上述命令依次用于下载包、配置环境变量以及脚本权限等</p>
+<h2 id="dai-ma-bian-xie" tabindex="-1" id="代码编写">代码编写</h2>
+<p>从认证平台下载压缩包，解压之后包含SigmoidCustom和AclNNInvocation两个文件夹，SigmoidCustom中的内容主要完成代码编写、编译运行等，AclNNInvocation用于实现调用、测试等</p>
+<p>文件主要内容如下</p>
+<p><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="https://cdn.jsdelivr.net/gh/psmarter/blog-imgs/%E5%8D%8E%E4%B8%BAAscend-C%E7%AE%97%E5%AD%90%E5%BC%80%E5%8F%91%E8%83%BD%E5%8A%9B%E8%AE%A4%E8%AF%81%EF%BC%88%E4%B8%AD%E7%BA%A7%EF%BC%89%2F2025-09-10-11-28-09-8ee574.png" alt="image-20250910104219078"></p>
+<h3 id="host-ce-shi-xian" tabindex="-1" id="Host测实现">Host测实现</h3>
+<p>首先在sigmoid_custom_tiling.h完成tiling结构体设计，在代码的注释后添加如下内容</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">TILING_DATA_FIELD_DEF</span>(<span class="type">uint32_t</span>, totalLength);</span><br><span class="line"><span class="built_in">TILING_DATA_FIELD_DEF</span>(<span class="type">uint32_t</span>, tileNum);</span><br></pre></td></tr></table></figure>
+<p>然后在sigmoid_custom.cpp中的注释后添加</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">uint32_t</span> totalLength = context-&gt;<span class="built_in">GetInputShape</span>(<span class="number">0</span>)-&gt;<span class="built_in">GetOriginShape</span>().<span class="built_in">GetShapeSize</span>();</span><br><span class="line">context-&gt;<span class="built_in">SetBlockDim</span>(BLOCK_DIM);</span><br><span class="line">tiling.<span class="built_in">set_totalLength</span>(totalLength);</span><br><span class="line">tiling.<span class="built_in">set_tileNum</span>(TILE_NUM);</span><br><span class="line">tiling.<span class="built_in">SaveToBuffer</span>(context-&gt;<span class="built_in">GetRawTilingData</span>()-&gt;<span class="built_in">GetData</span>(), context-&gt;<span class="built_in">GetRawTilingData</span>()-&gt;<span class="built_in">GetCapacity</span>());</span><br><span class="line">context-&gt;<span class="built_in">GetRawTilingData</span>()-&gt;<span class="built_in">SetDataSize</span>(tiling.<span class="built_in">GetDataSize</span>());</span><br><span class="line"><span class="type">size_t</span> *currentWorkspace = context-&gt;<span class="built_in">GetWorkspaceSizes</span>(<span class="number">1</span>);</span><br><span class="line">currentWorkspace[<span class="number">0</span>] = <span class="number">0</span>;</span><br><span class="line"><span class="keyword">return</span> ge::GRAPH_SUCCESS;</span><br></pre></td></tr></table></figure>
+<h3 id="device-ce-shi-xian" tabindex="-1" id="Device测实现">Device测实现</h3>
+<p>这里的代码稍微复杂，需要用户自行实现核函数的初始化、内存迁移、算法实现等，完整代码如下</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br><span class="line">101</span><br><span class="line">102</span><br><span class="line">103</span><br><span class="line">104</span><br><span class="line">105</span><br><span class="line">106</span><br><span class="line">107</span><br><span class="line">108</span><br><span class="line">109</span><br><span class="line">110</span><br><span class="line">111</span><br><span class="line">112</span><br><span class="line">113</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&quot;kernel_operator.h&quot;</span></span></span><br><span class="line"><span class="keyword">using</span> <span class="keyword">namespace</span> AscendC;</span><br><span class="line"><span class="keyword">constexpr</span> <span class="type">int32_t</span> BUFFER_NUM = <span class="number">2</span>;</span><br><span class="line"><span class="keyword">class</span> <span class="title class_">KernelSigmoid</span> &#123;</span><br><span class="line"><span class="keyword">public</span>:</span><br><span class="line">    <span class="function">__aicore__ <span class="keyword">inline</span> <span class="title">KernelSigmoid</span><span class="params">()</span> </span>&#123;&#125;</span><br><span class="line">    <span class="function">__aicore__ <span class="keyword">inline</span> <span class="type">void</span> <span class="title">Init</span><span class="params">(GM_ADDR x, GM_ADDR y, <span class="type">uint32_t</span> totalLength, <span class="type">uint32_t</span> tileNum)</span></span></span><br><span class="line"><span class="function">    </span>&#123;</span><br><span class="line">        <span class="comment">//考生补充初始化代码</span></span><br><span class="line">        <span class="keyword">this</span>-&gt;blockLength = totalLength / AscendC::<span class="built_in">GetBlockNum</span>();</span><br><span class="line">        <span class="keyword">this</span>-&gt;tileNum = tileNum;</span><br><span class="line">        <span class="keyword">this</span>-&gt;tileLength = <span class="keyword">this</span>-&gt;blockLength / tileNum / BUFFER_NUM;</span><br><span class="line"></span><br><span class="line">        xGm.<span class="built_in">SetGlobalBuffer</span>((__gm__ DTYPE_X *)x + <span class="keyword">this</span>-&gt;blockLength * AscendC::<span class="built_in">GetBlockIdx</span>(), <span class="keyword">this</span>-&gt;blockLength);</span><br><span class="line">        yGm.<span class="built_in">SetGlobalBuffer</span>((__gm__ DTYPE_Y *)y + <span class="keyword">this</span>-&gt;blockLength * AscendC::<span class="built_in">GetBlockIdx</span>(), <span class="keyword">this</span>-&gt;blockLength);</span><br><span class="line"></span><br><span class="line">        pipe.<span class="built_in">InitBuffer</span>(inQueueX, BUFFER_NUM, <span class="keyword">this</span>-&gt;tileLength * <span class="built_in">sizeof</span>(half));</span><br><span class="line">        pipe.<span class="built_in">InitBuffer</span>(outQueueY, BUFFER_NUM, <span class="keyword">this</span>-&gt;tileLength * <span class="built_in">sizeof</span>(half));</span><br><span class="line">        pipe.<span class="built_in">InitBuffer</span>(tmpBuffer1, <span class="keyword">this</span>-&gt;tileLength * <span class="built_in">sizeof</span>(half));</span><br><span class="line">        pipe.<span class="built_in">InitBuffer</span>(tmpBuffer2, <span class="keyword">this</span>-&gt;tileLength * <span class="built_in">sizeof</span>(half));</span><br><span class="line">        pipe.<span class="built_in">InitBuffer</span>(tmpBuffer3, <span class="keyword">this</span>-&gt;tileLength * <span class="built_in">sizeof</span>(half));</span><br><span class="line">        pipe.<span class="built_in">InitBuffer</span>(tmpBuffer4, <span class="keyword">this</span>-&gt;tileLength * <span class="built_in">sizeof</span>(half));</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="function">__aicore__ <span class="keyword">inline</span> <span class="type">void</span> <span class="title">Process</span><span class="params">()</span></span></span><br><span class="line"><span class="function">    </span>&#123;</span><br><span class="line">        <span class="comment">//考生补充对“loopCount”的定义，注意对Tiling的处理</span></span><br><span class="line">        <span class="type">int32_t</span> loopCount = <span class="keyword">this</span>-&gt;tileNum * BUFFER_NUM;</span><br><span class="line">        <span class="keyword">for</span> (<span class="type">int32_t</span> i = <span class="number">0</span>; i &lt; loopCount; i++) &#123;</span><br><span class="line">            <span class="built_in">CopyIn</span>(i);</span><br><span class="line">            <span class="built_in">Compute</span>(i);</span><br><span class="line">            <span class="built_in">CopyOut</span>(i);</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">private</span>:</span><br><span class="line">    <span class="function">__aicore__ <span class="keyword">inline</span> <span class="type">void</span> <span class="title">HighPrecisionReciprocal</span><span class="params">(LocalTensor&lt;half&gt;&amp; dst, </span></span></span><br><span class="line"><span class="params"><span class="function">                                              <span class="type">const</span> LocalTensor&lt;half&gt;&amp; src, </span></span></span><br><span class="line"><span class="params"><span class="function">                                              <span class="type">int32_t</span> length, </span></span></span><br><span class="line"><span class="params"><span class="function">                                              <span class="type">int</span> iterations = <span class="number">2</span>)</span></span></span><br><span class="line"><span class="function">    </span>&#123;</span><br><span class="line">        LocalTensor&lt;half&gt; tmp = tmpBuffer<span class="number">4.</span><span class="built_in">Get</span>&lt;half&gt;();</span><br><span class="line">        half two = <span class="number">2.0</span>h,negone=<span class="number">-1.0</span>h;</span><br><span class="line"></span><br><span class="line">        <span class="comment">// 初始近似值 (可以使用硬件Reciprocal的初始值)</span></span><br><span class="line">        AscendC::<span class="built_in">Reciprocal</span>(dst, src, length);</span><br><span class="line"></span><br><span class="line">        <span class="comment">// 牛顿迭代: x_&#123;n+1&#125; = x_n * (2 - a * x_n)</span></span><br><span class="line">        <span class="keyword">for</span> (<span class="type">int</span> i = <span class="number">0</span>; i &lt; iterations; ++i) &#123;</span><br><span class="line">            AscendC::<span class="built_in">Mul</span>(tmp, src, dst, length);    <span class="comment">// tmp = a * x_n</span></span><br><span class="line">            AscendC::<span class="built_in">Muls</span>(tmp, tmp, negone, length);   <span class="comment">// tmp = 2 - a * x_n</span></span><br><span class="line">            AscendC::<span class="built_in">Adds</span>(tmp, tmp, two, length);</span><br><span class="line">            AscendC::<span class="built_in">Mul</span>(dst, dst, tmp, length);     <span class="comment">// x_&#123;n+1&#125; = x_n * tmp</span></span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="function">__aicore__ <span class="keyword">inline</span> <span class="type">void</span> <span class="title">CopyIn</span><span class="params">(<span class="type">int32_t</span> progress)</span></span></span><br><span class="line"><span class="function">    </span>&#123;</span><br><span class="line">        <span class="comment">//考生补充算子代码</span></span><br><span class="line">        AscendC::LocalTensor&lt;half&gt; xLocal = inQueueX.<span class="built_in">AllocTensor</span>&lt;half&gt;();</span><br><span class="line">        AscendC::<span class="built_in">DataCopy</span>(xLocal, xGm[progress * <span class="keyword">this</span>-&gt;tileLength], <span class="keyword">this</span>-&gt;tileLength);</span><br><span class="line">        inQueueX.<span class="built_in">EnQue</span>(xLocal);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="function">__aicore__ <span class="keyword">inline</span> <span class="type">void</span> <span class="title">Compute</span><span class="params">(<span class="type">int32_t</span> progress)</span></span></span><br><span class="line"><span class="function">    </span>&#123;</span><br><span class="line">        <span class="comment">//考生补充算子计算代码</span></span><br><span class="line">        LocalTensor&lt;half&gt; xLocal = inQueueX.<span class="built_in">DeQue</span>&lt;half&gt;();</span><br><span class="line">        LocalTensor&lt;half&gt; yLocal = outQueueY.<span class="built_in">AllocTensor</span>&lt;half&gt;();</span><br><span class="line">        </span><br><span class="line">        LocalTensor&lt;half&gt; tmp1 = tmpBuffer<span class="number">1.</span><span class="built_in">Get</span>&lt;half&gt;();</span><br><span class="line">        LocalTensor&lt;half&gt; tmp2 = tmpBuffer<span class="number">2.</span><span class="built_in">Get</span>&lt;half&gt;();</span><br><span class="line">        LocalTensor&lt;half&gt; tmp3 = tmpBuffer<span class="number">3.</span><span class="built_in">Get</span>&lt;half&gt;();</span><br><span class="line">        </span><br><span class="line">        half one=<span class="number">1.0</span>,negone=<span class="number">-1.0</span>;</span><br><span class="line">        AscendC::<span class="built_in">Muls</span>(tmp1, xLocal, negone, <span class="keyword">this</span>-&gt;tileLength);</span><br><span class="line">        AscendC::<span class="built_in">Exp</span>(tmp2, tmp1, <span class="keyword">this</span>-&gt;tileLength);</span><br><span class="line">        AscendC::<span class="built_in">Adds</span>(tmp3, tmp2, one, <span class="keyword">this</span>-&gt;tileLength);</span><br><span class="line">        </span><br><span class="line">        <span class="built_in">HighPrecisionReciprocal</span>(yLocal,tmp3,<span class="keyword">this</span>-&gt;tileLength,<span class="number">2</span>);</span><br><span class="line"></span><br><span class="line">        outQueueY.<span class="built_in">EnQue</span>&lt;half&gt;(yLocal);</span><br><span class="line">        inQueueX.<span class="built_in">FreeTensor</span>(xLocal);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="function">__aicore__ <span class="keyword">inline</span> <span class="type">void</span> <span class="title">CopyOut</span><span class="params">(<span class="type">int32_t</span> progress)</span></span></span><br><span class="line"><span class="function">    </span>&#123;</span><br><span class="line">        <span class="comment">//考生补充算子代码</span></span><br><span class="line">        AscendC::LocalTensor&lt;half&gt; yLocal = outQueueY.<span class="built_in">DeQue</span>&lt;half&gt;();</span><br><span class="line">        AscendC::<span class="built_in">DataCopy</span>(yGm[progress * <span class="keyword">this</span>-&gt;tileLength], yLocal, <span class="keyword">this</span>-&gt;tileLength);</span><br><span class="line">        outQueueY.<span class="built_in">FreeTensor</span>(yLocal);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">private</span>:</span><br><span class="line">    TPipe pipe;</span><br><span class="line">    <span class="comment">//create queue for input, in this case depth is equal to buffer num</span></span><br><span class="line">    TQue&lt;QuePosition::VECIN, BUFFER_NUM&gt; inQueueX;</span><br><span class="line">    <span class="comment">//create queue for output, in this case depth is equal to buffer num</span></span><br><span class="line">    TQue&lt;QuePosition::VECOUT, BUFFER_NUM&gt; outQueueY;</span><br><span class="line">    GlobalTensor&lt;half&gt; xGm;</span><br><span class="line">    GlobalTensor&lt;half&gt; yGm;</span><br><span class="line"></span><br><span class="line">    <span class="comment">//考生补充自定义成员变量</span></span><br><span class="line">    TBuf&lt;QuePosition::VECCALC&gt; tmpBuffer1, tmpBuffer2, tmpBuffer3, tmpBuffer4;</span><br><span class="line">    <span class="type">uint32_t</span> blockLength;</span><br><span class="line">    <span class="type">uint32_t</span> tileNum;</span><br><span class="line">    <span class="type">uint32_t</span> tileLength;</span><br><span class="line"></span><br><span class="line">&#125;;</span><br><span class="line"><span class="keyword">extern</span> <span class="string">&quot;C&quot;</span> <span class="function">__global__ __aicore__ <span class="type">void</span> <span class="title">sigmoid_custom</span><span class="params">(GM_ADDR x, GM_ADDR y, GM_ADDR workspace, GM_ADDR tiling)</span> </span>&#123;</span><br><span class="line">    <span class="built_in">GET_TILING_DATA</span>(tiling_data, tiling);</span><br><span class="line">    KernelSigmoid op;</span><br><span class="line">    <span class="comment">//补充init和process函数调用内容</span></span><br><span class="line">    op.<span class="built_in">Init</span>(x, y, tiling_data.totalLength, tiling_data.tileNum);</span><br><span class="line">    op.<span class="built_in">Process</span>();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<h2 id="dai-ma-jie-shi" tabindex="-1" id="代码解释">代码解释</h2>
+<h4 id="yi-ge-zi-ding-yi-suan-zi-de-sheng-ming-zhou-qi" tabindex="-1" id="一个自定义算子的生命周期">一个自定义算子的生命周期</h4>
+<p>在深入代码之前，我们先理解一下从编写到执行，这个 <code>SigmoidCustom</code> 算子经历了什么：</p>
+<ol>
+<li>
+<p><strong>开发阶段</strong>: 您编写了算子定义、Tiling 逻辑和 Kernel 实现这几个文件。</p>
+</li>
+<li>
+<p><strong>编译阶段</strong>: 使用 CANN 提供的工具链进行编译。编译器会分别处理 Host 端代码（编译成标准的 CPU 可执行指令）和 Device 端代码（编译成 AI Core 能理解的 CUBE 指令）。同时，<code>OP_ADD(SigmoidCustom)</code> 宏会将算子的元信息（如输入输出、Tiling 函数地址等）注册到昇腾的算子库中。</p>
+</li>
+<li>
+<p>图构建与下发阶段: 当用户在一个神经网络模型（例如用 MindSpore 或 PyTorch）中调用 SigmoidCustom 时，前端框架会将模型转换为昇腾的计算图（Graph）。图编译器（Graph Engine, GE）会解析这个图，当遇到 SigmoidCustom 节点时，它会：</p>
+<p>a.  调用 InferShape 和 InferDataType 函数，在不运行实际计算的情况下，静态推断出这个节点输出的形状和数据类型，以便为整个网络预先分配好内存。</p>
+<p>b.  调用 TilingFunc 函数，根据当前节点的输入张量大小，生成具体的任务切分方案（即 TilingData）。</p>
+<p>c.  将编译好的 Kernel CUBE 指令和 TilingData 打包成一个任务，下发给 NPU 的任务调度器（Task Scheduler）。</p>
+</li>
+<li>
+<p><strong>执行阶段</strong>: NPU 的任务调度器根据 <code>TilingData</code> 中的 <code>blockDim</code> 信息，唤醒指定数量的 AI Core。每个被唤醒的 AI Core 都会接收到 Kernel CUBE 指令和 <code>TilingData</code> 的一份拷贝，然后从 <code>sigmoid_custom</code> 这个 <code>__global__</code> 入口函数开始，独立地执行计算任务。</p>
+</li>
+</ol>
+<h4 id="host-duan-dai-ma-shen-du-jie-xi-cpu-ce" tabindex="-1" id="Host-端代码深度解析-CPU-侧">Host 端代码深度解析 (CPU 侧)</h4>
+<p>Host 端代码的核心目标是**“定义规则”<strong>和</strong>“制定计划”**，它不参与实际的数值计算。</p>
+<h5 id="1-1-suan-zi-jie-kou-ding-yi" tabindex="-1" id="1-1-算子接口定义">1.1 算子接口定义</h5>
+<p>这部分代码是 <code>SigmoidCustom</code> 算子与 CANN 框架交互的“接口”或“驱动”。框架本身不知道你这个算子具体怎么算，但通过这个定义，它知道了如何使用你。</p>
+<ul>
+<li><code>this-&gt;Input(&quot;x&quot;)...</code> 和 <code>this-&gt;Output(&quot;y&quot;)...</code>: 这不仅仅是定义了输入输出的名称，更重要的是定义了<strong>数据依赖关系</strong>。图编译器根据这个关系来构建计算图的拓扑结构，决定算子执行的先后顺序。</li>
+<li><code>.DataType(&#123;ge::DT_FLOAT16&#125;).Format(&#123;ge::FORMAT_ND&#125;)</code>: 这是算子的<strong>能力声明</strong>。它告诉框架：“我能处理 FP16 类型的数据，并且不关心输入的具体维度（ND 格式）。” 如果上游算子的输出格式不匹配，图编译器会自动插入一个转置（Transpose）或类型转换（Cast）算子来适配。</li>
+<li><code>this-&gt;SetInferShape(ge::InferShape)</code>: 这是一个至关重要的<strong>静态分析钩子</strong>。在模型编译时，真实的输入数据还不存在，但其形状（Shape）是已知的。框架会调用 <code>InferShape</code> 函数，让算子根据输入的 Shape &quot;预言&quot;自己输出的 Shape。对于 Sigmoid 这种 Element-wise（逐元素）操作，输出形状与输入形状完全相同，所以实现很简单：<code>*y_shape = *x1_shape;</code>。这使得框架可以在运行前就规划好整个模型的内存布局。</li>
+<li><code>this-&gt;AICore().SetTiling(optiling::TilingFunc)</code>: 这是将**“计划制定者”**（Tiling 函数）与算子本身绑定的关键。框架知道，每当需要执行这个算子时，都应该去调用 <code>TilingFunc</code> 来获取详细的执行计划。</li>
+</ul>
+<h5 id="1-2-tiling-han-shu" tabindex="-1" id="1-2-Tiling-函数">1.2 Tiling 函数</h5>
+<p>Tiling 函数是 Host 端的智慧所在，它在 CPU 上运行，为即将开始的 Device 端计算制定精密的作战计划。</p>
+<ul>
+<li><strong><code>gert::TilingContext\* context</code></strong>: <code>context</code> 对象是框架传递给 Tiling 函数的**“情报手册”**。它包含了关于当前任务的所有上下文信息，最主要的就是 <code>context-&gt;GetInputShape(0)</code>，它让 Tiling 函数知道了待处理的数据有多大。</li>
+<li><strong>核心决策</strong>:
+<ol>
+<li><strong>总览全局</strong>: <code>uint32_t totalLength = ...GetShapeSize()</code> 获取了总工作量。</li>
+<li><strong>分配兵力</strong>: <code>context-&gt;SetBlockDim(BLOCK_DIM)</code> 决定了要动用多少个 AI Core（这里硬编码为8）。这是一个关键的并行策略决策。如果 <code>totalLength</code> 很小，可能只用一个 AI Core 更高效（避免多核通信开销）；如果 <code>totalLength</code> 巨大，则可以用满所有可用的 Core。</li>
+<li><strong>制定指令</strong>:
+<ul>
+<li><code>tiling.set_totalLength(totalLength)</code>: 把全局信息写入“指令书” (<code>TilingData</code>)。</li>
+<li><code>tiling.set_tileNum(TILE_NUM)</code>: 决定每个 AI Core 内部的流水线深度或切分粒度。这个值会影响性能，需要根据计算量和数据搬运量的比例（计算访存比）来权衡。<code>TILE_NUM</code> 越大，<code>tileLength</code> 就越小，数据搬运更频繁，但每个计算任务的延迟也更低，有利于流水线隐藏延迟。</li>
+</ul>
+</li>
+</ol>
+</li>
+<li><strong>信息传递</strong>: <code>tiling.SaveToBuffer(...)</code> 将填满信息的 <code>TilingData</code> 结构体<strong>序列化</strong>为一段连续的内存块。这段内存块将和编译好的 Kernel 代码一起被发送到 Device 端，成为每个 AI Core 执行任务的依据。</li>
+</ul>
+<h4 id="device-duan-dai-ma-shen-du-jie-xi-ai-core-ce" tabindex="-1" id="Device-端代码深度解析-AI-Core-侧">Device 端代码深度解析 (AI Core 侧)</h4>
+<p>Device 端代码是**“一线士兵”**，它们根据 Host 发来的计划，在自己的阵地（AI Core）上高效地执行计算。</p>
+<h5 id="2-1-nei-cun-mo-xing-yu-shu-ju-bing-xing-spmd" tabindex="-1" id="2-1-内存模型与数据并行-SPMD">2.1 内存模型与数据并行 (SPMD)</h5>
+<ul>
+<li><code>GM_ADDR x, GM_ADDR y</code>: <code>GM_ADDR</code> 是 Global Memory Address 的缩写，代表全局内存中的一个地址。<code>x</code> 和 <code>y</code> 是输入和输出张量在全局内存中的起始地址。</li>
+<li><strong>SPMD (Single Program, Multiple Data)</strong>: 这是 AI Core 的核心工作模式。所有被唤醒的 AI Core 都执行同一份程序代码（Single Program），但处理的数据各不相同（Multiple Data）。</li>
+<li><code>AscendC::GetBlockIdx()</code>: 这是实现 SPMD 的关键。该函数返回当前 AI Core 的唯一ID（从0到 <code>blockDim-1</code>）。</li>
+<li><code>xGm.SetGlobalBuffer((__gm__ DTYPE_X *)x + this-&gt;blockLength * AscendC::GetBlockIdx(), ...)</code>: 这行代码是数据划分的精髓。
+<ul>
+<li><code>(__gm__ DTYPE_X *)x</code>: 将全局内存地址 <code>x</code> 转换为一个指向 FP16 类型的指针。</li>
+<li><code>... + this-&gt;blockLength * AscendC::GetBlockIdx()</code>: 计算偏移量。
+<ul>
+<li>对于 ID=0 的 Core，偏移量是 <code>blockLength * 0 = 0</code>，它处理从 <code>x</code> 开始的数据。</li>
+<li>对于 ID=1 的 Core，偏移量是 <code>blockLength * 1</code>，它处理紧接着第一块的数据。</li>
+<li>…</li>
+</ul>
+</li>
+<li>通过这种方式，<code>totalLength</code> 的数据被完美地分割成了 <code>blockDim</code> 份，每个 AI Core 都只关心自己负责的那一段，实现了无冲突的数据并行。</li>
+</ul>
+</li>
+</ul>
+<h5 id="2-2-ben-di-nei-cun-yu-liu-shui-xian-code-t-pipe-code-code-t-que-code" tabindex="-1" id="2-2-本地内存与流水线-TPipe-TQue">2.2 本地内存与流水线 (<code>TPipe</code>, <code>TQue</code>)</h5>
+<p>AI Core 的性能源泉在于其内部极速的本地内存（LM）和向量计算单元。流水线的目标就是让计算单元永远不要因为等待数据而停工。</p>
+<ul>
+<li><code>TPipe</code>, <code>TQue</code>: 这不是硬件，而是 Ascend C 提供的<strong>软件抽象</strong>，用于简化对硬件 DMA（数据搬运单元）和本地内存的管理。</li>
+<li><strong><code>InitBuffer</code></strong>: 在 <code>Init</code> 方法中，<code>pipe.InitBuffer(inQueueX, BUFFER_NUM, ...)</code> 相当于在本地内存中划分出 <code>BUFFER_NUM</code> (即2) 块独立的区域，并由 <code>inQueueX</code> 这个队列对象来管理。</li>
+<li><strong>双缓冲 (Double Buffering) 详解</strong>: <code>BUFFER_NUM=2</code> 构成了双缓冲。想象有两块缓冲区 A 和 B：
+<ol>
+<li><strong><code>CopyIn</code></strong>: 调用 <code>inQueueX.AllocTensor&lt;half&gt;()</code> 会从空闲的缓冲区队列中取出一个（比如A），然后 <code>DataCopy</code> 指令启动 DMA 将 GM 数据拷贝到 A。完成后 <code>inQueueX.EnQue(A)</code> 将 A 标记为“已填充，可供计算”。</li>
+<li><strong><code>Compute</code></strong>: 调用 <code>inQueueX.DeQue&lt;half&gt;()</code> 会从“已填充”队列中取出一个（比如A），然后计算单元对 A 中的数据进行计算。</li>
+<li><strong>重叠执行</strong>: 当计算单元正在处理 A 的数据时，<code>CopyIn</code> 阶段可以<strong>同时</strong>向另一个空闲的缓冲区 B 中拷贝下一批数据。当 A 计算完成，B 也正好拷贝完成，计算单元可以马不停蹄地开始处理 B，而 DMA 则开始将 A 的计算结果写回 GM。</li>
+</ol>
+</li>
+<li><strong><code>for</code> 循环的流水线建立过程</strong>:
+<ul>
+<li><strong>迭代 <code>i=0</code></strong>: <code>CopyIn(0)</code> 开始（数据块0从GM-&gt;LM），<code>Compute(0)</code> 和 <code>CopyOut(0)</code> 等待。</li>
+<li><strong>迭代 <code>i=1</code></strong>: <code>CopyIn(1)</code> 开始（数据块1从GM-&gt;LM），同时 <code>Compute(0)</code> 开始（处理数据块0）。<code>CopyOut(1)</code> 等待。</li>
+<li><strong>迭代 <code>i=2</code></strong>: <code>CopyIn(2)</code> 开始，<code>Compute(1)</code> 开始，<code>CopyOut(0)</code> 开始（将数据块0的结果从LM-&gt;GM）。<strong>至此，三级流水线完全建立</strong>，DMA的读、计算单元、DMA的写三个硬件部件都在满负荷工作。</li>
+</ul>
+</li>
+</ul>
+<h5 id="2-3-xiang-liang-ji-suan-yu-ying-jian-zhi-ling" tabindex="-1" id="2-3-向量计算与硬件指令">2.3 向量计算与硬件指令</h5>
+<ul>
+<li><code>AscendC::Muls</code>, <code>AscendC::Exp</code>, <code>AscendC::Adds</code>: 这些函数被称为<strong>内置函数（Intrinsics）</strong>。它们在编译时会被直接映射为 AI Core 的一条或多条<strong>向量指令</strong>。</li>
+<li>例如，<code>AscendC::Exp(tmp2, tmp1, this-&gt;tileLength)</code> 不是一个循环，而是一条指令。它告诉向量计算单元：“对 <code>tmp1</code> 指向的 <code>tileLength</code> 个半精度浮点数，逐个执行指数运算，并将结果存放到 <code>tmp2</code> 中”。这种 <strong>SIMD（单指令多数据）</strong> 的处理方式是 AI Core 性能的根本来源。</li>
+</ul>
+<h5 id="2-4-shu-zhi-ji-suan-you-hua" tabindex="-1" id="2-4-数值计算优化">2.4 数值计算优化</h5>
+<ul>
+<li><strong>问题</strong>: 硬件通常提供速度快但精度有限的近似计算指令，比如求倒数。对于某些需要高精度的算法，这可能导致误差累积。</li>
+<li>解决方案: 牛顿-拉弗森迭代法是一种经典的数值分析方法，可以用来求方程的根。对于求 1/a，相当于求方程 f(x) = 1/x - a 的根。</li>
+<li><strong>代码映射</strong>:
+<ol>
+<li><code>AscendC::Reciprocal(dst, src, length);</code>: 使用硬件指令得到一个初始近似值 <code>x_0</code> (即 <code>dst</code>)。<code>src</code> 是 <code>a</code>。</li>
+<li><code>AscendC::Mul(tmp, src, dst, length);</code>: 计算 <code>a * x_n</code>，结果存入 <code>tmp</code>。</li>
+<li><code>AscendC::Muls(tmp, tmp, negone, length);</code>: 变为 <code>- (a * x_n)</code>。</li>
+<li><code>AscendC::Adds(tmp, tmp, two, length);</code>: 变为 <code>2 - a * x_n</code>。</li>
+<li><code>AscendC::Mul(dst, dst, tmp, length);</code>: 计算 <code>x_n * (2 - a * x_n)</code>，得到 <code>x_&#123;n+1&#125;</code>，并覆盖回 <code>dst</code>。</li>
+</ol>
+</li>
+<li>这个 <code>for</code> 循环每迭代一次，结果的精度就会翻倍。迭代2次就能获得非常高的精度，这体现了算法与硬件结合的优化思想。</li>
+</ul>
+<h1 id="yun-xing-ce-shi" tabindex="-1">运行测试</h1>
+<p>在运行之前，首先检查CMakePresets.json文件中的ASCEND_COMPUTE_UNIT和ASCEND_CANN_PACKAGE_PATH是否正确，如下</p>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">&quot;ASCEND_COMPUTE_UNIT&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line">    <span class="attr">&quot;type&quot;</span><span class="punctuation">:</span> <span class="string">&quot;STRING&quot;</span><span class="punctuation">,</span></span><br><span class="line">    <span class="attr">&quot;value&quot;</span><span class="punctuation">:</span> <span class="string">&quot;ascend310b;ascend910b&quot;</span></span><br><span class="line"><span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line"><span class="attr">&quot;ASCEND_CANN_PACKAGE_PATH&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line">    <span class="attr">&quot;type&quot;</span><span class="punctuation">:</span> <span class="string">&quot;PATH&quot;</span><span class="punctuation">,</span></span><br><span class="line">    <span class="attr">&quot;value&quot;</span><span class="punctuation">:</span> <span class="string">&quot;/home/ma-user/Ascend/ascend-toolkit/latest&quot;</span></span><br><span class="line"><span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br></pre></td></tr></table></figure>
+<p>然后检查SigmoidCustom中的AICore是否设置正确，如下</p>
+<figure class="highlight c++"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">this</span>-&gt;<span class="built_in">AICore</span>().<span class="built_in">AddConfig</span>(<span class="string">&quot;ascend910b&quot;</span>)</span><br><span class="line">              .<span class="built_in">AddConfig</span>(<span class="string">&quot;ascend310b&quot;</span>);</span><br></pre></td></tr></table></figure>
+<p>如果上述设置没有问题，就可以进行编译测试了</p>
+<p>运行编译</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">bash build.sh</span><br></pre></td></tr></table></figure>
+<p>编译之后会得到build_out目录，运行其中的安装包</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> build_out</span><br><span class="line">./custom_opp_ubuntu_aarch64.run</span><br></pre></td></tr></table></figure>
+<p>最后到AclNNInvocation中运行测试</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">bash run.sh</span><br></pre></td></tr></table></figure>
+<p>检验脚本会调用py脚本，分别用numpy和我们写的算子计算答案，然后对比误差，如果代码没有问题会给出测试成功的提示。由于华为云提供的这个环境属实有点贵，因此我就不再开机测试并截图了，大家自行操作</p>
+<p>随后按照认证要求将SigmoidCustom打包提交即可，测试通过后会获得认证证书，如下</p>
+<p><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="https://cdn.jsdelivr.net/gh/psmarter/blog-imgs/%E5%8D%8E%E4%B8%BAAscend-C%E7%AE%97%E5%AD%90%E5%BC%80%E5%8F%91%E8%83%BD%E5%8A%9B%E8%AE%A4%E8%AF%81%EF%BC%88%E4%B8%AD%E7%BA%A7%EF%BC%89%2F2025-09-10-11-28-09-f4bf30.png" alt="image-20250910112638274"></p>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/9e1eacb0/">https://smarter.xin/posts/9e1eacb0/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Ascend-C/">Ascend C</a><a class="post-meta__tags" href="/tags/%E7%AE%97%E5%AD%90%E5%BC%80%E5%8F%91/">算子开发</a></div><div class="post-share"><div class="social-share" data-image="/img/AscendC.png" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/8c812416/" title="LeetCode热题100(25.09.29)"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/LeetCode.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">LeetCode热题100(25.09.29)</div></div></div></a><a class="pagination-related  no-desc" href="/posts/fcf42186/" title="关于Simulink中参数传递的解决方案"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Simulink.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">关于Simulink中参数传递的解决方案</div></div></div></a></nav><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">它侧身于生活的污泥中，虽不甘心，却又畏首畏尾</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">38</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">16</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">8</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">Welcome to Smarter's blog</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#ren-zheng-yao-qiu"><span class="toc-number">1.</span> <span class="toc-text">认证要求</span></a></li><li class="toc-item toc-level-1"><a class="toc-link" href="#shi-xian-liu-cheng"><span class="toc-number">2.</span> <span class="toc-text">实现流程</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#huan-jing-chu-shi-pei-zhi"><span class="toc-number">2.1.</span> <span class="toc-text">环境初始配置</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#dai-ma-bian-xie"><span class="toc-number">2.2.</span> <span class="toc-text">代码编写</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#host-ce-shi-xian"><span class="toc-number">2.2.1.</span> <span class="toc-text">Host测实现</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#device-ce-shi-xian"><span class="toc-number">2.2.2.</span> <span class="toc-text">Device测实现</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#dai-ma-jie-shi"><span class="toc-number">2.3.</span> <span class="toc-text">代码解释</span></a><ol class="toc-child"><li class="toc-item toc-level-4"><a class="toc-link" href="#yi-ge-zi-ding-yi-suan-zi-de-sheng-ming-zhou-qi"><span class="toc-number">2.3.0.1.</span> <span class="toc-text">一个自定义算子的生命周期</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#host-duan-dai-ma-shen-du-jie-xi-cpu-ce"><span class="toc-number">2.3.0.2.</span> <span class="toc-text">Host 端代码深度解析 (CPU 侧)</span></a><ol class="toc-child"><li class="toc-item toc-level-5"><a class="toc-link" href="#1-1-suan-zi-jie-kou-ding-yi"><span class="toc-number">2.3.0.2.1.</span> <span class="toc-text">1.1 算子接口定义</span></a></li><li class="toc-item toc-level-5"><a class="toc-link" href="#1-2-tiling-han-shu"><span class="toc-number">2.3.0.2.2.</span> <span class="toc-text">1.2 Tiling 函数</span></a></li></ol></li><li class="toc-item toc-level-4"><a class="toc-link" href="#device-duan-dai-ma-shen-du-jie-xi-ai-core-ce"><span class="toc-number">2.3.0.3.</span> <span class="toc-text">Device 端代码深度解析 (AI Core 侧)</span></a><ol class="toc-child"><li class="toc-item toc-level-5"><a class="toc-link" href="#2-1-nei-cun-mo-xing-yu-shu-ju-bing-xing-spmd"><span class="toc-number">2.3.0.3.1.</span> <span class="toc-text">2.1 内存模型与数据并行 (SPMD)</span></a></li><li class="toc-item toc-level-5"><a class="toc-link" href="#2-2-ben-di-nei-cun-yu-liu-shui-xian-code-t-pipe-code-code-t-que-code"><span class="toc-number">2.3.0.3.2.</span> <span class="toc-text">2.2 本地内存与流水线 (TPipe, TQue)</span></a></li><li class="toc-item toc-level-5"><a class="toc-link" href="#2-3-xiang-liang-ji-suan-yu-ying-jian-zhi-ling"><span class="toc-number">2.3.0.3.3.</span> <span class="toc-text">2.3 向量计算与硬件指令</span></a></li><li class="toc-item toc-level-5"><a class="toc-link" href="#2-4-shu-zhi-ji-suan-you-hua"><span class="toc-number">2.3.0.3.4.</span> <span class="toc-text">2.4 数值计算优化</span></a></li></ol></li></ol></li></ol></li></ol></li><li class="toc-item toc-level-1"><a class="toc-link" href="#yun-xing-ce-shi"><span class="toc-number">3.</span> <span class="toc-text">运行测试</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/78c6fb80/" title="关于Clash开启TUN无法联网的问题"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Clash.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="关于Clash开启TUN无法联网的问题"/></a><div class="content"><a class="title" href="/posts/78c6fb80/" title="关于Clash开启TUN无法联网的问题">关于Clash开启TUN无法联网的问题</a><time datetime="2025-12-19T08:19:26.000Z" title="发表于 2025-12-19 16:19:26">2025-12-19</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/a129a992/" title="Modelica之带迁移的掠食者猎物方程"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Modelica.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Modelica之带迁移的掠食者猎物方程"/></a><div class="content"><a class="title" href="/posts/a129a992/" title="Modelica之带迁移的掠食者猎物方程">Modelica之带迁移的掠食者猎物方程</a><time datetime="2025-11-05T13:11:16.000Z" title="发表于 2025-11-05 21:11:16">2025-11-05</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/a9394c09/" title="LeetCode热题100(25.10.22)"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/LeetCode.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="LeetCode热题100(25.10.22)"/></a><div class="content"><a class="title" href="/posts/a9394c09/" title="LeetCode热题100(25.10.22)">LeetCode热题100(25.10.22)</a><time datetime="2025-10-27T13:56:01.000Z" title="发表于 2025-10-27 21:56:01">2025-10-27</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="false"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/1a56256/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/alien.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-07-10</span><a class="blog-slider__title" href="posts/1a56256/" alt="">Python实战之Web开发</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/1a56256/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/51a3b25e/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Simulink.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-07-08</span><a class="blog-slider__title" href="posts/51a3b25e/" alt="">Simulink调用外部工具仿真《一》</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/51a3b25e/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/25297ba4/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/alien.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-07-04</span><a class="blog-slider__title" href="posts/25297ba4/" alt="">Python实战之外星人入侵《一》</a><div class="blog-slider__text">简简单单</div><a class="blog-slider__button" href="posts/25297ba4/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/7d850c90/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/vscode1.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-07-02</span><a class="blog-slider__title" href="posts/7d850c90/" alt="">创建VS Code插件</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/7d850c90/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>
