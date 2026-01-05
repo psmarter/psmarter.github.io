@@ -1,0 +1,719 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>AI Infra学习之旅-服务器环境配置 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="前言 在上一篇博客中，我在 Kaggle 上成功运行了第一个 vLLM 程序。但 Kaggle 毕竟有时长限制（每周 30 小时），而且每次都要重新配置环境。这次，我有机会使用一台配备双 RTX 4090 的 Ubuntu 服务器，这是一次从云端到本地服务器的重要升级！ 这篇文章将详细记录我从零开始配置这台服务器的完整过程，包括：  SSH 免密登录配置 VSCode Remote SSH 开发环">
+<meta property="og:type" content="article">
+<meta property="og:title" content="AI Infra学习之旅-服务器环境配置">
+<meta property="og:url" content="https://smarter.xin/posts/a8ee689e/index.html">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="前言 在上一篇博客中，我在 Kaggle 上成功运行了第一个 vLLM 程序。但 Kaggle 毕竟有时长限制（每周 30 小时），而且每次都要重新配置环境。这次，我有机会使用一台配备双 RTX 4090 的 Ubuntu 服务器，这是一次从云端到本地服务器的重要升级！ 这篇文章将详细记录我从零开始配置这台服务器的完整过程，包括：  SSH 免密登录配置 VSCode Remote SSH 开发环">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/AI-Infra.png">
+<meta property="article:published_time" content="2026-01-02T06:12:47.000Z">
+<meta property="article:modified_time" content="2026-01-03T14:25:00.749Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="vLLM">
+<meta property="article:tag" content="AI Infrastructure">
+<meta property="article:tag" content="Ubuntu Server">
+<meta property="article:tag" content="RTX 4090">
+<meta property="article:tag" content="SSH">
+<meta property="article:tag" content="VSCode Remote">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/AI-Infra.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "AI Infra学习之旅-服务器环境配置",
+  "url": "https://smarter.xin/posts/a8ee689e/",
+  "image": "https://smarter.xin/img/AI-Infra.png",
+  "datePublished": "2026-01-02T06:12:47.000Z",
+  "dateModified": "2026-01-03T14:25:00.749Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/a8ee689e/index.html"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="preconnect" href="//busuanzi.ibruce.info"/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'AI Infra学习之旅-服务器环境配置',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">53</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">72</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">12</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/AI-Infra.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">AI Infra学习之旅-服务器环境配置</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">AI Infra学习之旅-服务器环境配置</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-01-02T06:12:47.000Z" title="发表于 2026-01-02 14:12:47">2026-01-02</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-01-03T14:25:00.749Z" title="更新于 2026-01-03 22:25:00">2026-01-03</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/">AI Infra</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">4.2k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>17分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h2 id="qian-yan" tabindex="-1" id="前言">前言</h2>
+<p>在上一篇博客中，我在 Kaggle 上成功运行了第一个 vLLM 程序。但 Kaggle 毕竟有时长限制（每周 30 小时），而且每次都要重新配置环境。这次，我有机会使用一台<strong>配备双 RTX 4090 的 Ubuntu 服务器</strong>，这是一次从云端到本地服务器的重要升级！</p>
+<p>这篇文章将详细记录我从零开始配置这台服务器的完整过程，包括：</p>
+<ul>
+<li>SSH 免密登录配置</li>
+<li>VSCode Remote SSH 开发环境搭建</li>
+<li>远程桌面访问（GNOME Remote Desktop）</li>
+<li>Python + vLLM 环境安装</li>
+<li>实际踩过的坑与解决方案</li>
+</ul>
+<p>希望这篇文章能帮助到同样需要配置 AI 开发服务器的朋友们。</p>
+<hr>
+<h2 id="fu-wu-qi-pei-zhi-xin-xi" tabindex="-1" id="服务器配置信息">服务器配置信息</h2>
+<h3 id="ying-jian-pei-zhi" tabindex="-1" id="硬件配置">硬件配置</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">GPU型号: 2 × NVIDIA GeForce RTX 4090</span><br><span class="line">显存: 24GB × 2 = 48GB 总显存</span><br><span class="line">CUDA版本: 12.2</span><br><span class="line">驱动版本: 535.274.02</span><br></pre></td></tr></table></figure>
+<h3 id="xi-tong-xin-xi" tabindex="-1" id="系统信息">系统信息</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">操作系统: Ubuntu 24.04 LTS</span><br><span class="line">用户名: Smarter</span><br><span class="line">主机名: 330B</span><br><span class="line">内网IP: 服务器ip </span><br></pre></td></tr></table></figure>
+<h3 id="yu-kaggle-dui-bi" tabindex="-1" id="与-Kaggle-对比">与 Kaggle 对比</h3>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>我的服务器 (RTX 4090×2)</th>
+<th>Kaggle/Colab</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>GPU型号</strong></td>
+<td>RTX 4090 (旗舰)</td>
+<td>⚠️ P100/T4 (中低端)</td>
+</tr>
+<tr>
+<td><strong>显存</strong></td>
+<td>48GB</td>
+<td>⚠️ 16GB</td>
+</tr>
+<tr>
+<td><strong>GPU时长</strong></td>
+<td>无限制</td>
+<td>⚠️ 30h/周</td>
+</tr>
+<tr>
+<td><strong>环境持久化</strong></td>
+<td>永久保存</td>
+<td>❌ 每次重装</td>
+</tr>
+<tr>
+<td><strong>性能</strong></td>
+<td>独享双卡</td>
+<td>⚠️ 共享单卡</td>
+</tr>
+<tr>
+<td><strong>适合长实验</strong></td>
+<td></td>
+<td>❌</td>
+</tr>
+</tbody>
+</table>
+<p><strong>结论</strong>: 服务器配置远超 Kaggle，应该优先使用服务器进行学习和开发。</p>
+<hr>
+<h2 id="di-yi-jie-duan-ssh-lian-jie-pei-zhi" tabindex="-1" id="第一阶段：SSH-连接配置">第一阶段：SSH 连接配置</h2>
+<h3 id="step-1-shou-ci-ssh-lian-jie-ce-shi" tabindex="-1" id="Step-1-首次-SSH-连接测试">Step 1: 首次 SSH 连接测试</h3>
+<p>在 Windows PowerShell 中执行：</p>
+<figure class="highlight powershell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 首次连接（替换为你的用户名@服务器IP）</span></span><br><span class="line">ssh Smarter<span class="selector-tag">@</span>服务器ip</span><br><span class="line"></span><br><span class="line"><span class="comment"># 首次连接会提示：</span></span><br><span class="line"><span class="comment"># The authenticity of host &#x27;192.168.50.58&#x27; can&#x27;t be established.</span></span><br><span class="line"><span class="comment"># Are you sure you want to continue connecting (yes/no)?</span></span><br><span class="line"><span class="comment"># 输入：yes</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 然后输入密码</span></span><br></pre></td></tr></table></figure>
+<p><strong>成功标志</strong>：看到以下提示符说明连接成功</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">Smarter@330B:~$</span><br></pre></td></tr></table></figure>
+<h3 id="step-2-yan-zheng-gpu-zhuang-tai" tabindex="-1" id="Step-2-验证-GPU-状态">Step 2: 验证 GPU 状态</h3>
+<p>连接成功后，立即验证 GPU：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">nvidia-smi</span><br></pre></td></tr></table></figure>
+<p><strong>我的实际输出</strong>：</p>
+<p><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="https://cdn.jsdelivr.net/gh/psmarter/blog-imgs/AI-Infra%E5%AD%A6%E4%B9%A0%E4%B9%8B%E6%97%85-%E6%9C%8D%E5%8A%A1%E5%99%A8%E7%8E%AF%E5%A2%83%E9%85%8D%E7%BD%AE/2026-01-02-14-39-22-d0d150.png" alt="image-20260102141851912"></p>
+<p>看到两张 RTX 4090，CUDA 12.2，驱动正常，说明环境 OK！</p>
+<h3 id="step-3-pei-zhi-ssh-mi-yao-mian-mi-deng-lu" tabindex="-1" id="Step-3-配置-SSH-密钥免密登录">Step 3: 配置 SSH 密钥免密登录</h3>
+<p>每次输入密码很麻烦，配置公钥登录可以一劳永逸。</p>
+<h4 id="zai-windows-ben-di-sheng-cheng-ssh-mi-yao" tabindex="-1" id="在-Windows-本地生成-SSH-密钥">在 Windows 本地生成 SSH 密钥</h4>
+<p>打开 PowerShell：</p>
+<figure class="highlight powershell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 生成 SSH 密钥对（如果还没有）</span></span><br><span class="line">ssh<span class="literal">-keygen</span> <span class="literal">-t</span> rsa <span class="literal">-b</span> <span class="number">4096</span> <span class="literal">-C</span> <span class="string">&quot;your_email@example.com&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 提示：Enter file in which to save the key</span></span><br><span class="line"><span class="comment"># 直接回车（使用默认路径 C:\Users\pc\.ssh\id_rsa）</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 提示：Enter passphrase</span></span><br><span class="line"><span class="comment"># 直接回车（不设置密码，方便使用）</span></span><br></pre></td></tr></table></figure>
+<h4 id="jiang-gong-yao-fu-zhi-dao-fu-wu-qi" tabindex="-1" id="将公钥复制到服务器">将公钥复制到服务器</h4>
+<figure class="highlight powershell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 读取公钥内容</span></span><br><span class="line"><span class="variable">$pub</span> = <span class="built_in">Get-Content</span> C:\Users\pc\.ssh\id_rsa.pub</span><br><span class="line"></span><br><span class="line"><span class="comment"># 将公钥追加到服务器的 authorized_keys</span></span><br><span class="line">ssh Smarter<span class="selector-tag">@</span>服务器ip <span class="string">&quot;mkdir -p ~/.ssh &amp;&amp; chmod 700 ~/.ssh &amp;&amp; echo &#x27;<span class="variable">$pub</span>&#x27; &gt;&gt; ~/.ssh/authorized_keys &amp;&amp; chmod 600 ~/.ssh/authorized_keys&quot;</span></span><br></pre></td></tr></table></figure>
+<blockquote>
+<p>💡 这一步会要求输入最后一次服务器密码，之后就可以免密登录了。</p>
+</blockquote>
+<h4 id="ce-shi-mian-mi-deng-lu" tabindex="-1" id="测试免密登录">测试免密登录</h4>
+<figure class="highlight powershell"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">ssh Smarter<span class="selector-tag">@</span>服务器ip</span><br></pre></td></tr></table></figure>
+<p>如果直接登录不再要求密码，说明配置成功！</p>
+<hr>
+<h2 id="di-er-jie-duan-vs-code-remote-ssh-pei-zhi" tabindex="-1" id="第二阶段：VSCode-Remote-SSH-配置">第二阶段：VSCode Remote SSH 配置</h2>
+<p>VSCode Remote SSH 是最重要的开发工具，可以让我在 Windows 上直接编辑服务器上的代码。</p>
+<h3 id="step-1-an-zhuang-vs-code-cha-jian" tabindex="-1" id="Step-1-安装-VSCode-插件">Step 1: 安装 VSCode 插件</h3>
+<p>在 VSCode 中安装以下插件：</p>
+<ol>
+<li><strong>Remote - SSH</strong>  (必装)</li>
+<li><strong>Remote - SSH: Editing Configuration Files</strong></li>
+<li><strong>Python</strong></li>
+<li><strong>Jupyter</strong></li>
+</ol>
+<h3 id="step-2-pei-zhi-ssh-config-wen-jian" tabindex="-1" id="Step-2-配置-SSH-Config-文件">Step 2: 配置 SSH Config 文件</h3>
+<ol>
+<li>按 <code>F1</code>，输入 <code>Remote-SSH: Open SSH Configuration File</code></li>
+<li>选择 <code>C:\Users\pc\.ssh\config</code></li>
+<li>添加以下配置：</li>
+</ol>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"># Ubuntu AI Infra服务器 (RTX 4090×2)</span><br><span class="line">Host ai-server</span><br><span class="line">    HostName 服务器ip</span><br><span class="line">    User Smarter</span><br><span class="line">    Port 22</span><br><span class="line">    IdentityFile C:\Users\pc\.ssh\id_rsa</span><br><span class="line">    IdentitiesOnly yes</span><br><span class="line">    PreferredAuthentications publickey</span><br><span class="line">    ForwardAgent yes</span><br></pre></td></tr></table></figure>
+<p><strong>配置说明</strong>：</p>
+<ul>
+<li><code>IdentitiesOnly yes</code>: 只使用指定的密钥</li>
+<li><code>PreferredAuthentications publickey</code>: 优先使用公钥认证</li>
+<li><code>ForwardAgent yes</code>: 允许 SSH Agent 转发</li>
+</ul>
+<h3 id="step-3-lian-jie-dao-fu-wu-qi" tabindex="-1" id="Step-3-连接到服务器">Step 3: 连接到服务器</h3>
+<ol>
+<li>按 <code>F1</code>，输入 <code>Remote-SSH: Connect to Host</code></li>
+<li>选择 <code>ai-server</code></li>
+<li>等待连接（首次会安装 VSCode Server，约 1 分钟）</li>
+<li><strong>成功标志</strong>：左下角显示 <code>SSH: ai-server</code></li>
+</ol>
+<h3 id="step-4-zai-vs-code-zhong-da-kai-fu-wu-qi-wen-jian-jia" tabindex="-1" id="Step-4-在-VSCode-中打开服务器文件夹">Step 4: 在 VSCode 中打开服务器文件夹</h3>
+<p>连接成功后：</p>
+<ol>
+<li>点击 <code>File</code> → <code>Open Folder</code></li>
+<li>选择 <code>/home/Smarter</code> 或你的项目目录</li>
+<li>现在可以直接在 VSCode 中编辑服务器上的文件了！</li>
+</ol>
+<hr>
+<h2 id="di-san-jie-duan-yuan-cheng-zhuo-mian-pei-zhi" tabindex="-1" id="第三阶段：远程桌面配置">第三阶段：远程桌面配置</h2>
+<p>有时候需要图形界面，我配置了 GNOME Remote Desktop。</p>
+<h3 id="wei-shi-yao-xuan-ze-gnome-remote-desktop" tabindex="-1" id="为什么选择-GNOME-Remote-Desktop？">为什么选择 GNOME Remote Desktop？</h3>
+<ul>
+<li>Ubuntu 24.04 自带，无需额外安装</li>
+<li>支持无显示器远程登录</li>
+<li>Windows 自带 mstsc 即可连接</li>
+<li>比 XRDP 更稳定</li>
+</ul>
+<h3 id="step-1-an-zhuang-he-qi-yong-gnome-remote-desktop" tabindex="-1" id="Step-1-安装和启用-GNOME-Remote-Desktop">Step 1: 安装和启用 GNOME Remote Desktop</h3>
+<p>在服务器上执行（需要管理员权限）：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1. 安装组件（Ubuntu 24.04 通常已安装）</span></span><br><span class="line"><span class="built_in">sudo</span> apt update</span><br><span class="line"><span class="built_in">sudo</span> apt install -y gnome-remote-desktop</span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. 生成 TLS 证书（必需）</span></span><br><span class="line"><span class="built_in">sudo</span> -u gnome-remote-desktop <span class="built_in">mkdir</span> -p ~gnome-remote-desktop/.local/share/gnome-remote-desktop</span><br><span class="line"></span><br><span class="line"><span class="built_in">sudo</span> openssl req -x509 -newkey rsa:4096 -nodes -days 3650 -sha256 \</span><br><span class="line">  -keyout ~gnome-remote-desktop/.local/share/gnome-remote-desktop/tls.key \</span><br><span class="line">  -out ~gnome-remote-desktop/.local/share/gnome-remote-desktop/tls.crt \</span><br><span class="line">  -subj <span class="string">&quot;/CN=服务器ip&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 3. 设置文件权限</span></span><br><span class="line"><span class="built_in">sudo</span> <span class="built_in">chown</span> gnome-remote-desktop:gnome-remote-desktop \</span><br><span class="line">  ~gnome-remote-desktop/.local/share/gnome-remote-desktop/tls.key \</span><br><span class="line">  ~gnome-remote-desktop/.local/share/gnome-remote-desktop/tls.crt</span><br><span class="line"></span><br><span class="line"><span class="built_in">sudo</span> <span class="built_in">chmod</span> 600 ~gnome-remote-desktop/.local/share/gnome-remote-desktop/tls.key</span><br><span class="line"><span class="built_in">sudo</span> <span class="built_in">chmod</span> 644 ~gnome-remote-desktop/.local/share/gnome-remote-desktop/tls.crt</span><br></pre></td></tr></table></figure>
+<h3 id="step-2-pei-zhi-rdp-ren-zheng" tabindex="-1" id="Step-2-配置-RDP-认证">Step 2: 配置 RDP 认证</h3>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 禁用 RDP（如果之前启用过）</span></span><br><span class="line"><span class="built_in">sudo</span> grdctl --system rdp <span class="built_in">disable</span> 2&gt;/dev/null || <span class="literal">true</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 设置 TLS 证书</span></span><br><span class="line"><span class="built_in">sudo</span> grdctl --system rdp set-tls-key ~gnome-remote-desktop/.local/share/gnome-remote-desktop/tls.key</span><br><span class="line"><span class="built_in">sudo</span> grdctl --system rdp set-tls-cert ~gnome-remote-desktop/.local/share/gnome-remote-desktop/tls.crt</span><br><span class="line"></span><br><span class="line"><span class="comment"># 设置 RDP 入口账号密码（这不是 Linux 用户密码）</span></span><br><span class="line"><span class="built_in">sudo</span> grdctl --system rdp set-credentials rdpuser <span class="string">&#x27;你的强密码&#x27;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 启用 RDP</span></span><br><span class="line"><span class="built_in">sudo</span> grdctl --system rdp <span class="built_in">enable</span></span><br></pre></td></tr></table></figure>
+<h3 id="step-3-qi-dong-fu-wu-bing-yan-zheng" tabindex="-1" id="Step-3-启动服务并验证">Step 3: 启动服务并验证</h3>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 启动并设置开机自启</span></span><br><span class="line"><span class="built_in">sudo</span> systemctl <span class="built_in">enable</span> --now gnome-remote-desktop.service</span><br><span class="line"></span><br><span class="line"><span class="comment"># 重启服务</span></span><br><span class="line"><span class="built_in">sudo</span> systemctl restart gnome-remote-desktop.service</span><br><span class="line"></span><br><span class="line"><span class="comment"># 验证 3389 端口是否监听</span></span><br><span class="line"><span class="built_in">sudo</span> ss -lnptu | grep 3389</span><br><span class="line"></span><br><span class="line"><span class="comment"># 查看状态</span></span><br><span class="line"><span class="built_in">sudo</span> grdctl --system status</span><br></pre></td></tr></table></figure>
+<h3 id="step-4-windows-duan-lian-jie" tabindex="-1" id="Step-4-Windows-端连接">Step 4: Windows 端连接</h3>
+<ol>
+<li>按 <code>Win + R</code>，输入 <code>mstsc</code></li>
+<li>计算机填写：<code>服务器ip</code></li>
+<li>首次认证输入：
+<ul>
+<li>用户名：<code>rdpuser</code></li>
+<li>密码：你设置的密码</li>
+</ul>
+</li>
+<li>进入 GNOME 登录界面后，使用 Linux 用户 <code>Smarter</code> 的系统密码登录</li>
+</ol>
+<blockquote>
+<p>⚠️ <strong>重要</strong>：确保 <code>Smarter</code> 用户设置了系统密码：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">sudo</span> passwd Smarter</span><br></pre></td></tr></table></figure>
+</blockquote>
+<h3 id="step-5-bao-cun-rdp-ping-ju-bi-mian-mei-ci-shu-ru" tabindex="-1" id="Step-5-保存-RDP-凭据（避免每次输入）">Step 5: 保存 RDP 凭据（避免每次输入）</h3>
+<p>在 Windows 中：</p>
+<ol>
+<li>搜索并打开 <strong>凭据管理器</strong></li>
+<li>进入 <strong>Windows 凭据</strong></li>
+<li>点击 <strong>添加 Windows 凭据</strong></li>
+<li>地址填：<code>TERMSRV/服务器ip</code></li>
+<li>用户名填：<code>rdpuser</code></li>
+<li>密码填你的密码 → 保存</li>
+</ol>
+<hr>
+<h2 id="di-si-jie-duan-python-huan-jing-pei-zhi" tabindex="-1" id="第四阶段：Python-环境配置">第四阶段：Python 环境配置</h2>
+<h3 id="step-1-jian-cha-conda-shi-fou-yi-an-zhuang" tabindex="-1" id="Step-1-检查-Conda-是否已安装">Step 1: 检查 Conda 是否已安装</h3>
+<p>在 VSCode 终端（或 SSH 连接）中：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">conda --version</span><br></pre></td></tr></table></figure>
+<ul>
+<li>如果显示版本号 → 已安装</li>
+<li>如果报错 <code>command not found</code> → 需要安装</li>
+</ul>
+<h3 id="step-2-a-ru-guo-yi-you-conda" tabindex="-1" id="Step-2A-如果已有-Conda">Step 2A: 如果已有 Conda</h3>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1. 检查 CUDA 版本</span></span><br><span class="line">nvidia-smi | grep <span class="string">&quot;CUDA Version&quot;</span></span><br><span class="line"><span class="comment"># 输出: CUDA Version: 12.2</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. 检查现有环境</span></span><br><span class="line">conda <span class="built_in">env</span> list</span><br><span class="line"></span><br><span class="line"><span class="comment"># 3. 创建 AI Infra 环境（如果不存在）</span></span><br><span class="line">conda create -n ai-infra python=3.10 -y</span><br><span class="line"></span><br><span class="line"><span class="comment"># 4. 激活环境</span></span><br><span class="line">conda activate ai-infra</span><br><span class="line"></span><br><span class="line"><span class="comment"># 5. 安装 PyTorch（CUDA 12.2 使用 cu121）</span></span><br><span class="line">pip install torch==2.1.2 torchvision==0.16.2 --index-url https://download.pytorch.org/whl/cu121</span><br><span class="line"></span><br><span class="line"><span class="comment"># 6. 验证 GPU 可用性</span></span><br><span class="line">python -c <span class="string">&quot;import torch; print(f&#x27;PyTorch: &#123;torch.__version__&#125;&#x27;); print(f&#x27;CUDA可用: &#123;torch.cuda.is_available()&#125;&#x27;); print(f&#x27;GPU数量: &#123;torch.cuda.device_count()&#125;&#x27;)&quot;</span></span><br></pre></td></tr></table></figure>
+<p><strong>期望输出</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">PyTorch: 2.1.2+cu121</span><br><span class="line">CUDA可用: True</span><br><span class="line">GPU数量: 2</span><br></pre></td></tr></table></figure>
+<h3 id="step-2-b-ru-guo-xu-yao-an-zhuang-conda" tabindex="-1" id="Step-2B-如果需要安装-Conda">Step 2B: 如果需要安装 Conda</h3>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1. 下载 Miniconda（比 Anaconda 更轻量）</span></span><br><span class="line">wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh</span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. 安装</span></span><br><span class="line">bash Miniconda3-latest-Linux-x86_64.sh</span><br><span class="line"><span class="comment"># 提示: Do you accept the license terms? → yes</span></span><br><span class="line"><span class="comment"># 提示: installation location → 回车（使用默认）</span></span><br><span class="line"><span class="comment"># 提示: Do you wish to update your shell profile → yes</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 3. 重新加载 shell</span></span><br><span class="line"><span class="built_in">source</span> ~/.bashrc</span><br><span class="line"></span><br><span class="line"><span class="comment"># 4. 验证安装</span></span><br><span class="line">conda --version</span><br><span class="line"></span><br><span class="line"><span class="comment"># 5. 然后回到 Step 2A 的步骤 3 继续</span></span><br></pre></td></tr></table></figure>
+<h3 id="step-3-an-zhuang-ji-chu-ke-xue-ji-suan-bao" tabindex="-1" id="Step-3-安装基础科学计算包">Step 3: 安装基础科学计算包</h3>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 确保在 ai-infra 环境中</span></span><br><span class="line">conda activate ai-infra</span><br><span class="line"></span><br><span class="line"><span class="comment"># 安装基础包（指定版本避免冲突）</span></span><br><span class="line">pip install numpy==1.24.3 pandas matplotlib jupyterlab</span><br><span class="line">pip install transformers==4.36.2 accelerate==0.25.0</span><br><span class="line"></span><br><span class="line"><span class="comment"># 验证安装</span></span><br><span class="line">python -c <span class="string">&quot;import transformers; print(f&#x27;Transformers: &#123;transformers.__version__&#125;&#x27;)&quot;</span></span><br></pre></td></tr></table></figure>
+<hr>
+<h2 id="di-wu-jie-duan-v-llm-an-zhuang-yu-ce-shi" tabindex="-1" id="第五阶段：vLLM-安装与测试">第五阶段：vLLM 安装与测试</h2>
+<h3 id="ban-ben-jian-rong-xing-shuo-ming" tabindex="-1" id="版本兼容性说明">版本兼容性说明</h3>
+<blockquote>
+<p>⚠️ <strong>重要</strong>：不要随意升级版本，容易导致 CUDA 不兼容！</p>
+</blockquote>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">推荐版本组合（2026年1月验证）：</span><br><span class="line">- PyTorch 2.1.2 (cu121)</span><br><span class="line">- vLLM 0.2.7 (稳定版)</span><br><span class="line">- Triton 2.1.0 (vLLM依赖)</span><br><span class="line">- Flash-Attention 2.3.6 (可选，编译困难，不推荐)</span><br></pre></td></tr></table></figure>
+<h3 id="bao-shou-an-zhuang-fang-an-tui-jian" tabindex="-1" id="保守安装方案（推荐）">保守安装方案（推荐）</h3>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1. 激活环境</span></span><br><span class="line">conda activate ai-infra</span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. 安装 vLLM（会自动安装 Triton 等依赖）</span></span><br><span class="line">pip install vllm==0.2.7</span><br><span class="line"></span><br><span class="line"><span class="comment"># 3. 验证 vLLM</span></span><br><span class="line">python -c <span class="string">&quot;import vllm; print(f&#x27;vLLM版本: &#123;vllm.__version__&#125;&#x27;)&quot;</span></span><br><span class="line"><span class="comment"># 输出: vLLM版本: 0.2.7</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 4. 验证 Triton（vLLM 会自动安装）</span></span><br><span class="line">python -c <span class="string">&quot;import triton; print(f&#x27;Triton版本: &#123;triton.__version__&#125;&#x27;)&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 5. 测试 vLLM 是否可用</span></span><br><span class="line">python -c <span class="string">&quot;from vllm import LLM; print(&#x27;vLLM导入成功 &#x27;)&quot;</span></span><br></pre></td></tr></table></figure>
+<h3 id="zui-zhong-huan-jing-yan-zheng" tabindex="-1" id="最终环境验证">最终环境验证</h3>
+<p>运行完整验证脚本：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line">python &lt;&lt;<span class="string">EOF</span></span><br><span class="line"><span class="string">import torch</span></span><br><span class="line"><span class="string">import vllm</span></span><br><span class="line"><span class="string">import triton</span></span><br><span class="line"><span class="string"></span></span><br><span class="line"><span class="string">print(&quot;=&quot; * 50)</span></span><br><span class="line"><span class="string">print(&quot;环境验证&quot;)</span></span><br><span class="line"><span class="string">print(&quot;=&quot; * 50)</span></span><br><span class="line"><span class="string">print(f&quot;PyTorch版本: &#123;torch.__version__&#125;&quot;)</span></span><br><span class="line"><span class="string">print(f&quot;CUDA可用: &#123;torch.cuda.is_available()&#125;&quot;)</span></span><br><span class="line"><span class="string">print(f&quot;CUDA版本: &#123;torch.version.cuda&#125;&quot;)</span></span><br><span class="line"><span class="string">print(f&quot;GPU数量: &#123;torch.cuda.device_count()&#125;&quot;)</span></span><br><span class="line"><span class="string">if torch.cuda.is_available():</span></span><br><span class="line"><span class="string">    print(f&quot;GPU 0: &#123;torch.cuda.get_device_name(0)&#125;&quot;)</span></span><br><span class="line"><span class="string">    print(f&quot;GPU 1: &#123;torch.cuda.get_device_name(1)&#125;&quot;)</span></span><br><span class="line"><span class="string">print(f&quot;\nvLLM版本: &#123;vllm.__version__&#125;&quot;)</span></span><br><span class="line"><span class="string">print(f&quot;Triton版本: &#123;triton.__version__&#125;&quot;)</span></span><br><span class="line"><span class="string"></span></span><br><span class="line"><span class="string">print(&quot;\n 所有核心组件安装成功！&quot;)</span></span><br><span class="line"><span class="string">EOF</span></span><br></pre></td></tr></table></figure>
+<p><strong>期望输出</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">==================================================</span><br><span class="line">环境验证</span><br><span class="line">==================================================</span><br><span class="line">PyTorch版本: 2.1.2+cu121</span><br><span class="line">CUDA可用: True</span><br><span class="line">CUDA版本: 12.1</span><br><span class="line">GPU数量: 2</span><br><span class="line">GPU 0: NVIDIA GeForce RTX 4090</span><br><span class="line">GPU 1: NVIDIA GeForce RTX 4090</span><br><span class="line"></span><br><span class="line">vLLM版本: 0.2.7</span><br><span class="line">Triton版本: 2.1.0</span><br><span class="line"></span><br><span class="line"> 所有核心组件安装成功！</span><br></pre></td></tr></table></figure>
+<hr>
+<h2 id="di-liu-jie-duan-yun-xing-di-yi-ge-v-llm-cheng-xu" tabindex="-1" id="第六阶段：运行第一个-vLLM-程序">第六阶段：运行第一个 vLLM 程序</h2>
+<h3 id="chuang-jian-ce-shi-wen-jian" tabindex="-1" id="创建测试文件">创建测试文件</h3>
+<p>在 VSCode 中创建 <code>~/test_vllm.py</code>：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">from</span> vllm <span class="keyword">import</span> LLM, SamplingParams</span><br><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"><span class="keyword">import</span> time</span><br><span class="line"></span><br><span class="line"><span class="comment"># 显示 GPU 信息</span></span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot;=&quot;</span> * <span class="number">80</span>)</span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot;GPU 配置信息&quot;</span>)</span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot;=&quot;</span> * <span class="number">80</span>)</span><br><span class="line"><span class="built_in">print</span>(<span class="string">f&quot;可用GPU数量: <span class="subst">&#123;torch.cuda.device_count()&#125;</span>&quot;</span>)</span><br><span class="line"><span class="built_in">print</span>(<span class="string">f&quot;GPU 0: <span class="subst">&#123;torch.cuda.get_device_name(<span class="number">0</span>)&#125;</span>&quot;</span>)</span><br><span class="line"><span class="built_in">print</span>(<span class="string">f&quot;GPU 1: <span class="subst">&#123;torch.cuda.get_device_name(<span class="number">1</span>)&#125;</span>&quot;</span>)</span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot;=&quot;</span> * <span class="number">80</span>)</span><br><span class="line"></span><br><span class="line"><span class="comment"># 加载小模型测试（只有 125M 参数，几秒加载）</span></span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot;\n🔄 正在加载模型...&quot;</span>)</span><br><span class="line">llm = LLM(</span><br><span class="line">    model=<span class="string">&quot;facebook/opt-125m&quot;</span>,</span><br><span class="line">    trust_remote_code=<span class="literal">True</span>,</span><br><span class="line">    gpu_memory_utilization=<span class="number">0.5</span>  <span class="comment"># 只用 50% 显存，不影响其他人</span></span><br><span class="line">)</span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot; 模型加载完成！\n&quot;</span>)</span><br><span class="line"></span><br><span class="line"><span class="comment"># 准备输入</span></span><br><span class="line">prompts = [</span><br><span class="line">    <span class="string">&quot;Hello, my name is&quot;</span>,</span><br><span class="line">    <span class="string">&quot;The capital of France is&quot;</span>,</span><br><span class="line">    <span class="string">&quot;AI Infrastructure is&quot;</span></span><br><span class="line">]</span><br><span class="line"></span><br><span class="line"><span class="comment"># 配置采样参数</span></span><br><span class="line">sampling_params = SamplingParams(</span><br><span class="line">    temperature=<span class="number">0.8</span>,</span><br><span class="line">    top_p=<span class="number">0.95</span>,</span><br><span class="line">    max_tokens=<span class="number">50</span></span><br><span class="line">)</span><br><span class="line"></span><br><span class="line"><span class="comment"># 执行推理</span></span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot;🚀 开始推理...\n&quot;</span>)</span><br><span class="line">outputs = llm.generate(prompts, sampling_params)</span><br><span class="line"></span><br><span class="line"><span class="comment"># 查看结果</span></span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot;=&quot;</span> * <span class="number">80</span>)</span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot;📊 推理结果&quot;</span>)</span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot;=&quot;</span> * <span class="number">80</span>)</span><br><span class="line"><span class="keyword">for</span> output <span class="keyword">in</span> outputs:</span><br><span class="line">    <span class="built_in">print</span>(<span class="string">f&quot;\n提示词: <span class="subst">&#123;output.prompt&#125;</span>&quot;</span>)</span><br><span class="line">    <span class="built_in">print</span>(<span class="string">f&quot;生成结果: <span class="subst">&#123;output.outputs[<span class="number">0</span>].text&#125;</span>&quot;</span>)</span><br><span class="line">    <span class="built_in">print</span>(<span class="string">&quot;-&quot;</span> * <span class="number">80</span>)</span><br><span class="line"></span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot;\n 成功运行第一个 vLLM 程序！&quot;</span>)</span><br><span class="line"></span><br><span class="line"><span class="comment"># 性能测试</span></span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot;\n⏱️  性能测试开始...&quot;</span>)</span><br><span class="line">test_prompts = [<span class="string">&quot;Explain AI in simple terms&quot;</span>] * <span class="number">10</span></span><br><span class="line"></span><br><span class="line">start = time.time()</span><br><span class="line">outputs = llm.generate(test_prompts, sampling_params)</span><br><span class="line">elapsed = time.time() - start</span><br><span class="line"></span><br><span class="line">total_tokens = <span class="built_in">sum</span>(<span class="built_in">len</span>(o.outputs[<span class="number">0</span>].token_ids) <span class="keyword">for</span> o <span class="keyword">in</span> outputs)</span><br><span class="line">throughput = total_tokens / elapsed</span><br><span class="line"></span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot;\n&quot;</span> + <span class="string">&quot;=&quot;</span> * <span class="number">80</span>)</span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot;📈 服务器性能测试结果&quot;</span>)</span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot;=&quot;</span> * <span class="number">80</span>)</span><br><span class="line"><span class="built_in">print</span>(<span class="string">f&quot;模型:        OPT-125M&quot;</span>)</span><br><span class="line"><span class="built_in">print</span>(<span class="string">f&quot;GPU:         RTX 4090 (单卡)&quot;</span>)</span><br><span class="line"><span class="built_in">print</span>(<span class="string">f&quot;总耗时:      <span class="subst">&#123;elapsed:<span class="number">.2</span>f&#125;</span> 秒&quot;</span>)</span><br><span class="line"><span class="built_in">print</span>(<span class="string">f&quot;总 Token 数: <span class="subst">&#123;total_tokens&#125;</span>&quot;</span>)</span><br><span class="line"><span class="built_in">print</span>(<span class="string">f&quot;吞吐量:      <span class="subst">&#123;throughput:<span class="number">.2</span>f&#125;</span> tokens/秒&quot;</span>)</span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot;=&quot;</span> * <span class="number">80</span>)</span><br></pre></td></tr></table></figure>
+<h3 id="yun-xing-ce-shi" tabindex="-1" id="运行测试">运行测试</h3>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 指定使用 GPU 0（避免占用他人 GPU）</span></span><br><span class="line">CUDA_VISIBLE_DEVICES=0 python ~/test_vllm.py</span><br></pre></td></tr></table></figure>
+<h3 id="wo-de-yun-xing-jie-guo" tabindex="-1" id="我的运行结果">我的运行结果</h3>
+<p><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="https://cdn.jsdelivr.net/gh/psmarter/blog-imgs/AI-Infra%E5%AD%A6%E4%B9%A0%E4%B9%8B%E6%97%85-%E6%9C%8D%E5%8A%A1%E5%99%A8%E7%8E%AF%E5%A2%83%E9%85%8D%E7%BD%AE/2026-01-02-14-39-22-7ce4ec.png" alt="image-20260102143458380"></p>
+<blockquote>
+<p>💡 <strong>性能对比</strong>：</p>
+<ul>
+<li>Kaggle P100: ~1539 tokens/秒</li>
+<li>我的 RTX 4090: ~5818 tokens/秒</li>
+<li><strong>提升约 278%！</strong> 🚀</li>
+</ul>
+</blockquote>
+<hr>
+<h2 id="cai-guo-de-keng-yu-jie-jue-fang-an" tabindex="-1" id="踩过的坑与解决方案">踩过的坑与解决方案</h2>
+<h3 id="wen-ti-1-vs-code-remote-ssh-mei-ci-yao-shu-mi-ma" tabindex="-1" id="问题-1-VSCode-Remote-SSH-每次要输密码">问题 1: VSCode Remote SSH 每次要输密码</h3>
+<p><strong>现象</strong>: VSCode 连接服务器时总是弹窗要求输入密码</p>
+<p><strong>解决方案</strong>: 配置 SSH 公钥免密登录（见&quot;第一阶段 Step 3&quot;）</p>
+<p>关键步骤：</p>
+<figure class="highlight powershell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># Windows 本地</span></span><br><span class="line"><span class="variable">$pub</span> = <span class="built_in">Get-Content</span> C:\Users\pc\.ssh\id_rsa.pub</span><br><span class="line">ssh Smarter<span class="selector-tag">@</span>服务器ip <span class="string">&quot;mkdir -p ~/.ssh &amp;&amp; chmod 700 ~/.ssh &amp;&amp; echo &#x27;<span class="variable">$pub</span>&#x27; &gt;&gt; ~/.ssh/authorized_keys &amp;&amp; chmod 600 ~/.ssh/authorized_keys&quot;</span></span><br></pre></td></tr></table></figure>
+<p>并在 SSH config 中添加：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">IdentitiesOnly yes</span><br><span class="line">PreferredAuthentications publickey</span><br></pre></td></tr></table></figure>
+<h3 id="wen-ti-2-gnome-remote-desktop-wu-fa-lian-jie" tabindex="-1" id="问题-2-GNOME-Remote-Desktop-无法连接">问题 2: GNOME Remote Desktop 无法连接</h3>
+<p><strong>现象</strong>: Windows 端 mstsc 连接 3389 端口无响应</p>
+<p><strong>原因</strong>:</p>
+<ol>
+<li>没有生成 TLS 证书</li>
+<li>没有设置 RDP 认证凭据</li>
+<li>XRDP 占用了 3389 端口</li>
+</ol>
+<p><strong>解决方案</strong>:</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1. 停止并卸载 XRDP（如果有）</span></span><br><span class="line"><span class="built_in">sudo</span> systemctl <span class="built_in">disable</span> --now xrdp xrdp-sesman</span><br><span class="line"><span class="built_in">sudo</span> apt purge -y xrdp xorgxrdp</span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. 生成 TLS 证书（见&quot;第三阶段 Step 1&quot;）</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 3. 设置 RDP 凭据</span></span><br><span class="line"><span class="built_in">sudo</span> grdctl --system rdp set-credentials rdpuser <span class="string">&#x27;强密码&#x27;</span></span><br><span class="line"><span class="built_in">sudo</span> grdctl --system rdp <span class="built_in">enable</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 4. 重启服务</span></span><br><span class="line"><span class="built_in">sudo</span> systemctl restart gnome-remote-desktop.service</span><br><span class="line"></span><br><span class="line"><span class="comment"># 5. 验证端口监听</span></span><br><span class="line"><span class="built_in">sudo</span> ss -lnptu | grep 3389</span><br></pre></td></tr></table></figure>
+<h3 id="wen-ti-3-yuan-cheng-zhuo-mian-ti-shi-quot-yi-you-hui-hua-yun-xing-quot" tabindex="-1" id="问题-3-远程桌面提示-已有会话运行">问题 3: 远程桌面提示&quot;已有会话运行&quot;</h3>
+<p><strong>现象</strong>: 尝试远程登录时提示&quot;该用户已有会话&quot;</p>
+<p><strong>原因</strong>: 之前的远程会话没有正常退出，系统认为仍在运行</p>
+<p><strong>解决方案</strong>:</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1. 查看当前会话</span></span><br><span class="line">loginctl list-sessions</span><br><span class="line">loginctl user-status Smarter</span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. 终止该用户所有会话</span></span><br><span class="line"><span class="built_in">sudo</span> loginctl terminate-user Smarter</span><br><span class="line"></span><br><span class="line"><span class="comment"># 3. 重启远程桌面服务</span></span><br><span class="line"><span class="built_in">sudo</span> systemctl restart gnome-remote-desktop.service</span><br><span class="line"><span class="built_in">sudo</span> systemctl restart gdm3</span><br><span class="line"></span><br><span class="line"><span class="comment"># 4. 再尝试连接</span></span><br></pre></td></tr></table></figure>
+<h3 id="wen-ti-4-v-llm-dao-ru-bao-cuo-cuda-ban-ben-bu-pi-pei" tabindex="-1" id="问题-4-vLLM-导入报错-CUDA-版本不匹配">问题 4: vLLM 导入报错 CUDA 版本不匹配</h3>
+<p><strong>现象</strong>: <code>import vllm</code> 报错 “CUDA version mismatch”</p>
+<p><strong>原因</strong>: PyTorch 的 CUDA 版本与系统 CUDA 不匹配</p>
+<p><strong>解决方案</strong>:</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1. 卸载 PyTorch</span></span><br><span class="line">pip uninstall torch torchvision -y</span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. 重新安装匹配的版本（CUDA 12.2 使用 cu121）</span></span><br><span class="line">pip install torch==2.1.2 torchvision==0.16.2 --index-url https://download.pytorch.org/whl/cu121</span><br><span class="line"></span><br><span class="line"><span class="comment"># 3. 验证</span></span><br><span class="line">python -c <span class="string">&quot;import torch; print(torch.version.cuda)&quot;</span></span><br><span class="line"><span class="comment"># 应该输出: 12.1 (PyTorch 对 CUDA 12.x 通用)</span></span><br></pre></td></tr></table></figure>
+<h3 id="wen-ti-5-conda-ming-ling-zhao-bu-dao" tabindex="-1" id="问题-5-Conda-命令找不到">问题 5: Conda 命令找不到</h3>
+<p><strong>现象</strong>: <code>conda: command not found</code></p>
+<p><strong>解决方案</strong>:</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 重新加载 bashrc</span></span><br><span class="line"><span class="built_in">source</span> ~/.bashrc</span><br><span class="line"></span><br><span class="line"><span class="comment"># 如果还是不行，手动添加到 PATH</span></span><br><span class="line"><span class="built_in">export</span> PATH=<span class="string">&quot;<span class="variable">$HOME</span>/anaconda3/bin:<span class="variable">$PATH</span>&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 或者添加到 ~/.bashrc</span></span><br><span class="line"><span class="built_in">echo</span> <span class="string">&#x27;export PATH=&quot;$HOME/anaconda3/bin:$PATH&quot;&#x27;</span> &gt;&gt; ~/.bashrc</span><br><span class="line"><span class="built_in">source</span> ~/.bashrc</span><br></pre></td></tr></table></figure>
+<h3 id="wen-ti-6-clash-dai-li-duan-kou-bei-zhan-yong" tabindex="-1" id="问题-6-Clash-代理端口被占用">问题 6: Clash 代理端口被占用</h3>
+<p><strong>现象</strong>: 想重启 Clash 但提示端口 7890 被占用</p>
+<p><strong>解决方案</strong>:</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1. 查看占用端口的进程</span></span><br><span class="line"><span class="built_in">sudo</span> lsof -iTCP:7890 -sTCP:LISTEN</span><br><span class="line"></span><br><span class="line"><span class="comment"># 输出示例:</span></span><br><span class="line"><span class="comment"># COMMAND     PID USER   FD   TYPE DEVICE SIZE/OFF NODE NAME</span></span><br><span class="line"><span class="comment"># clash   3528110  Smarter    9u  IPv4 xxx      0t0  TCP localhost:7890 (LISTEN)</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. 终止该进程</span></span><br><span class="line"><span class="built_in">sudo</span> <span class="built_in">kill</span> 3528110</span><br><span class="line"></span><br><span class="line"><span class="comment"># 3. 重新启动 Clash</span></span><br></pre></td></tr></table></figure>
+<hr>
+<h2 id="kai-fa-gong-zuo-liu-cheng" tabindex="-1" id="开发工作流程">开发工作流程</h2>
+<p>配置完成后，我的日常开发流程是这样的：</p>
+<h3 id="fang-an-vs-code-remote-ssh" tabindex="-1" id="方案：VSCode-Remote-SSH">方案：VSCode Remote SSH</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">┌─────────────────┐         SSH        ┌─────────────────┐</span><br><span class="line">│  Windows笔记本   │ ◄────────────────► │ Ubuntu服务器    │</span><br><span class="line">│                 │                    │                 │</span><br><span class="line">│  VSCode界面     │                    │  实际执行代码    │</span><br><span class="line">│  编辑器         │                    │  双GPU计算      │</span><br><span class="line">│  浏览器         │                    │  永久存储       │</span><br><span class="line">└─────────────────┘                    └─────────────────┘</span><br><span class="line">       本地                                   云端</span><br></pre></td></tr></table></figure>
+<p><strong>日常步骤</strong>:</p>
+<ol>
+<li>
+<p><strong>打开 VSCode 连接服务器</strong></p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">VSCode → F1 → Remote-SSH: Connect to Host → ai-server</span><br></pre></td></tr></table></figure>
+</li>
+<li>
+<p><strong>编辑代码</strong>（和本地一样）</p>
+<ul>
+<li>在服务器上直接编辑项目文件</li>
+<li>VSCode 体验和本地完全一样</li>
+<li>代码保存在服务器上，永久保存</li>
+</ul>
+</li>
+<li>
+<p><strong>运行实验</strong>（服务器 GPU）</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># VSCode 集成终端</span></span><br><span class="line">conda activate ai-infra</span><br><span class="line"></span><br><span class="line"><span class="comment"># 检查 GPU 状态</span></span><br><span class="line">nvidia-smi</span><br><span class="line"></span><br><span class="line"><span class="comment"># 指定使用 GPU 0</span></span><br><span class="line">CUDA_VISIBLE_DEVICES=0 python train.py</span><br><span class="line"></span><br><span class="line"><span class="comment"># GPU 计算，无时长限制 </span></span><br></pre></td></tr></table></figure>
+</li>
+<li>
+<p><strong>查看结果</strong></p>
+<ul>
+<li>结果保存在服务器</li>
+<li>可以通过 VSCode 直接查看图片/日志</li>
+<li>或者下载到本地</li>
+</ul>
+</li>
+</ol>
+<hr>
+<h2 id="gpu-zi-yuan-guan-li" tabindex="-1" id="GPU-资源管理">GPU 资源管理</h2>
+<h3 id="cha-kan-gpu-shi-yong-qing-kuang" tabindex="-1" id="查看-GPU-使用情况">查看 GPU 使用情况</h3>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 实时监控</span></span><br><span class="line">watch -n 1 nvidia-smi</span><br><span class="line"></span><br><span class="line"><span class="comment"># 或者安装 nvitop（更友好的界面）</span></span><br><span class="line">pip install nvitop</span><br><span class="line">nvitop</span><br></pre></td></tr></table></figure>
+<h3 id="zhi-ding-gpu-yun-xing-dai-ma" tabindex="-1" id="指定-GPU-运行代码">指定 GPU 运行代码</h3>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 使用 GPU 0</span></span><br><span class="line">CUDA_VISIBLE_DEVICES=0 python train.py</span><br><span class="line"></span><br><span class="line"><span class="comment"># 使用 GPU 1</span></span><br><span class="line">CUDA_VISIBLE_DEVICES=1 python train.py</span><br><span class="line"></span><br><span class="line"><span class="comment"># 同时使用两张 GPU</span></span><br><span class="line">CUDA_VISIBLE_DEVICES=0,1 python train.py</span><br></pre></td></tr></table></figure>
+<h3 id="python-dai-ma-zhong-zhi-ding" tabindex="-1" id="Python-代码中指定">Python 代码中指定</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> os</span><br><span class="line">os.environ[<span class="string">&#x27;CUDA_VISIBLE_DEVICES&#x27;</span>] = <span class="string">&#x27;0&#x27;</span>  <span class="comment"># 只用第一张 GPU</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 或者</span></span><br><span class="line"><span class="keyword">import</span> torch</span><br><span class="line">device = torch.device(<span class="string">&#x27;cuda:0&#x27;</span>)  <span class="comment"># GPU 0</span></span><br><span class="line"><span class="comment"># device = torch.device(&#x27;cuda:1&#x27;)  # GPU 1</span></span><br></pre></td></tr></table></figure>
+<h3 id="duo-ren-gong-xiang-li-yi" tabindex="-1" id="多人共享礼仪">多人共享礼仪</h3>
+<p>如果服务器是多人共享的：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 每次使用前检查 GPU 状态</span></span><br><span class="line">nvidia-smi</span><br><span class="line"></span><br><span class="line"><span class="comment"># 看 Processes 列：</span></span><br><span class="line"><span class="comment"># - GPU 0 空闲 → CUDA_VISIBLE_DEVICES=0</span></span><br><span class="line"><span class="comment"># - GPU 1 空闲 → CUDA_VISIBLE_DEVICES=1</span></span><br><span class="line"><span class="comment"># - 都在用 → 等待或协调</span></span><br></pre></td></tr></table></figure>
+<hr>
+<h2 id="chang-shi-jian-ren-wu-shi-yong-screen" tabindex="-1" id="长时间任务：使用-screen">长时间任务：使用 screen</h2>
+<p>服务器的优势之一就是可以运行长时间任务，即使关闭本地电脑也不影响。</p>
+<h3 id="an-zhuang-screen" tabindex="-1" id="安装-screen">安装 screen</h3>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">sudo</span> apt install screen</span><br></pre></td></tr></table></figure>
+<h3 id="shi-yong-fang-fa" tabindex="-1" id="使用方法">使用方法</h3>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1. 创建 session</span></span><br><span class="line">screen -S my_experiment</span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. 运行长时间任务</span></span><br><span class="line">conda activate ai-infra</span><br><span class="line">python long_training.py</span><br><span class="line"></span><br><span class="line"><span class="comment"># 3. 断开（任务继续运行）</span></span><br><span class="line"><span class="comment"># 按 Ctrl+A，然后按 D</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 4. 重新连接</span></span><br><span class="line">screen -r my_experiment</span><br><span class="line"></span><br><span class="line"><span class="comment"># 5. 列出所有 session</span></span><br><span class="line">screen -<span class="built_in">ls</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 6. 终止 session（在 session 内部）</span></span><br><span class="line"><span class="built_in">exit</span></span><br></pre></td></tr></table></figure>
+<p><strong>优势</strong>：关闭 Windows 电脑，SSH 断开，任务照样运行！</p>
+<hr>
+<h2 id="zong-jie-yu-shou-huo" tabindex="-1" id="总结与收获">总结与收获</h2>
+<h3 id="wan-cheng-de-pei-zhi" tabindex="-1" id="完成的配置">完成的配置</h3>
+<ul>
+<li>[x]  SSH 免密登录配置</li>
+<li>[x]  VSCode Remote SSH 环境</li>
+<li>[x]  GNOME Remote Desktop 远程桌面</li>
+<li>[x]  Conda 环境创建 (ai-infra)</li>
+<li>[x]  PyTorch 2.1.2 + CUDA 12.1 安装</li>
+<li>[x]  vLLM 0.2.7 安装与测试</li>
+<li>[x]  第一个 vLLM 程序运行成功</li>
+<li>[x]  性能测试：2276 tokens/秒</li>
+</ul>
+<h3 id="xing-neng-dui-bi" tabindex="-1" id="性能对比">性能对比</h3>
+<table>
+<thead>
+<tr>
+<th>平台</th>
+<th>GPU</th>
+<th>吞吐量 (tokens/s)</th>
+<th>成本</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Kaggle</td>
+<td>P100</td>
+<td>~1539</td>
+<td>免费（30h/周）</td>
+</tr>
+<tr>
+<td>我的服务器</td>
+<td>RTX 4090</td>
+<td>~5818</td>
+<td>内网服务器（无限）</td>
+</tr>
+<tr>
+<td><strong>性能提升</strong></td>
+<td>-</td>
+<td><strong>+278%</strong></td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="xie-zai-zui-hou" tabindex="-1" id="写在最后">写在最后</h2>
+<p>如果你也有机会使用服务器进行 AI 学习，我的建议是：</p>
+<ol>
+<li><strong>优先配置好 SSH 免密登录</strong> - 这是一切的基础</li>
+<li><strong>VSCode Remote SSH 是最佳开发环境</strong> - 比本地+rsync 方便太多</li>
+<li><strong>认真做版本管理</strong> - 不要随意升级，稳定的版本组合很重要</li>
+<li><strong>做好 GPU 资源管理</strong> - 尤其是共享服务器，要有礼貌</li>
+<li><strong>使用 screen 管理长任务</strong> - 充分利用服务器优势</li>
+</ol>
+<hr>
+<h2 id="can-kao-zi-liao" tabindex="-1" id="参考资料">参考资料</h2>
+<ul>
+<li><a target="_blank" rel="noopener" href="https://help.ubuntu.com/stable/ubuntu-help/sharing-desktop.html">Ubuntu GNOME Remote Desktop 官方文档</a></li>
+<li><a target="_blank" rel="noopener" href="https://code.visualstudio.com/docs/remote/ssh">VSCode Remote SSH 文档</a></li>
+<li><a target="_blank" rel="noopener" href="https://docs.vllm.ai/">vLLM 官方文档</a></li>
+<li><a target="_blank" rel="noopener" href="https://pytorch.org/get-started/locally/">PyTorch 官方安装指南</a></li>
+</ul>
+<hr>
+<p><strong>如果这篇文章对你有帮助，欢迎点赞和分享！有任何问题也欢迎在评论区交流。</strong> 🎉</p>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/a8ee689e/">https://smarter.xin/posts/a8ee689e/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/vLLM/">vLLM</a><a class="post-meta__tags" href="/tags/AI-Infrastructure/">AI Infrastructure</a><a class="post-meta__tags" href="/tags/Ubuntu-Server/">Ubuntu Server</a><a class="post-meta__tags" href="/tags/RTX-4090/">RTX 4090</a><a class="post-meta__tags" href="/tags/SSH/">SSH</a><a class="post-meta__tags" href="/tags/VSCode-Remote/">VSCode Remote</a></div><div class="post-share"><div class="social-share" data-image="/img/AI-Infra.png" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/f508052b/" title="常见题型-N皇后"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Algorithm.svg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">常见题型-N皇后</div></div></div></a><a class="pagination-related  no-desc" href="/posts/97ccf2e3/" title="常见算法-回溯"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Algorithm.svg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">常见算法-回溯</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/fbab2bc4/" title="AI Infra学习之旅-PagedAttention详解"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-03</div><div class="info-item-2">AI Infra学习之旅-PagedAttention详解</div></div></div></a><a class="pagination-related no-desc" href="/posts/b21cbc80/" title="AI Infra学习之旅-第一个vLLM程序"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2025-12-31</div><div class="info-item-2">AI Infra学习之旅-第一个vLLM程序</div></div></div></a><a class="pagination-related no-desc" href="/posts/4854dc00/" title="AI Infra学习之旅-Transformer知识地图"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-04</div><div class="info-item-2">AI Infra学习之旅-Transformer知识地图</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">53</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">72</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">12</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">Welcome to Smarter's blog</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#qian-yan"><span class="toc-text">前言</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#fu-wu-qi-pei-zhi-xin-xi"><span class="toc-text">服务器配置信息</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#ying-jian-pei-zhi"><span class="toc-text">硬件配置</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#xi-tong-xin-xi"><span class="toc-text">系统信息</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#yu-kaggle-dui-bi"><span class="toc-text">与 Kaggle 对比</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#di-yi-jie-duan-ssh-lian-jie-pei-zhi"><span class="toc-text">第一阶段：SSH 连接配置</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#step-1-shou-ci-ssh-lian-jie-ce-shi"><span class="toc-text">Step 1: 首次 SSH 连接测试</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#step-2-yan-zheng-gpu-zhuang-tai"><span class="toc-text">Step 2: 验证 GPU 状态</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#step-3-pei-zhi-ssh-mi-yao-mian-mi-deng-lu"><span class="toc-text">Step 3: 配置 SSH 密钥免密登录</span></a><ol class="toc-child"><li class="toc-item toc-level-4"><a class="toc-link" href="#zai-windows-ben-di-sheng-cheng-ssh-mi-yao"><span class="toc-text">在 Windows 本地生成 SSH 密钥</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#jiang-gong-yao-fu-zhi-dao-fu-wu-qi"><span class="toc-text">将公钥复制到服务器</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#ce-shi-mian-mi-deng-lu"><span class="toc-text">测试免密登录</span></a></li></ol></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#di-er-jie-duan-vs-code-remote-ssh-pei-zhi"><span class="toc-text">第二阶段：VSCode Remote SSH 配置</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#step-1-an-zhuang-vs-code-cha-jian"><span class="toc-text">Step 1: 安装 VSCode 插件</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#step-2-pei-zhi-ssh-config-wen-jian"><span class="toc-text">Step 2: 配置 SSH Config 文件</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#step-3-lian-jie-dao-fu-wu-qi"><span class="toc-text">Step 3: 连接到服务器</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#step-4-zai-vs-code-zhong-da-kai-fu-wu-qi-wen-jian-jia"><span class="toc-text">Step 4: 在 VSCode 中打开服务器文件夹</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#di-san-jie-duan-yuan-cheng-zhuo-mian-pei-zhi"><span class="toc-text">第三阶段：远程桌面配置</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#wei-shi-yao-xuan-ze-gnome-remote-desktop"><span class="toc-text">为什么选择 GNOME Remote Desktop？</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#step-1-an-zhuang-he-qi-yong-gnome-remote-desktop"><span class="toc-text">Step 1: 安装和启用 GNOME Remote Desktop</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#step-2-pei-zhi-rdp-ren-zheng"><span class="toc-text">Step 2: 配置 RDP 认证</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#step-3-qi-dong-fu-wu-bing-yan-zheng"><span class="toc-text">Step 3: 启动服务并验证</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#step-4-windows-duan-lian-jie"><span class="toc-text">Step 4: Windows 端连接</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#step-5-bao-cun-rdp-ping-ju-bi-mian-mei-ci-shu-ru"><span class="toc-text">Step 5: 保存 RDP 凭据（避免每次输入）</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#di-si-jie-duan-python-huan-jing-pei-zhi"><span class="toc-text">第四阶段：Python 环境配置</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#step-1-jian-cha-conda-shi-fou-yi-an-zhuang"><span class="toc-text">Step 1: 检查 Conda 是否已安装</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#step-2-a-ru-guo-yi-you-conda"><span class="toc-text">Step 2A: 如果已有 Conda</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#step-2-b-ru-guo-xu-yao-an-zhuang-conda"><span class="toc-text">Step 2B: 如果需要安装 Conda</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#step-3-an-zhuang-ji-chu-ke-xue-ji-suan-bao"><span class="toc-text">Step 3: 安装基础科学计算包</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#di-wu-jie-duan-v-llm-an-zhuang-yu-ce-shi"><span class="toc-text">第五阶段：vLLM 安装与测试</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#ban-ben-jian-rong-xing-shuo-ming"><span class="toc-text">版本兼容性说明</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#bao-shou-an-zhuang-fang-an-tui-jian"><span class="toc-text">保守安装方案（推荐）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#zui-zhong-huan-jing-yan-zheng"><span class="toc-text">最终环境验证</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#di-liu-jie-duan-yun-xing-di-yi-ge-v-llm-cheng-xu"><span class="toc-text">第六阶段：运行第一个 vLLM 程序</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#chuang-jian-ce-shi-wen-jian"><span class="toc-text">创建测试文件</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#yun-xing-ce-shi"><span class="toc-text">运行测试</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#wo-de-yun-xing-jie-guo"><span class="toc-text">我的运行结果</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#cai-guo-de-keng-yu-jie-jue-fang-an"><span class="toc-text">踩过的坑与解决方案</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#wen-ti-1-vs-code-remote-ssh-mei-ci-yao-shu-mi-ma"><span class="toc-text">问题 1: VSCode Remote SSH 每次要输密码</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#wen-ti-2-gnome-remote-desktop-wu-fa-lian-jie"><span class="toc-text">问题 2: GNOME Remote Desktop 无法连接</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#wen-ti-3-yuan-cheng-zhuo-mian-ti-shi-quot-yi-you-hui-hua-yun-xing-quot"><span class="toc-text">问题 3: 远程桌面提示&quot;已有会话运行&quot;</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#wen-ti-4-v-llm-dao-ru-bao-cuo-cuda-ban-ben-bu-pi-pei"><span class="toc-text">问题 4: vLLM 导入报错 CUDA 版本不匹配</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#wen-ti-5-conda-ming-ling-zhao-bu-dao"><span class="toc-text">问题 5: Conda 命令找不到</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#wen-ti-6-clash-dai-li-duan-kou-bei-zhan-yong"><span class="toc-text">问题 6: Clash 代理端口被占用</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#kai-fa-gong-zuo-liu-cheng"><span class="toc-text">开发工作流程</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#fang-an-vs-code-remote-ssh"><span class="toc-text">方案：VSCode Remote SSH</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#gpu-zi-yuan-guan-li"><span class="toc-text">GPU 资源管理</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#cha-kan-gpu-shi-yong-qing-kuang"><span class="toc-text">查看 GPU 使用情况</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#zhi-ding-gpu-yun-xing-dai-ma"><span class="toc-text">指定 GPU 运行代码</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#python-dai-ma-zhong-zhi-ding"><span class="toc-text">Python 代码中指定</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#duo-ren-gong-xiang-li-yi"><span class="toc-text">多人共享礼仪</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#chang-shi-jian-ren-wu-shi-yong-screen"><span class="toc-text">长时间任务：使用 screen</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#an-zhuang-screen"><span class="toc-text">安装 screen</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#shi-yong-fang-fa"><span class="toc-text">使用方法</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#zong-jie-yu-shou-huo"><span class="toc-text">总结与收获</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#wan-cheng-de-pei-zhi"><span class="toc-text">完成的配置</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#xing-neng-dui-bi"><span class="toc-text">性能对比</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xie-zai-zui-hou"><span class="toc-text">写在最后</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#can-kao-zi-liao"><span class="toc-text">参考资料</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/e84ddac/" title="常见算法-二分查找"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Algorithm.svg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="常见算法-二分查找"/></a><div class="content"><a class="title" href="/posts/e84ddac/" title="常见算法-二分查找">常见算法-二分查找</a><time datetime="2026-01-05T05:45:42.000Z" title="发表于 2026-01-05 13:45:42">2026-01-05</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/4854dc00/" title="AI Infra学习之旅-Transformer知识地图"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="AI Infra学习之旅-Transformer知识地图"/></a><div class="content"><a class="title" href="/posts/4854dc00/" title="AI Infra学习之旅-Transformer知识地图">AI Infra学习之旅-Transformer知识地图</a><time datetime="2026-01-04T13:07:37.000Z" title="发表于 2026-01-04 21:07:37">2026-01-04</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/db1cf321/" title="AI Infra学习之旅-Transformer详解"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="AI Infra学习之旅-Transformer详解"/></a><div class="content"><a class="title" href="/posts/db1cf321/" title="AI Infra学习之旅-Transformer详解">AI Infra学习之旅-Transformer详解</a><time datetime="2026-01-04T08:09:30.000Z" title="发表于 2026-01-04 16:09:30">2026-01-04</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="false"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/b21cbc80/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-31</span><a class="blog-slider__title" href="posts/b21cbc80/" alt="">AI Infra学习之旅-第一个vLLM程序</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/b21cbc80/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>

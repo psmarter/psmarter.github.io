@@ -1,0 +1,696 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>AI Infra学习之旅-Transformer详解 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="Transformer深度解析：从零开始理解&quot;注意力就是你所需要的一切&quot;  如果你关注AI领域，ChatGPT、BERT、GPT这些名字应该不陌生。它们背后有个共同的&quot;老祖宗&quot;——Transformer。我最初看到这个架构时，觉得有点复杂，但当我真正理解了它的设计思想后，突然发现一切都说得通了。今天我想用最直白的方式，和你聊聊这个改变了整个深度学习游戏规则的">
+<meta property="og:type" content="article">
+<meta property="og:title" content="AI Infra学习之旅-Transformer详解">
+<meta property="og:url" content="https://smarter.xin/posts/db1cf321/index.html">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="Transformer深度解析：从零开始理解&quot;注意力就是你所需要的一切&quot;  如果你关注AI领域，ChatGPT、BERT、GPT这些名字应该不陌生。它们背后有个共同的&quot;老祖宗&quot;——Transformer。我最初看到这个架构时，觉得有点复杂，但当我真正理解了它的设计思想后，突然发现一切都说得通了。今天我想用最直白的方式，和你聊聊这个改变了整个深度学习游戏规则的">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/AI-Infra.png">
+<meta property="article:published_time" content="2026-01-04T08:09:30.000Z">
+<meta property="article:modified_time" content="2026-01-04T08:29:00.092Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="Transformer">
+<meta property="article:tag" content="注意力机制">
+<meta property="article:tag" content="深度学习">
+<meta property="article:tag" content="NLP">
+<meta property="article:tag" content="人工智能">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/AI-Infra.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "AI Infra学习之旅-Transformer详解",
+  "url": "https://smarter.xin/posts/db1cf321/",
+  "image": "https://smarter.xin/img/AI-Infra.png",
+  "datePublished": "2026-01-04T08:09:30.000Z",
+  "dateModified": "2026-01-04T08:29:00.092Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/db1cf321/index.html"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="preconnect" href="//busuanzi.ibruce.info"/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'AI Infra学习之旅-Transformer详解',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">53</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">72</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">12</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/AI-Infra.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">AI Infra学习之旅-Transformer详解</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">AI Infra学习之旅-Transformer详解</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-01-04T08:09:30.000Z" title="发表于 2026-01-04 16:09:30">2026-01-04</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-01-04T08:29:00.092Z" title="更新于 2026-01-04 16:29:00">2026-01-04</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/">AI Infra</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">5.2k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>17分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="transformer-shen-du-jie-xi-cong-ling-kai-shi-li-jie-quot-zhu-yi-li-jiu-shi-ni-suo-xu-yao-de-yi-qie-quot" tabindex="-1">Transformer深度解析：从零开始理解&quot;注意力就是你所需要的一切&quot;</h1>
+<blockquote>
+<p>如果你关注AI领域，ChatGPT、BERT、GPT这些名字应该不陌生。它们背后有个共同的&quot;老祖宗&quot;——Transformer。我最初看到这个架构时，觉得有点复杂，但当我真正理解了它的设计思想后，突然发现一切都说得通了。今天我想用最直白的方式，和你聊聊这个改变了整个深度学习游戏规则的架构。</p>
+</blockquote>
+<h2 id="xie-zai-qian-mian" tabindex="-1" id="写在前面">写在前面</h2>
+<p>2017年，Google的研究团队发了一篇论文，标题叫《Attention Is All You Need》。第一次看到这个标题时我就觉得，这帮人可真敢说——“注意力就是你所需要的一切”，口气未免太大了吧？但几年过去了，事实证明他们是对的。这篇论文提出的Transformer架构，不仅彻底改写了NLP的规则，还渗透到了CV、语音、甚至生物信息学等各个领域。</p>
+<p>在扎进技术细节之前，我想先说说Transformer为什么会出现。毕竟，任何技术的诞生都是为了解决某个实际问题。</p>
+<h2 id="yi-rnn-de-kun-jing-wo-men-wei-shi-yao-xu-yao-xin-jia-gou" tabindex="-1" id="一、RNN的困境：我们为什么需要新架构？">一、RNN的困境：我们为什么需要新架构？</h2>
+<p>在Transformer横空出世之前，处理序列数据（比如文本、语音）的主流方案是RNN（循环神经网络）以及它的改进版LSTM、GRU。</p>
+<h3 id="rnn-zen-yao-gong-zuo-de" tabindex="-1" id="RNN怎么工作的？">RNN怎么工作的？</h3>
+<p>你可以把RNN想象成这样一个场景：你在读一本侦探小说。RNN的处理方式就是<strong>一个字一个字地往下读，每读一个字都会更新对剧情的理解</strong>。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">输入: &quot;我 爱 北京 天安门&quot;</span><br><span class="line">处理: 我 → 我爱 → 我爱北京 → 我爱北京天安门</span><br></pre></td></tr></table></figure>
+<p>听起来挺合理的，对吧？但这里有个致命的问题：<strong>必须按顺序处理，没法跳着来</strong>。</p>
+<h3 id="rnn-de-liang-da-ying-shang" tabindex="-1" id="RNN的两大硬伤">RNN的两大硬伤</h3>
+<p><strong>1. 没法并行计算</strong></p>
+<p>要处理第3个词，你必须先把第1、2个词处理完。这就像高速公路只有一条车道，不管你有多少辆车（GPU核心），也只能排队一辆一辆过。对于动辄几百万、上亿参数的模型来说，这种串行处理简直是灾难。训练一个大模型可能要好几周，谁受得了？</p>
+<p><strong>2. 长距离依赖问题</strong></p>
+<p>来看这个句子：</p>
+<blockquote>
+<p>“那只<strong>猫</strong>，它在花园里追蝴蝶的时候不小心撞到了树，后来躺在沙发上休息了一下午，最后终于恢复了精神，<strong>它</strong>开心地喵喵叫。”</p>
+</blockquote>
+<p>你肯定一眼就能看出最后的&quot;它&quot;指的是开头的&quot;猫&quot;。但对RNN来说，这可太难了。&quot;猫&quot;这个信息得像接力赛一样，一站一站地传到&quot;它&quot;那里。传递链越长，信息损失越严重——就像小时候玩传话游戏，传到最后往往都变味了。</p>
+<p>理论上LSTM通过门控机制缓解了这个问题，但也只是&quot;缓解&quot;，并没有根治。</p>
+<p><strong>Transformer的出现，就是为了一刀切掉这两个问题。</strong></p>
+<h2 id="er-zhu-yi-li-ji-zhi-transformer-de-he-xin-wu-qi" tabindex="-1" id="二、注意力机制：Transformer的核心武器">二、注意力机制：Transformer的核心武器</h2>
+<p>在正式拆解Transformer之前，得先搞懂它最核心的部分——<strong>自注意力机制（Self-Attention）</strong>。这东西听起来玄乎，其实思想很直观。</p>
+<h3 id="xian-lai-ge-zhi-guan-de-li-zi" tabindex="-1" id="先来个直观的例子">先来个直观的例子</h3>
+<p>假设有这么一句话：</p>
+<blockquote>
+<p>“那只动物没能过马路，因为<strong>它</strong>太累了。”</p>
+</blockquote>
+<p>当你读到&quot;它&quot;的时候，你的大脑会做什么？会自动&quot;回看&quot;前面的内容，判断&quot;它&quot;指的是啥。你会把更多注意力分配给&quot;动物&quot;，而不是&quot;马路&quot;或&quot;因为&quot;。</p>
+<p><strong>自注意力机制做的就是这件事：在处理每个词的时候，让模型能&quot;看到&quot;句子里所有其他词，并自动决定该给每个词分配多少注意力。</strong></p>
+<h3 id="query-key-value-san-ge-guan-jian-jiao-se" tabindex="-1" id="Query、Key、Value：三个关键角色">Query、Key、Value：三个关键角色</h3>
+<p>自注意力的实现靠三个向量：<strong>Query（查询）</strong>、<strong>Key（键）</strong>、<strong>Value（值）</strong>。</p>
+<p>我第一次看到这三个概念时也很懵，后来发现用图书馆来比喻特别好理解：</p>
+<ul>
+<li><strong>Query</strong>：你想找的书的描述，比如&quot;关于深度学习的入门书&quot;</li>
+<li><strong>Key</strong>：每本书的标签/索引，比如&quot;深度学习&quot;、“CV”、“烹饪”</li>
+<li><strong>Value</strong>：书的实际内容</li>
+</ul>
+<p>找书的过程是这样的：</p>
+<ol>
+<li>拿着你的Query（需求描述），去和书架上每本书的Key（标签）对比</li>
+<li>标签越匹配，说明这本书越相关</li>
+<li>根据相关性高低，从对应的Value（书的内容）中提取信息</li>
+<li>最后你得到的是一个&quot;混合信息&quot;——相关性高的书提供更多内容，相关性低的书提供较少内容</li>
+</ol>
+<p>在Transformer里，每个词都会生成自己的Q、K、V向量。这些向量怎么来的？很简单，就是把词向量和三个可学习的权重矩阵相乘：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">Q = 词向量 × Wq</span><br><span class="line">K = 词向量 × Wk  </span><br><span class="line">V = 词向量 × Wv</span><br></pre></td></tr></table></figure>
+<p>这三个矩阵Wq、Wk、Wv是模型训练过程中学习出来的。</p>
+<h3 id="zhu-yi-li-fen-shu-zen-yao-suan" tabindex="-1" id="注意力分数怎么算？">注意力分数怎么算？</h3>
+<p>有了Q、K、V，注意力的计算就是四步走：</p>
+<p><strong>第一步：计算相关性分数</strong></p>
+<p>用当前词的Query和所有词（包括自己）的Key做点积。点积值越大，说明两个词越相关。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">分数 = Q · K^T</span><br></pre></td></tr></table></figure>
+<p>这里为什么用点积？因为点积本质上衡量的是两个向量的相似度。方向越接近，点积越大。</p>
+<p><strong>第二步：缩放（Scaling）</strong></p>
+<p>直接用点积会有个问题：如果向量维度很大（比如512维），点积的结果也会很大。这些大数值经过softmax后，会导致梯度极小（想象一下softmax把一个很大的数映射成接近1，其他数映射成接近0，梯度基本就没了）。</p>
+<p>所以论文里做了个简单粗暴的处理：除以√dk（Key向量维度的平方根）。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">缩放后的分数 = Q·K^T / √dk</span><br></pre></td></tr></table></figure>
+<p>为什么是平方根？论文附录里有数学推导，简单说就是：假设Q和K的每个元素均值为0、方差为1，那么d维向量点积的方差就是d。除以√d可以把方差拉回到1，保持数值稳定。</p>
+<p><strong>第三步：Softmax归一化</strong></p>
+<p>把分数转成概率分布，让所有注意力权重加起来等于1。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">注意力权重 = softmax(缩放后的分数)</span><br></pre></td></tr></table></figure>
+<p>经过softmax后，相关性高的词得到更大的权重，相关性低的词权重接近0。</p>
+<p><strong>第四步：加权求和</strong></p>
+<p>用注意力权重对所有Value向量进行加权求和。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">输出 = 注意力权重 × V</span><br></pre></td></tr></table></figure>
+<p>整个过程可以用一个公式搞定：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">Attention(Q, K, V) = softmax(QK^T / √dk) × V</span><br></pre></td></tr></table></figure>
+<p><strong>来个具体例子</strong></p>
+<p>假设我们有三个词：“我”、“爱”、“你”，每个词的向量是2维（实际中通常是512维或更高，这里为了方便演示用2维）。</p>
+<p>假设&quot;爱&quot;这个词的Query是<code>[1, 0]</code>，三个词的Key分别是：</p>
+<ul>
+<li>“我”：<code>[0.8, 0.2]</code></li>
+<li>“爱”：<code>[1.0, 0.0]</code></li>
+<li>“你”：<code>[0.6, 0.5]</code></li>
+</ul>
+<p>计算&quot;爱&quot;对三个词的注意力：</p>
+<ol>
+<li>
+<p>计算点积：</p>
+<ul>
+<li>爱→我：1×0.8 + 0×0.2 = 0.8</li>
+<li>爱→爱：1×1.0 + 0×0.0 = 1.0</li>
+<li>爱→你：1×0.6 + 0×0.5 = 0.6</li>
+</ul>
+</li>
+<li>
+<p>缩放（√2 ≈ 1.41）：</p>
+<ul>
+<li>爱→我：0.8/1.41 ≈ 0.57</li>
+<li>爱→爱：1.0/1.41 ≈ 0.71</li>
+<li>爱→你：0.6/1.41 ≈ 0.42</li>
+</ul>
+</li>
+<li>
+<p>Softmax后大约是：</p>
+<ul>
+<li>爱→我：0.31</li>
+<li>爱→爱：0.38</li>
+<li>爱→你：0.31</li>
+</ul>
+</li>
+<li>
+<p>用这些权重对Value向量加权求和，得到&quot;爱&quot;的新表示</p>
+</li>
+</ol>
+<p>这个例子说明，“爱&quot;这个词对自己的注意力最高（0.38），但也会关注&quot;我&quot;和&quot;你”（各0.31左右）。这很合理，因为动词往往需要同时关注主语和宾语。</p>
+<p><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="https://cdn.jsdelivr.net/gh/psmarter/blog-imgs/AI-Infra%E5%AD%A6%E4%B9%A0%E4%B9%8B%E6%97%85-Transformer%E8%AF%A6%E8%A7%A3/2026-01-04-16-28-35-16b4a6.png" alt="自注意力机制计算流程：展示了从输入词向量到生成Q、K、V，再到计算注意力分数、缩放、Softmax归一化和最终加权求和的完整过程"></p>
+<h3 id="duo-tou-zhu-yi-li-cong-duo-ge-shi-jiao-kan-wen-ti" tabindex="-1" id="多头注意力：从多个视角看问题">多头注意力：从多个视角看问题</h3>
+<p>单个注意力机制就像从一个角度看东西。但理解一句话，可能需要同时考虑语法结构、语义关系、指代关系等多个维度。</p>
+<p><strong>多头注意力（Multi-Head Attention）</strong> 就是这个思路：</p>
+<ol>
+<li>把Q、K、V分别切成多个&quot;头&quot;（原论文用了8个头）</li>
+<li>每个头独立计算注意力</li>
+<li>把所有头的结果拼起来，再做一次线性变换</li>
+</ol>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">MultiHead(Q,K,V) = Concat(head₁, head₂, ..., head₈) × Wo</span><br><span class="line">其中 headᵢ = Attention(QWᵢq, KWᵢk, VWᵢv)</span><br></pre></td></tr></table></figure>
+<p>每个头有自己独立的Wq、Wk、Wv权重矩阵，所以能学到不同类型的关系。</p>
+<p>举个例子，在翻译句子时：</p>
+<ul>
+<li>第1个头可能专注于主谓关系</li>
+<li>第2个头可能专注于修饰关系（形容词和名词）</li>
+<li>第3个头可能专注于位置关系（前后词的相对位置）</li>
+<li>…</li>
+</ul>
+<p>把这些不同视角的信息综合起来，模型对句子的理解就更全面了。</p>
+<p><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="https://cdn.jsdelivr.net/gh/psmarter/blog-imgs/AI-Infra%E5%AD%A6%E4%B9%A0%E4%B9%8B%E6%97%85-Transformer%E8%AF%A6%E8%A7%A3/2026-01-04-16-28-35-c3a043.png" alt="多头注意力机制：8个attention head并行工作，每个head学习不同的语言关系模式，最后将所有head的输出拼接并变换"></p>
+<h2 id="san-transformer-jia-gou-quan-mao" tabindex="-1" id="三、Transformer架构全貌">三、Transformer架构全貌</h2>
+<p>搞懂了注意力机制，就理解了Transformer的核心。现在我们把整个架构拼起来。</p>
+<p>Transformer采用经典的<strong>编码器-解码器（Encoder-Decoder）</strong> 结构，左边是Encoder，右边是Decoder。</p>
+<p><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="https://cdn.jsdelivr.net/gh/psmarter/blog-imgs/AI-Infra%E5%AD%A6%E4%B9%A0%E4%B9%8B%E6%97%85-Transformer%E8%AF%A6%E8%A7%A3/2026-01-04-16-28-35-3d81bd.png" alt="Transformer完整架构：左侧为6层Encoder（蓝色），右侧为6层Decoder（橙色），展示了多头注意力、前馈网络、残差连接和层归一化等关键组件"></p>
+<p>原论文中的Transformer由<strong>6层Encoder</strong>和<strong>6层Decoder</strong>堆叠而成。</p>
+<h3 id="bian-ma-qi-encoder" tabindex="-1" id="编码器（Encoder）">编码器（Encoder）</h3>
+<p>每一层Encoder包含两个子层：</p>
+<ol>
+<li><strong>多头自注意力层</strong>：让每个词都能&quot;看到&quot;输入序列中的所有其他词</li>
+<li><strong>前馈神经网络（FFN）</strong>：其实就是两层全连接网络，对每个位置的表示做进一步变换</li>
+</ol>
+<p>关键的是，每个子层都包了两个&quot;保护壳&quot;：</p>
+<ul>
+<li><strong>残差连接（Residual Connection）</strong>：把输入直接加到输出上，这样梯度可以&quot;直通&quot;回去，缓解深层网络的梯度消失问题</li>
+<li><strong>层归一化（Layer Normalization）</strong>：把每一层的输出归一化，稳定训练过程</li>
+</ul>
+<p>整个流程可以写成：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">输出 = LayerNorm(x + SubLayer(x))</span><br></pre></td></tr></table></figure>
+<p>先对x做变换（MultiHead Attention或FFN），然后和原来的x相加（残差连接），最后归一化。</p>
+<p>6层Encoder叠在一起，就像是对输入做了6次&quot;提炼&quot;，每一层都在之前的基础上提取更抽象的特征。</p>
+<h3 id="jie-ma-qi-decoder" tabindex="-1" id="解码器（Decoder）">解码器（Decoder）</h3>
+<p>解码器比编码器多一个子层，总共三个：</p>
+<ol>
+<li><strong>带掩码的多头自注意力层（Masked Multi-Head Attention）</strong></li>
+<li><strong>编码器-解码器注意力层（Cross-Attention）</strong>：让解码器能够&quot;查阅&quot;编码器的输出</li>
+<li><strong>前馈神经网络</strong></li>
+</ol>
+<h4 id="wei-shi-yao-xu-yao-yan-ma-mask" tabindex="-1" id="为什么需要掩码（Mask）？">为什么需要掩码（Mask）？</h4>
+<p>这是个关键问题。在训练翻译模型时，我们已经有了完整的目标句子。比如把&quot;我爱中国&quot;翻译成&quot;I love China&quot;，训练时我们知道完整的目标是&quot;I love China&quot;。</p>
+<p>但我们希望模型学会的是：根据已生成的词，预测下一个词。如果模型在预测&quot;love&quot;的时候能&quot;偷看&quot;到后面的&quot;China&quot;，那就作弊了——测试时哪有未来的词给你看啊？</p>
+<p>掩码的作用就是<strong>在自注意力计算时，遮住未来位置的信息</strong>。具体做法是：在softmax之前，把未来位置的分数设为负无穷（-∞）。这样经过softmax后，那些位置的注意力权重就变成0了。</p>
+<p>比如在生成&quot;love&quot;时：</p>
+<ul>
+<li>可以看到<code>&lt;start&gt;</code>和&quot;I&quot;</li>
+<li>看不到&quot;love&quot;后面的&quot;China&quot;</li>
+</ul>
+<p><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="https://cdn.jsdelivr.net/gh/psmarter/blog-imgs/AI-Infra%E5%AD%A6%E4%B9%A0%E4%B9%8B%E6%97%85-Transformer%E8%AF%A6%E8%A7%A3/2026-01-04-16-28-35-f77a42.png" alt="注意力掩码矩阵：下三角矩阵显示解码器在位置i只能看到≤i的位置，上三角部分被设为-∞（灰色区域），保证生成时不会偷看未来的词"></p>
+<h4 id="bian-ma-qi-jie-ma-qi-zhu-yi-li" tabindex="-1" id="编码器-解码器注意力">编码器-解码器注意力</h4>
+<p>这是Decoder特有的第二个子层。它让解码器在生成每个词时，可以&quot;查阅&quot;编码器的输出。</p>
+<p>这里的Query来自解码器，Key和Value来自编码器。这样解码器就能根据自己当前的状态（Query），去编码后的源句子里找相关信息（Key），并提取相应内容（Value）。</p>
+<p>比如翻译&quot;我爱中国&quot;→&quot;I love China&quot;时：</p>
+<ul>
+<li>生成&quot;I&quot;时，主要关注&quot;我&quot;</li>
+<li>生成&quot;love&quot;时，主要关注&quot;爱&quot;</li>
+<li>生成&quot;China&quot;时，主要关注&quot;中国&quot;</li>
+</ul>
+<p>当然，实际情况会更复杂，因为不是所有语言都是一一对应的词序。</p>
+<h3 id="wei-zhi-bian-ma-gao-su-mo-xing-ci-de-shun-xu" tabindex="-1" id="位置编码：告诉模型词的顺序">位置编码：告诉模型词的顺序</h3>
+<p>自注意力有个&quot;缺陷&quot;：它是<strong>位置无关的</strong>。</p>
+<p>什么意思？对于自注意力来说，&quot;我爱你&quot;和&quot;你爱我&quot;如果只看词本身，处理方式是一样的——因为它只计算词与词之间的关系，不管它们的位置。</p>
+<p>但词的位置显然很重要啊！&quot;狗咬人&quot;和&quot;人咬狗&quot;完全是两码事。</p>
+<p>怎么办？把位置信息&quot;编码&quot;进输入向量里。</p>
+<p><strong>位置编码（Positional Encoding）</strong> 用正弦和余弦函数生成：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">PE(pos, 2i)   = sin(pos / 10000^(2i/d))</span><br><span class="line">PE(pos, 2i+1) = cos(pos / 10000^(2i/d))</span><br></pre></td></tr></table></figure>
+<p>其中：</p>
+<ul>
+<li><code>pos</code>是词在句子中的位置（0, 1, 2, …）</li>
+<li><code>i</code>是维度索引（0到d/2）</li>
+<li><code>d</code>是向量维度（比如512）</li>
+</ul>
+<p>为什么用正弦/余弦函数？主要是因为它们有几个好性质：</p>
+<ol>
+<li><strong>值域有界</strong>：始终在[-1, 1]之间，不会因为位置太大而爆炸</li>
+<li><strong>每个位置唯一</strong>：不同位置的编码不会重复</li>
+<li><strong>能表示相对位置</strong>：利用三角函数的性质，PE(pos+k)可以表示为PE(pos)的线性组合，这让模型更容易学到&quot;相对位置关系&quot;（比如&quot;前面第2个词&quot;）</li>
+<li><strong>可以泛化到更长序列</strong>：训练时见过100个词的句子，测试时来了150个词，位置编码依然能算出来</li>
+</ol>
+<p>位置编码会<strong>直接加到</strong>词嵌入向量上，作为模型的最终输入。</p>
+<p><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="https://cdn.jsdelivr.net/gh/psmarter/blog-imgs/AI-Infra%E5%AD%A6%E4%B9%A0%E4%B9%8B%E6%97%85-Transformer%E8%AF%A6%E8%A7%A3/2026-01-04-16-28-35-918119.png" alt="位置编码热力图：展示了正弦和余弦函数生成的位置编码模式，不同维度使用不同频率的波，形成独特的条纹状pattern，使每个位置都有唯一的编码"></p>
+<h2 id="si-shi-ji-ying-yong-ji-qi-fan-yi-de-wan-zheng-liu-cheng" tabindex="-1" id="四、实际应用：机器翻译的完整流程">四、实际应用：机器翻译的完整流程</h2>
+<p>理论说了一堆，我们来看个具体例子。假设要把&quot;我爱中国&quot;翻译成&quot;I love China&quot;。</p>
+<h3 id="bian-ma-jie-duan" tabindex="-1" id="编码阶段">编码阶段</h3>
+<p><strong>第一步：输入表示</strong></p>
+<ul>
+<li>把&quot;我&quot;、“爱”、&quot;中国&quot;转成词向量（比如用Word2Vec或直接学习Embedding）</li>
+<li>给每个词向量加上位置编码（&quot;我&quot;是位置0，&quot;爱&quot;是位置1，&quot;中国&quot;是位置2）</li>
+</ul>
+<p><strong>第二步：经过6层Encoder</strong></p>
+<ul>
+<li>第1层：通过自注意力，“爱&quot;这个词能看到&quot;我&quot;和&quot;中国”，理解到这是个主谓宾结构</li>
+<li>第2层：在第1层的基础上进一步提炼，可能学到&quot;我爱X&quot;这种情感表达模式</li>
+<li>…</li>
+<li>第6层：得到包含丰富上下文信息的最终编码</li>
+</ul>
+<p>每经过一层，词的表示就更&quot;丰富&quot;一些，包含的上下文信息就更多一些。</p>
+<h3 id="jie-ma-jie-duan" tabindex="-1" id="解码阶段">解码阶段</h3>
+<p><strong>第一步：开始标记</strong><br>
+输入<code>&lt;start&gt;</code>标记，告诉模型&quot;该生成句子了&quot;。</p>
+<p><strong>第二步：生成&quot;I&quot;</strong></p>
+<ul>
+<li>解码器接收<code>&lt;start&gt;</code></li>
+<li>通过掩码自注意力处理<code>&lt;start&gt;</code>（虽然只有一个词，也要走这个流程）</li>
+<li>通过编码器-解码器注意力，关注编码后的源句子，发现&quot;我&quot;最相关</li>
+<li>经过FFN，输出一个概率分布</li>
+<li>概率最高的词是&quot;I&quot;</li>
+</ul>
+<p><strong>第三步：生成&quot;love&quot;</strong></p>
+<ul>
+<li>解码器接收<code>&lt;start&gt; I</code></li>
+<li>掩码确保&quot;I&quot;只能看到自己和<code>&lt;start&gt;</code>，看不到未来</li>
+<li>再次查阅编码器输出，这次主要关注&quot;爱&quot;</li>
+<li>预测下一个词：“love”</li>
+</ul>
+<p><strong>第四步：生成&quot;China&quot;</strong></p>
+<ul>
+<li>解码器接收<code>&lt;start&gt; I love</code></li>
+<li>关注编码器中的&quot;中国&quot;</li>
+<li>预测：“China”</li>
+</ul>
+<p><strong>第五步：结束</strong></p>
+<ul>
+<li>解码器接收<code>&lt;start&gt; I love China</code></li>
+<li>预测下一个词是<code>&lt;end&gt;</code>，翻译结束</li>
+</ul>
+<p>实际使用中，我们不一定每次都选概率最高的词（这叫Greedy Decoding），更常用<strong>Beam Search</strong>：保留top-k个候选序列，最后选总概率最高的那个。</p>
+<p><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="https://cdn.jsdelivr.net/gh/psmarter/blog-imgs/AI-Infra%E5%AD%A6%E4%B9%A0%E4%B9%8B%E6%97%85-Transformer%E8%AF%A6%E8%A7%A3/2026-01-04-16-28-35-ca245b.png" alt="机器翻译流程示意：展示了&quot;我爱中国&quot;→&quot;I love China&quot;的完整翻译过程，包括编码器处理和解码器的4个生成步骤，每步用注意力热力图显示关注的源语言词"></p>
+<h2 id="wu-wei-shi-yao-transformer-zhe-yao-cheng-gong" tabindex="-1" id="五、为什么Transformer这么成功？">五、为什么Transformer这么成功？</h2>
+<p>回顾一下，Transformer为什么能在短短几年内席卷整个AI领域？</p>
+<h3 id="1-zhen-bing-xing-ji-suan" tabindex="-1" id="1-真·并行计算">1. 真·并行计算</h3>
+<p>这是最直接的优势。RNN必须一个词一个词地算，Transformer可以一次性算完整个句子。</p>
+<p>假设一个句子有100个词，RNN需要100步串行计算；Transformer可以一步算完所有词的self-attention（当然内部还是有矩阵运算，但这些可以完美并行）。</p>
+<p>在GPU上，这个优势太明显了。GPU有成千上万个核心，就是为并行计算设计的。Transformer充分发挥了硬件优势，训练速度比RNN快了<strong>几个数量级</strong>。</p>
+<h3 id="2-chang-ju-chi-yi-lai-bu-zai-shi-wen-ti" tabindex="-1" id="2-长距离依赖不再是问题">2. 长距离依赖不再是问题</h3>
+<p>在Transformer里，任意两个词之间的&quot;距离&quot;都是1——一次注意力计算就能直接建立联系。</p>
+<p>不像RNN，信息要一站一站传递。句子开头的词，要传100步才能影响结尾的词；Transformer里，开头直接看到结尾。</p>
+<p>这让模型能轻松捕捉长距离依赖，比如指代消解、长篇文档的主题理解等。</p>
+<h3 id="3-ke-jie-shi-xing-geng-hao" tabindex="-1" id="3-可解释性更好">3. 可解释性更好</h3>
+<p>注意力权重可以可视化。你可以画个热力图，看到模型在翻译&quot;China&quot;时，把80%的注意力放在了源句子的&quot;中国&quot;上。</p>
+<p>这比RNN的隐状态好理解多了。RNN的隐状态是一堆数字，你根本不知道它记住了啥、忘了啥。</p>
+<h3 id="4-ji-qiang-de-ke-kuo-zhan-xing" tabindex="-1" id="4-极强的可扩展性">4. 极强的可扩展性</h3>
+<p>Transformer的架构非常&quot;scalable&quot;。想要更强的模型？简单：</p>
+<ul>
+<li>加深：6层→12层→24层→96层</li>
+<li>加宽：512维→1024维→2048维</li>
+<li>加头：8 heads→16 heads→32 heads</li>
+</ul>
+<p>从BERT-base（110M参数）到GPT-3（175B参数），再到最新的模型（千亿级），都是Transformer架构。只是层数、维度不同而已。</p>
+<p>而且有个神奇的现象：<strong>参数越大，效果往往越好</strong>（当然数据也要跟上）。这就是大模型时代的基石。</p>
+<h2 id="liu-transformer-de-hou-dai-men" tabindex="-1" id="六、Transformer的后代们">六、Transformer的后代们</h2>
+<p>Transformer提出后，基于它的各种变体和改进模型层出不穷。这里介绍几个最有影响力的：</p>
+<table>
+<thead>
+<tr>
+<th>模型</th>
+<th>架构</th>
+<th>特点</th>
+<th>典型应用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>BERT</strong></td>
+<td>只用Encoder</td>
+<td>双向编码，擅长理解文本</td>
+<td>搜索引擎、问答系统、文本分类</td>
+</tr>
+<tr>
+<td><strong>GPT系列</strong></td>
+<td>只用Decoder</td>
+<td>自回归生成，擅长创造文本</td>
+<td>ChatGPT、代码生成、创意写作</td>
+</tr>
+<tr>
+<td><strong>T5</strong></td>
+<td>完整Encoder-Decoder</td>
+<td>把所有NLP任务都转成&quot;文本到文本&quot;</td>
+<td>翻译、摘要、QA统一框架</td>
+</tr>
+<tr>
+<td><strong>Vision Transformer (ViT)</strong></td>
+<td>Encoder-only</td>
+<td>把图像切成patch当词处理</td>
+<td>图像分类、目标检测</td>
+</tr>
+<tr>
+<td><strong>DALL-E / Stable Diffusion</strong></td>
+<td>改进的Transformer</td>
+<td>文生图、多模态</td>
+<td>AI绘画、图像编辑</td>
+</tr>
+</tbody>
+</table>
+<p><strong>BERT vs GPT：一个理解，一个生成</strong></p>
+<ul>
+<li>
+<p><strong>BERT</strong>：只用Encoder，训练时随机遮住一些词让模型猜（Masked Language Modeling）。因为能同时看到上下文，所以擅长&quot;理解&quot;任务——给它一篇文章，它能告诉你情感是正面还是负面，能回答文章相关问题。</p>
+</li>
+<li>
+<p><strong>GPT</strong>：只用Decoder，训练时根据前面的词预测下一个词。因为只能看到之前的内容，所以擅长&quot;生成&quot;任务——给它一个开头，它能续写出连贯的文章。</p>
+</li>
+</ul>
+<p>这也解释了为什么ChatGPT用的是GPT架构，而不是BERT——因为聊天需要生成回复嘛。</p>
+<p>可以说，现代AI的大部分突破，都直接或间接站在Transformer的肩膀上。</p>
+<h2 id="xie-zai-zui-hou" tabindex="-1" id="写在最后">写在最后</h2>
+<p>回头看看我们都聊了些啥：</p>
+<ol>
+<li><strong>为什么需要Transformer</strong>：RNN的并行化困难和长距离依赖问题</li>
+<li><strong>核心机制</strong>：Self-Attention通过Query、Key、Value实现对上下文的灵活建模</li>
+<li><strong>多头注意力</strong>：从多个角度理解输入</li>
+<li><strong>整体架构</strong>：Encoder-Decoder结构，加上位置编码、残差连接、层归一化等关键组件</li>
+<li><strong>实际应用</strong>：翻译、生成、理解，无所不能的基础架构</li>
+</ol>
+<p>Transformer的影响已经远超当初的机器翻译。从ChatGPT到Stable Diffusion，从AlphaFold到代码补全工具GitHub Copilot，Transformer无处不在。</p>
+<p>说实话，当初读论文时，我没想到这个架构能火成现在这样。它并不完美——比如注意力的O(n²)复杂度在处理超长序列时还是个问题——但它的设计思想实在太优雅了。<strong>用注意力机制让模型自己决定关注什么</strong>，这个想法简单却强大。</p>
+<p>如果你想深入学习AI，Transformer绝对是绕不过去的一关。理解了它，你就掌握了现代AI的基石。</p>
+<p>希望这篇文章能帮你建立起对Transformer的直观理解。如果有任何疑问，欢迎留言讨论！</p>
+<hr>
+<h2 id="can-kao-zi-liao" tabindex="-1" id="参考资料">参考资料</h2>
+<ol>
+<li><strong>Vaswani, A., et al.</strong> (2017). “Attention is all you need.” <em>Advances in Neural Information Processing Systems</em>. <a target="_blank" rel="noopener" href="https://arxiv.org/abs/1706.03762">原论文链接</a></li>
+<li><strong>The Illustrated Transformer</strong> - Jay Alammar 的可视化教程，强烈推荐：<a target="_blank" rel="noopener" href="http://jalammar.github.io/illustrated-transformer/">http://jalammar.github.io/illustrated-transformer/</a></li>
+<li><strong>Annotated Transformer</strong> - Harvard NLP的带注释实现，适合动手实践：<a target="_blank" rel="noopener" href="https://nlp.seas.harvard.edu/annotated-transformer/">https://nlp.seas.harvard.edu/annotated-transformer/</a></li>
+<li><strong>BERT论文</strong>: Devlin, J., et al. (2018). “BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding.”</li>
+<li><strong>GPT-3论文</strong>: Brown, T., et al. (2020). “Language Models are Few-Shot Learners.”</li>
+</ol>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/db1cf321/">https://smarter.xin/posts/db1cf321/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Transformer/">Transformer</a><a class="post-meta__tags" href="/tags/%E6%B3%A8%E6%84%8F%E5%8A%9B%E6%9C%BA%E5%88%B6/">注意力机制</a><a class="post-meta__tags" href="/tags/%E6%B7%B1%E5%BA%A6%E5%AD%A6%E4%B9%A0/">深度学习</a><a class="post-meta__tags" href="/tags/NLP/">NLP</a><a class="post-meta__tags" href="/tags/%E4%BA%BA%E5%B7%A5%E6%99%BA%E8%83%BD/">人工智能</a></div><div class="post-share"><div class="social-share" data-image="/img/AI-Infra.png" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/4854dc00/" title="AI Infra学习之旅-Transformer知识地图"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">AI Infra学习之旅-Transformer知识地图</div></div></div></a><a class="pagination-related  no-desc" href="/posts/251a1af2/" title="常见算法-Kadane"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Algorithm.svg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">常见算法-Kadane</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/4854dc00/" title="AI Infra学习之旅-Transformer知识地图"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-04</div><div class="info-item-2">AI Infra学习之旅-Transformer知识地图</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">53</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">72</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">12</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">Welcome to Smarter's blog</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#transformer-shen-du-jie-xi-cong-ling-kai-shi-li-jie-quot-zhu-yi-li-jiu-shi-ni-suo-xu-yao-de-yi-qie-quot"><span class="toc-text">Transformer深度解析：从零开始理解&quot;注意力就是你所需要的一切&quot;</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#xie-zai-qian-mian"><span class="toc-text">写在前面</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#yi-rnn-de-kun-jing-wo-men-wei-shi-yao-xu-yao-xin-jia-gou"><span class="toc-text">一、RNN的困境：我们为什么需要新架构？</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#rnn-zen-yao-gong-zuo-de"><span class="toc-text">RNN怎么工作的？</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#rnn-de-liang-da-ying-shang"><span class="toc-text">RNN的两大硬伤</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#er-zhu-yi-li-ji-zhi-transformer-de-he-xin-wu-qi"><span class="toc-text">二、注意力机制：Transformer的核心武器</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#xian-lai-ge-zhi-guan-de-li-zi"><span class="toc-text">先来个直观的例子</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#query-key-value-san-ge-guan-jian-jiao-se"><span class="toc-text">Query、Key、Value：三个关键角色</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#zhu-yi-li-fen-shu-zen-yao-suan"><span class="toc-text">注意力分数怎么算？</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#duo-tou-zhu-yi-li-cong-duo-ge-shi-jiao-kan-wen-ti"><span class="toc-text">多头注意力：从多个视角看问题</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#san-transformer-jia-gou-quan-mao"><span class="toc-text">三、Transformer架构全貌</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#bian-ma-qi-encoder"><span class="toc-text">编码器（Encoder）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#jie-ma-qi-decoder"><span class="toc-text">解码器（Decoder）</span></a><ol class="toc-child"><li class="toc-item toc-level-4"><a class="toc-link" href="#wei-shi-yao-xu-yao-yan-ma-mask"><span class="toc-text">为什么需要掩码（Mask）？</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#bian-ma-qi-jie-ma-qi-zhu-yi-li"><span class="toc-text">编码器-解码器注意力</span></a></li></ol></li><li class="toc-item toc-level-3"><a class="toc-link" href="#wei-zhi-bian-ma-gao-su-mo-xing-ci-de-shun-xu"><span class="toc-text">位置编码：告诉模型词的顺序</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#si-shi-ji-ying-yong-ji-qi-fan-yi-de-wan-zheng-liu-cheng"><span class="toc-text">四、实际应用：机器翻译的完整流程</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#bian-ma-jie-duan"><span class="toc-text">编码阶段</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#jie-ma-jie-duan"><span class="toc-text">解码阶段</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#wu-wei-shi-yao-transformer-zhe-yao-cheng-gong"><span class="toc-text">五、为什么Transformer这么成功？</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-zhen-bing-xing-ji-suan"><span class="toc-text">1. 真·并行计算</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-chang-ju-chi-yi-lai-bu-zai-shi-wen-ti"><span class="toc-text">2. 长距离依赖不再是问题</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-ke-jie-shi-xing-geng-hao"><span class="toc-text">3. 可解释性更好</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-ji-qiang-de-ke-kuo-zhan-xing"><span class="toc-text">4. 极强的可扩展性</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#liu-transformer-de-hou-dai-men"><span class="toc-text">六、Transformer的后代们</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xie-zai-zui-hou"><span class="toc-text">写在最后</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#can-kao-zi-liao"><span class="toc-text">参考资料</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/e84ddac/" title="常见算法-二分查找"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Algorithm.svg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="常见算法-二分查找"/></a><div class="content"><a class="title" href="/posts/e84ddac/" title="常见算法-二分查找">常见算法-二分查找</a><time datetime="2026-01-05T05:45:42.000Z" title="发表于 2026-01-05 13:45:42">2026-01-05</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/4854dc00/" title="AI Infra学习之旅-Transformer知识地图"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="AI Infra学习之旅-Transformer知识地图"/></a><div class="content"><a class="title" href="/posts/4854dc00/" title="AI Infra学习之旅-Transformer知识地图">AI Infra学习之旅-Transformer知识地图</a><time datetime="2026-01-04T13:07:37.000Z" title="发表于 2026-01-04 21:07:37">2026-01-04</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/db1cf321/" title="AI Infra学习之旅-Transformer详解"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="AI Infra学习之旅-Transformer详解"/></a><div class="content"><a class="title" href="/posts/db1cf321/" title="AI Infra学习之旅-Transformer详解">AI Infra学习之旅-Transformer详解</a><time datetime="2026-01-04T08:09:30.000Z" title="发表于 2026-01-04 16:09:30">2026-01-04</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="false"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/b21cbc80/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-31</span><a class="blog-slider__title" href="posts/b21cbc80/" alt="">AI Infra学习之旅-第一个vLLM程序</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/b21cbc80/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>
