@@ -1,0 +1,675 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>PMPP-第四章：计算架构和调度 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="前言 前三章打下了基础：第一章理解&quot;为什么用GPU&quot;，第二章学会&quot;怎么写kernel&quot;，第三章掌握&quot;多维数据处理&quot;。但到目前为止，我们只是在使用GPU，还不真正理解它。第四章开始深入GPU内部——硬件架构如何影响性能，线程是怎么被调度执行的，为什么有些代码快有些慢。理解这些，才算真正入门GPU编程。  📦 配套资源：本系列文章配有完整的">
+<meta property="og:type" content="article">
+<meta property="og:title" content="PMPP-第四章：计算架构和调度">
+<meta property="og:url" content="https://smarter.xin/posts/bd5d1d6/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="前言 前三章打下了基础：第一章理解&quot;为什么用GPU&quot;，第二章学会&quot;怎么写kernel&quot;，第三章掌握&quot;多维数据处理&quot;。但到目前为止，我们只是在使用GPU，还不真正理解它。第四章开始深入GPU内部——硬件架构如何影响性能，线程是怎么被调度执行的，为什么有些代码快有些慢。理解这些，才算真正入门GPU编程。  📦 配套资源：本系列文章配有完整的">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/PMPP.jpg">
+<meta property="article:published_time" content="2026-01-15T05:08:55.000Z">
+<meta property="article:modified_time" content="2026-01-15T05:13:27.478Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="CUDA">
+<meta property="article:tag" content="GPU编程">
+<meta property="article:tag" content="并行计算">
+<meta property="article:tag" content="PMPP">
+<meta property="article:tag" content="GPU架构">
+<meta property="article:tag" content="Warp">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/PMPP.jpg"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "PMPP-第四章：计算架构和调度",
+  "url": "https://smarter.xin/posts/bd5d1d6/",
+  "image": "https://smarter.xin/img/PMPP.jpg",
+  "datePublished": "2026-01-15T05:08:55.000Z",
+  "dateModified": "2026-01-15T05:13:27.478Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/bd5d1d6/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'PMPP-第四章：计算架构和调度',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">63</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">89</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">12</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/PMPP.jpg);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">PMPP-第四章：计算架构和调度</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">PMPP-第四章：计算架构和调度</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-01-15T05:08:55.000Z" title="发表于 2026-01-15 13:08:55">2026-01-15</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-01-15T05:13:27.478Z" title="更新于 2026-01-15 13:13:27">2026-01-15</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/knowledge-sharing/">知识分享</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">3.5k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>12分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h2 id="qian-yan" tabindex="-1" id="前言">前言</h2>
+<p>前三章打下了基础：第一章理解&quot;为什么用GPU&quot;，第二章学会&quot;怎么写kernel&quot;，第三章掌握&quot;多维数据处理&quot;。但到目前为止，我们只是在使用GPU，还不真正理解它。第四章开始深入GPU内部——硬件架构如何影响性能，线程是怎么被调度执行的，为什么有些代码快有些慢。理解这些，才算真正入门GPU编程。</p>
+<blockquote>
+<p><strong>📦 配套资源</strong>：本系列文章配有完整的 <a target="_blank" rel="noopener" href="https://github.com/psmarter/PMPP-Learning">GitHub 仓库</a>，包含每章的练习题解答、CUDA 代码实现和详细注释。所有代码都经过测试，可以直接运行。</p>
+</blockquote>
+<h2 id="gpu-jia-gou-gai-lan" tabindex="-1" id="GPU架构概览">GPU架构概览</h2>
+<h3 id="liu-shi-duo-chu-li-qi-sm" tabindex="-1" id="流式多处理器（SM）">流式多处理器（SM）</h3>
+<p>GPU并不是一个巨大的处理器，而是由多个**流式多处理器（Streaming Multiprocessor, SM）**组成的阵列。每个SM是相对独立的执行单元，可以同时运行多个线程块。</p>
+<p>以NVIDIA Ampere架构（如RTX 3080）为例：</p>
+<table>
+<thead>
+<tr>
+<th>组件</th>
+<th>数量/规格</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SM数量</td>
+<td>68</td>
+</tr>
+<tr>
+<td>每SM CUDA核心</td>
+<td>128</td>
+</tr>
+<tr>
+<td>每SM最大线程</td>
+<td>1536</td>
+</tr>
+<tr>
+<td>每SM最大Block</td>
+<td>16</td>
+</tr>
+<tr>
+<td>共享内存</td>
+<td>每SM 128KB可配置</td>
+</tr>
+<tr>
+<td>L2缓存</td>
+<td>5MB</td>
+</tr>
+</tbody>
+</table>
+<p>不同架构参数不同，但核心思想相同：<strong>大量小核心并行工作</strong>。</p>
+<h3 id="sm-nei-bu-jie-gou" tabindex="-1" id="SM内部结构">SM内部结构</h3>
+<p>每个SM包含：</p>
+<ol>
+<li><strong>CUDA核心</strong>：执行整数和单精度浮点运算</li>
+<li><strong>Tensor核心</strong>：专用矩阵运算（深度学习加速）</li>
+<li><strong>特殊功能单元（SFU）</strong>：执行sin/cos/exp等超越函数</li>
+<li><strong>加载/存储单元（LD/ST）</strong>：处理内存访问</li>
+<li><strong>Warp调度器</strong>：调度线程执行</li>
+<li><strong>寄存器文件</strong>：快速存储，每SM约64KB</li>
+<li><strong>共享内存</strong>：block内共享的可编程缓存</li>
+</ol>
+<p>关键认识：SM是资源池，多个block共享这些资源。block分配多少资源，决定了SM能同时运行几个block。</p>
+<h3 id="xian-cheng-kuai-dao-sm-de-ying-she" tabindex="-1" id="线程块到SM的映射">线程块到SM的映射</h3>
+<p>启动kernel时，runtime负责将线程块分配到各SM：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">kernel&lt;&lt;&lt;gridDim, blockDim&gt;&gt;&gt;(args);</span><br><span class="line">         ↓</span><br><span class="line">运行时分配：Block 0→SM0, Block 1→SM2, Block 2→SM1, ...</span><br></pre></td></tr></table></figure>
+<p><strong>关键规则</strong>：</p>
+<ul>
+<li>每个block只在一个SM上执行，不会跨SM</li>
+<li>一个SM可以同时执行多个block（资源允许的话）</li>
+<li>Block之间没有执行顺序保证</li>
+<li>Block一旦开始执行，会运行到结束</li>
+</ul>
+<p>这种设计的好处：block完全独立，硬件可以自由调度，适应不同规模的GPU。</p>
+<h2 id="warp-zhi-xing-de-ji-ben-dan-wei" tabindex="-1" id="Warp：执行的基本单位">Warp：执行的基本单位</h2>
+<h3 id="shi-yao-shi-warp" tabindex="-1" id="什么是Warp">什么是Warp</h3>
+<p><strong>Warp是32个连续线程组成的执行单位</strong>。这是NVIDIA GPU的核心设计，理解warp就理解了GPU执行模型的一半。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">Block (256 threads)</span><br><span class="line">├── Warp 0: Thread 0-31</span><br><span class="line">├── Warp 1: Thread 32-63</span><br><span class="line">├── Warp 2: Thread 64-95</span><br><span class="line">├── Warp 3: Thread 96-127</span><br><span class="line">├── Warp 4: Thread 128-159</span><br><span class="line">├── Warp 5: Thread 160-191</span><br><span class="line">├── Warp 6: Thread 192-223</span><br><span class="line">└── Warp 7: Thread 224-255</span><br></pre></td></tr></table></figure>
+<p><strong>为什么是32</strong>？硬件设计决定的。每个SM有一定数量的计算单元，32是效率最优的分组大小。</p>
+<h3 id="simt-zhi-xing-mo-xing" tabindex="-1" id="SIMT执行模型">SIMT执行模型</h3>
+<p>GPU采用**SIMT（Single Instruction Multiple Thread）**模型：</p>
+<ul>
+<li>同一warp内的32个线程，在同一时钟周期执行相同指令</li>
+<li>但操作不同的数据（不同的寄存器）</li>
+<li>类似SIMD，但更灵活（线程可以有独立状态）</li>
+</ul>
+<p><strong>举例</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">C[i] = A[i] + B[i];</span><br></pre></td></tr></table></figure>
+<p>Warp中的32个线程同时执行&quot;加法&quot;指令：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">Warp 0执行:</span><br><span class="line">Thread 0: C[0] = A[0] + B[0]  ─┐</span><br><span class="line">Thread 1: C[1] = A[1] + B[1]   │ 同一条add指令</span><br><span class="line">...                            │ 同一时钟周期</span><br><span class="line">Thread 31: C[31] = A[31] + B[31]─┘</span><br></pre></td></tr></table></figure>
+<p>硬件只需取一次指令，就能完成32个操作。这就是GPU高吞吐的来源。</p>
+<h3 id="warp-diao-du" tabindex="-1" id="Warp调度">Warp调度</h3>
+<p>每个SM有多个Warp调度器（如Ampere是4个）。每个周期，调度器选择一个准备好的warp发射指令：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">周期1: Warp调度器0选择Warp 3，发射add指令</span><br><span class="line">周期2: Warp调度器0选择Warp 7，发射load指令</span><br><span class="line">周期3: Warp调度器0选择Warp 0，发射mul指令</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
+<p><strong>关键</strong>：warp之间是独立调度的。如果warp 3在等内存，调度器切换到warp 7执行，不浪费时钟周期。</p>
+<h2 id="kong-zhi-liu-fa-san-xing-neng-sha-shou" tabindex="-1" id="控制流发散：性能杀手">控制流发散：性能杀手</h2>
+<h3 id="shi-yao-shi-fen-zhi-fa-san" tabindex="-1" id="什么是分支发散">什么是分支发散</h3>
+<p>当warp内的线程走不同分支时，就发生<strong>控制流发散（Control Divergence）</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">if (threadIdx.x &lt; 16) &#123;</span><br><span class="line">    // 分支A</span><br><span class="line">    A[i] = ...;</span><br><span class="line">&#125; else &#123;</span><br><span class="line">    // 分支B</span><br><span class="line">    B[i] = ...;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>问题来了：32个线程必须执行相同指令，但这里线程0-15需要执行分支A，线程16-31需要执行分支B。怎么办？</p>
+<h3 id="ying-jian-ru-he-chu-li" tabindex="-1" id="硬件如何处理">硬件如何处理</h3>
+<p>GPU采用<strong>谓词执行（Predicated Execution）</strong>：</p>
+<ol>
+<li>所有线程先执行分支A，但只有满足条件的线程写入结果</li>
+<li>再执行分支B，只有不满足条件的线程写入结果</li>
+</ol>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">实际执行序列:</span><br><span class="line">Step 1: 执行分支A（线程0-15活跃，16-31抑制）</span><br><span class="line">Step 2: 执行分支B（线程0-15抑制，16-31活跃）</span><br></pre></td></tr></table></figure>
+<p><strong>代价</strong>：两个分支都被执行，时间翻倍。如果有n个分支，最坏情况性能降为1/n。</p>
+<h3 id="xing-neng-ying-xiang-liang-hua" tabindex="-1" id="性能影响量化">性能影响量化</h3>
+<p><strong>场景1</strong>：无发散</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">int i = blockIdx.x * blockDim.x + threadIdx.x;</span><br><span class="line">C[i] = A[i] + B[i];  // 所有线程执行相同操作</span><br></pre></td></tr></table></figure>
+<p>100%效率，理想情况。</p>
+<p><strong>场景2</strong>：warp内发散</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">if (threadIdx.x % 2 == 0) &#123;</span><br><span class="line">    C[i] = A[i] + B[i];</span><br><span class="line">&#125; else &#123;</span><br><span class="line">    C[i] = A[i] * B[i];</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>每个warp一半执行加法，一半执行乘法。效率约50%。</p>
+<p><strong>场景3</strong>：warp间无发散</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">if (threadIdx.x &lt; 32) &#123;  // warp 0整体走这边</span><br><span class="line">    C[i] = A[i] + B[i];</span><br><span class="line">&#125; else &#123;                  // warp 1-7整体走这边</span><br><span class="line">    C[i] = A[i] * B[i];</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>每个warp内部不发散，效率接近100%。</p>
+<p><strong>核心原则</strong>：分支发散只在warp内部有开销。让同一warp的线程走相同分支，就不损失性能。</p>
+<h3 id="bi-mian-fa-san-de-ji-qiao" tabindex="-1" id="避免发散的技巧">避免发散的技巧</h3>
+<p><strong>技巧1</strong>：按warp边界划分任务</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">// 差：奇偶分支，warp内发散</span><br><span class="line">if (threadIdx.x % 2 == 0) &#123; taskA(); &#125;</span><br><span class="line">else &#123; taskB(); &#125;</span><br><span class="line"></span><br><span class="line">// 好：按warp划分，warp间分工</span><br><span class="line">if (threadIdx.x / 32 == 0) &#123; taskA(); &#125;  // warp 0</span><br><span class="line">else &#123; taskB(); &#125;                         // 其他warp</span><br></pre></td></tr></table></figure>
+<p><strong>技巧2</strong>：重组数据</p>
+<p>如果必须处理不同类型的元素，可以先排序，让同类元素落在同一warp。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">// 原始：type分布随机，每个warp都发散</span><br><span class="line">if (type[i] == 0) &#123; processType0(); &#125;</span><br><span class="line">else &#123; processType1(); &#125;</span><br><span class="line"></span><br><span class="line">// 优化：按type排序后处理，warp内type相同</span><br><span class="line">sort_by_type(data);  // 预处理</span><br><span class="line">kernel&lt;&lt;&lt;...&gt;&gt;&gt;(sorted_data);</span><br></pre></td></tr></table></figure>
+<p><strong>技巧3</strong>：用算术替代分支</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">// 分支版本</span><br><span class="line">if (x &gt; 0) &#123; y = x; &#125;</span><br><span class="line">else &#123; y = -x; &#125;</span><br><span class="line"></span><br><span class="line">// 无分支版本（ReLU可以这样）</span><br><span class="line">y = x * (x &gt; 0);  // 利用布尔转int</span><br><span class="line">// 或用内置函数</span><br><span class="line">y = fabs(x);</span><br></pre></td></tr></table></figure>
+<h2 id="yan-chi-yin-cang-gpu-de-he-xin-you-hua-ce-lue" tabindex="-1" id="延迟隐藏：GPU的核心优化策略">延迟隐藏：GPU的核心优化策略</h2>
+<h3 id="shi-yao-shi-yan-chi" tabindex="-1" id="什么是延迟">什么是延迟</h3>
+<p>**延迟（Latency）**是指令从发出到完成需要的时钟周期：</p>
+<table>
+<thead>
+<tr>
+<th>操作</th>
+<th>典型延迟</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>算术运算</td>
+<td>4-8周期</td>
+</tr>
+<tr>
+<td>共享内存</td>
+<td>20-30周期</td>
+</tr>
+<tr>
+<td>全局内存</td>
+<td>200-400周期</td>
+</tr>
+<tr>
+<td>特殊函数(sin/exp)</td>
+<td>20-40周期</td>
+</tr>
+</tbody>
+</table>
+<p>全局内存访问是大头，400周期意味着读一次数据的时间可以做100次计算。</p>
+<h3 id="gpu-ru-he-yin-cang-yan-chi" tabindex="-1" id="GPU如何隐藏延迟">GPU如何隐藏延迟</h3>
+<p>CPU用复杂的乱序执行、预取来隐藏延迟。GPU用更简单粗暴的方法：<strong>大量线程+快速切换</strong>。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">时钟周期推演:</span><br><span class="line">周期1: Warp0发起load A[0]（需要400周期返回）</span><br><span class="line">周期2: Warp1发起load A[32]</span><br><span class="line">周期3: Warp2发起load A[64]</span><br><span class="line">...（继续切换执行其他warp）</span><br><span class="line">周期400: Warp0的数据到了，可以继续执行</span><br><span class="line">周期401: 切回Warp0执行计算</span><br></pre></td></tr></table></figure>
+<p>只要有足够多的warp可以切换，计算单元就不会空闲。这就是<strong>延迟隐藏</strong>。</p>
+<h3 id="yan-chi-yin-cang-de-shu-xue" tabindex="-1" id="延迟隐藏的数学">延迟隐藏的数学</h3>
+<p>假设：</p>
+<ul>
+<li>全局内存延迟400周期</li>
+<li>算术指令吞吐量1个/周期（每个调度器）</li>
+<li>每SM有4个调度器</li>
+</ul>
+<p>完全隐藏延迟需要的最小warp数：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">需要活跃warp数 = 延迟 / 吞吐量 = 400 / 1 = 400（每调度器）</span><br><span class="line">每SM需要 = 400 / 4 = 100 warp（理论最小值）</span><br></pre></td></tr></table></figure>
+<p>实际上每SM最多64 warp（2048线程），所以全局内存延迟很难完全隐藏。这就是为什么要尽量用共享内存和寄存器。</p>
+<h2 id="zhan-yong-lu-occupancy" tabindex="-1" id="占用率（Occupancy）">占用率（Occupancy）</h2>
+<h3 id="ding-yi" tabindex="-1" id="定义">定义</h3>
+<p>**占用率（Occupancy）**是&quot;SM上活跃warp数&quot;与&quot;SM最大支持warp数&quot;的比值：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">占用率 = 活跃Warp数 / SM最大Warp数</span><br></pre></td></tr></table></figure>
+<p>例如，Ampere SM最多支持64 warp（2048线程）。如果实际有32 warp在运行：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">占用率 = 32 / 64 = 50%</span><br></pre></td></tr></table></figure>
+<h3 id="ying-xiang-zhan-yong-lu-de-zi-yuan" tabindex="-1" id="影响占用率的资源">影响占用率的资源</h3>
+<p>三大限制因素：</p>
+<p><strong>1. 每block线程数</strong></p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">dim3 block(1024);  // 每block 1024线程 = 32 warp</span><br><span class="line">// SM最多16 block，但...</span><br><span class="line">// SM最多2048线程，所以只能放2个这样的block</span><br><span class="line">// 活跃 = 2 × 32 = 64 warp，占用率100%</span><br><span class="line"></span><br><span class="line">dim3 block(64);    // 每block 64线程 = 2 warp</span><br><span class="line">// SM最多16 block，可以放16个</span><br><span class="line">// 活跃 = 16 × 2 = 32 warp，占用率50%</span><br></pre></td></tr></table></figure>
+<p><strong>2. 寄存器使用</strong></p>
+<p>每SM寄存器数量有限（如65536个）。kernel用的寄存器越多，能同时运行的线程越少：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">假设kernel用64个寄存器/线程</span><br><span class="line">每SM可支持线程 = 65536 / 64 = 1024线程 = 32 warp</span><br><span class="line">占用率 = 32 / 64 = 50%</span><br><span class="line"></span><br><span class="line">假设kernel用32个寄存器/线程</span><br><span class="line">每SM可支持线程 = 65536 / 32 = 2048线程 = 64 warp</span><br><span class="line">占用率 = 100%</span><br></pre></td></tr></table></figure>
+<p><strong>3. 共享内存使用</strong></p>
+<p>每SM共享内存有限（如96KB）。block用的共享内存越多，能同时运行的block越少：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">假设block用48KB共享内存</span><br><span class="line">每SM可运行block = 96 / 48 = 2个</span><br><span class="line">假设每block 256线程 = 8 warp</span><br><span class="line">活跃 = 2 × 8 = 16 warp</span><br><span class="line">占用率 = 16 / 64 = 25%</span><br></pre></td></tr></table></figure>
+<h3 id="ji-suan-zhan-yong-lu" tabindex="-1" id="计算占用率">计算占用率</h3>
+<p>使用CUDA Occupancy Calculator或API：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">#include &lt;cuda_runtime.h&gt;</span><br><span class="line"></span><br><span class="line">int blockSize = 256;</span><br><span class="line">int minGridSize, gridSize;</span><br><span class="line"></span><br><span class="line">// 自动计算最优block大小</span><br><span class="line">cudaOccupancyMaxPotentialBlockSize(&amp;minGridSize, &amp;blockSize, </span><br><span class="line">                                    myKernel, 0, 0);</span><br><span class="line"></span><br><span class="line">// 计算给定配置的占用率</span><br><span class="line">int numBlocks;</span><br><span class="line">cudaOccupancyMaxActiveBlocksPerMultiprocessor(&amp;numBlocks, </span><br><span class="line">                                               myKernel, blockSize, 0);</span><br><span class="line">int device;</span><br><span class="line">cudaGetDevice(&amp;device);</span><br><span class="line">cudaDeviceProp prop;</span><br><span class="line">cudaGetDeviceProperties(&amp;prop, device);</span><br><span class="line">float occupancy = (float)(numBlocks * blockSize) / prop.maxThreadsPerMultiProcessor;</span><br><span class="line">printf(&quot;占用率: %.2f%%\n&quot;, occupancy * 100);</span><br></pre></td></tr></table></figure>
+<h3 id="zhan-yong-lu-yu-xing-neng" tabindex="-1" id="占用率与性能">占用率与性能</h3>
+<p><strong>高占用率不一定意味着高性能</strong>。这是常见误解。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">场景1：计算密集型kernel</span><br><span class="line">- 每线程用大量寄存器做复杂计算</span><br><span class="line">- 占用率可能只有25%</span><br><span class="line">- 但计算单元利用率高，性能好</span><br><span class="line"></span><br><span class="line">场景2：内存密集型kernel</span><br><span class="line">- 每线程操作简单，主要在读写内存</span><br><span class="line">- 需要高占用率来隐藏延迟</span><br><span class="line">- 50%占用率可能不够</span><br></pre></td></tr></table></figure>
+<p><strong>原则</strong>：</p>
+<ul>
+<li>内存受限kernel：提高占用率有帮助</li>
+<li>计算受限kernel：占用率够用就行，优先利用好计算资源</li>
+<li>最佳实践：从分析实际瓶颈入手，而不是盲目追求占用率</li>
+</ul>
+<h2 id="zi-yuan-xian-zhi-hui-zong" tabindex="-1" id="资源限制汇总">资源限制汇总</h2>
+<p>以Ampere架构为例：</p>
+<table>
+<thead>
+<tr>
+<th>资源</th>
+<th>每SM限制</th>
+<th>每Block限制</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>线程数</td>
+<td>2048</td>
+<td>1024</td>
+</tr>
+<tr>
+<td>Block数</td>
+<td>16</td>
+<td>-</td>
+</tr>
+<tr>
+<td>Warp数</td>
+<td>64</td>
+<td>32</td>
+</tr>
+<tr>
+<td>寄存器</td>
+<td>65536</td>
+<td>65536</td>
+</tr>
+<tr>
+<td>共享内存</td>
+<td>可配置,最大164KB</td>
+<td>可配置,最大99KB</td>
+</tr>
+</tbody>
+</table>
+<h3 id="block-da-xiao-xuan-ze" tabindex="-1" id="Block大小选择">Block大小选择</h3>
+<p><strong>实用建议</strong>：</p>
+<ol>
+<li><strong>128-256是安全起点</strong>：满足warp整数倍，不太大不太小</li>
+<li><strong>必须是32的倍数</strong>：否则最后一个warp浪费线程</li>
+<li><strong>考虑共享内存需求</strong>：block越大，共享内存分摊效率越高</li>
+<li><strong>实测为王</strong>：最终还是要profile不同配置的性能</li>
+</ol>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">// 不好：不是32的倍数</span><br><span class="line">dim3 block(100);  // 最后warp只有4个有效线程</span><br><span class="line"></span><br><span class="line">// 好：32的倍数</span><br><span class="line">dim3 block(128);  // 4个完整warp</span><br><span class="line"></span><br><span class="line">// 也好</span><br><span class="line">dim3 block(256);  // 8个完整warp</span><br></pre></td></tr></table></figure>
+<h2 id="bian-yi-qi-you-hua-yu-diao-shi" tabindex="-1" id="编译器优化与调试">编译器优化与调试</h2>
+<h3 id="cha-kan-ji-cun-qi-shi-yong" tabindex="-1" id="查看寄存器使用">查看寄存器使用</h3>
+<p>编译时加<code>--ptxas-options=-v</code>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">nvcc -O3 --ptxas-options=-v mykernel.cu -o mykernel</span><br></pre></td></tr></table></figure>
+<p>输出：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">ptxas info : Compiling entry function &#x27;mykernel&#x27;</span><br><span class="line">ptxas info : Function properties for mykernel</span><br><span class="line">    0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads</span><br><span class="line">ptxas info : Used 32 registers, 336 bytes cmem[0]</span><br></pre></td></tr></table></figure>
+<p>32个寄存器/线程，没有溢出到local memory。</p>
+<h3 id="kong-zhi-ji-cun-qi-shu-liang" tabindex="-1" id="控制寄存器数量">控制寄存器数量</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">__global__ void __launch_bounds__(256, 4) myKernel(...) &#123;</span><br><span class="line">    // 提示编译器：每block 256线程，每SM至少4 block</span><br><span class="line">    // 编译器会据此优化寄存器分配</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>或编译选项：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">nvcc -maxrregcount=32 mykernel.cu  <span class="comment"># 限制每线程最多32寄存器</span></span><br></pre></td></tr></table></figure>
+<p><strong>权衡</strong>：限制寄存器可能导致溢出到local memory（很慢），需要平衡。</p>
+<h3 id="nsight-compute-fen-xi" tabindex="-1" id="Nsight-Compute分析">Nsight Compute分析</h3>
+<p>使用NVIDIA的profiler分析实际瓶颈：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">ncu --<span class="built_in">set</span> full ./mykernel</span><br></pre></td></tr></table></figure>
+<p>关注：</p>
+<ul>
+<li>Warp执行效率（分支发散）</li>
+<li>内存吞吐率</li>
+<li>计算吞吐率</li>
+<li>占用率</li>
+</ul>
+<p>这比猜测有效得多。</p>
+<h2 id="shi-li-fen-xi-ju-zhen-cheng-fa-de-block-pei-zhi" tabindex="-1" id="实例分析：矩阵乘法的Block配置">实例分析：矩阵乘法的Block配置</h2>
+<p>回顾第三章的矩阵乘法：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">__global__ void matMul(float *M, float *N, float *P, int width) &#123;</span><br><span class="line">    int row = blockIdx.y * blockDim.y + threadIdx.y;</span><br><span class="line">    int col = blockIdx.x * blockDim.x + threadIdx.x;</span><br><span class="line">    </span><br><span class="line">    if (row &lt; width &amp;&amp; col &lt; width) &#123;</span><br><span class="line">        float sum = 0.0f;</span><br><span class="line">        for (int k = 0; k &lt; width; k++) &#123;</span><br><span class="line">            sum += M[row * width + k] * N[k * width + col];</span><br><span class="line">        &#125;</span><br><span class="line">        P[row * width + col] = sum;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p><strong>配置选择</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>Block大小</th>
+<th>Warp数</th>
+<th>分析</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>8×8=64</td>
+<td>2</td>
+<td>太小，warp少，延迟隐藏不足</td>
+</tr>
+<tr>
+<td>16×16=256</td>
+<td>8</td>
+<td>合适，每SM可放多个block</td>
+</tr>
+<tr>
+<td>32×32=1024</td>
+<td>32</td>
+<td>接近限制，灵活性差</td>
+</tr>
+</tbody>
+</table>
+<p><strong>16×16通常是二维问题的好选择</strong>。</p>
+<p><strong>进一步优化</strong>（第5章会详细讲）：</p>
+<ul>
+<li>用共享内存做tiling</li>
+<li>减少全局内存访问</li>
+<li>算术强度从0.25提升到10+</li>
+</ul>
+<h2 id="xiao-jie" tabindex="-1" id="小结">小结</h2>
+<p>第四章揭示了GPU的内部机制：</p>
+<p><strong>架构认识</strong>：SM是独立执行单元，多个block分配到SM共享资源。理解资源限制（寄存器、共享内存、线程数），就理解了为什么某些配置性能差。</p>
+<p><strong>Warp本质</strong>：32线程一组，SIMT执行。所有优化都围绕warp展开——让warp内线程做相同的事（避免发散），让足够多的warp参与执行（隐藏延迟）。</p>
+<p><strong>发散代价</strong>：控制流发散是性能杀手。按warp边界划分任务、用算术替代分支、重组数据，这些技巧很实用。</p>
+<p><strong>延迟与占用率</strong>：高占用率帮助隐藏延迟，但不是越高越好。计算密集型kernel可能不需要那么高占用率。关键是分析实际瓶颈。</p>
+<p><strong>调优思路</strong>：</p>
+<ul>
+<li>Block大小选128-256，32的倍数</li>
+<li>检查寄存器使用，控制溢出</li>
+<li>用profiler分析，不要猜</li>
+</ul>
+<p>理解了这些硬件知识，后面第5章的Shared Memory优化就水到渠成了。Tiling的本质就是利用共享内存减少全局内存访问，提高算术强度，让计算单元不再饿着。</p>
+<hr>
+<p><strong>参考资料：</strong></p>
+<ul>
+<li>Hwu, W., Kirk, D., &amp; El Hajj, I. (2022). <em>Programming Massively Parallel Processors: A Hands-on Approach</em> (4th Edition). Morgan Kaufmann.</li>
+<li><a target="_blank" rel="noopener" href="https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#hardware-implementation">CUDA C++ Programming Guide - Hardware Implementation</a></li>
+<li><a target="_blank" rel="noopener" href="https://docs.nvidia.com/nsight-compute/">NVIDIA Nsight Compute Documentation</a></li>
+</ul>
+<hr>
+<blockquote>
+<p><strong>本文 GitHub 仓库</strong>: <a target="_blank" rel="noopener" href="https://github.com/psmarter/PMPP-Learning">https://github.com/psmarter/PMPP-Learning</a></p>
+</blockquote>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/bd5d1d6/">https://smarter.xin/posts/bd5d1d6/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/CUDA/">CUDA</a><a class="post-meta__tags" href="/tags/GPU%E7%BC%96%E7%A8%8B/">GPU编程</a><a class="post-meta__tags" href="/tags/%E5%B9%B6%E8%A1%8C%E8%AE%A1%E7%AE%97/">并行计算</a><a class="post-meta__tags" href="/tags/PMPP/">PMPP</a><a class="post-meta__tags" href="/tags/GPU%E6%9E%B6%E6%9E%84/">GPU架构</a><a class="post-meta__tags" href="/tags/Warp/">Warp</a></div><div class="post-share"><div class="social-share" data-image="/img/PMPP.jpg" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related full-width no-desc" href="/posts/6b7045b6/" title="PMPP-第三章：多维网格和数据"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">PMPP-第三章：多维网格和数据</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/10d278b0/" title="PMPP-第一章：引言"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-11</div><div class="info-item-2">PMPP-第一章：引言</div></div></div></a><a class="pagination-related no-desc" href="/posts/6b7045b6/" title="PMPP-第三章：多维网格和数据"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-12</div><div class="info-item-2">PMPP-第三章：多维网格和数据</div></div></div></a><a class="pagination-related no-desc" href="/posts/3ee22ce5/" title="PMPP-第二章：异构数据并行计算"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-11</div><div class="info-item-2">PMPP-第二章：异构数据并行计算</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">63</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">89</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">12</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">Welcome to Smarter's blog</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#qian-yan"><span class="toc-text">前言</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#gpu-jia-gou-gai-lan"><span class="toc-text">GPU架构概览</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#liu-shi-duo-chu-li-qi-sm"><span class="toc-text">流式多处理器（SM）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#sm-nei-bu-jie-gou"><span class="toc-text">SM内部结构</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#xian-cheng-kuai-dao-sm-de-ying-she"><span class="toc-text">线程块到SM的映射</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#warp-zhi-xing-de-ji-ben-dan-wei"><span class="toc-text">Warp：执行的基本单位</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#shi-yao-shi-warp"><span class="toc-text">什么是Warp</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#simt-zhi-xing-mo-xing"><span class="toc-text">SIMT执行模型</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#warp-diao-du"><span class="toc-text">Warp调度</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#kong-zhi-liu-fa-san-xing-neng-sha-shou"><span class="toc-text">控制流发散：性能杀手</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#shi-yao-shi-fen-zhi-fa-san"><span class="toc-text">什么是分支发散</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#ying-jian-ru-he-chu-li"><span class="toc-text">硬件如何处理</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#xing-neng-ying-xiang-liang-hua"><span class="toc-text">性能影响量化</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#bi-mian-fa-san-de-ji-qiao"><span class="toc-text">避免发散的技巧</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#yan-chi-yin-cang-gpu-de-he-xin-you-hua-ce-lue"><span class="toc-text">延迟隐藏：GPU的核心优化策略</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#shi-yao-shi-yan-chi"><span class="toc-text">什么是延迟</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#gpu-ru-he-yin-cang-yan-chi"><span class="toc-text">GPU如何隐藏延迟</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#yan-chi-yin-cang-de-shu-xue"><span class="toc-text">延迟隐藏的数学</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#zhan-yong-lu-occupancy"><span class="toc-text">占用率（Occupancy）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#ding-yi"><span class="toc-text">定义</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#ying-xiang-zhan-yong-lu-de-zi-yuan"><span class="toc-text">影响占用率的资源</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#ji-suan-zhan-yong-lu"><span class="toc-text">计算占用率</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#zhan-yong-lu-yu-xing-neng"><span class="toc-text">占用率与性能</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#zi-yuan-xian-zhi-hui-zong"><span class="toc-text">资源限制汇总</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#block-da-xiao-xuan-ze"><span class="toc-text">Block大小选择</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#bian-yi-qi-you-hua-yu-diao-shi"><span class="toc-text">编译器优化与调试</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#cha-kan-ji-cun-qi-shi-yong"><span class="toc-text">查看寄存器使用</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#kong-zhi-ji-cun-qi-shu-liang"><span class="toc-text">控制寄存器数量</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#nsight-compute-fen-xi"><span class="toc-text">Nsight Compute分析</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-li-fen-xi-ju-zhen-cheng-fa-de-block-pei-zhi"><span class="toc-text">实例分析：矩阵乘法的Block配置</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xiao-jie"><span class="toc-text">小结</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/bd5d1d6/" title="PMPP-第四章：计算架构和调度"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PMPP-第四章：计算架构和调度"/></a><div class="content"><a class="title" href="/posts/bd5d1d6/" title="PMPP-第四章：计算架构和调度">PMPP-第四章：计算架构和调度</a><time datetime="2026-01-15T05:08:55.000Z" title="发表于 2026-01-15 13:08:55">2026-01-15</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/6b7045b6/" title="PMPP-第三章：多维网格和数据"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PMPP-第三章：多维网格和数据"/></a><div class="content"><a class="title" href="/posts/6b7045b6/" title="PMPP-第三章：多维网格和数据">PMPP-第三章：多维网格和数据</a><time datetime="2026-01-12T07:19:16.000Z" title="发表于 2026-01-12 15:19:16">2026-01-12</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/3ee22ce5/" title="PMPP-第二章：异构数据并行计算"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PMPP-第二章：异构数据并行计算"/></a><div class="content"><a class="title" href="/posts/3ee22ce5/" title="PMPP-第二章：异构数据并行计算">PMPP-第二章：异构数据并行计算</a><time datetime="2026-01-11T11:38:29.000Z" title="发表于 2026-01-11 19:38:29">2026-01-11</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/b21cbc80/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-31</span><a class="blog-slider__title" href="posts/b21cbc80/" alt="">AI Infra学习之旅-第一个vLLM程序</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/b21cbc80/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>
