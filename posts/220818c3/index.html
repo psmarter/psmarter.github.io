@@ -1,0 +1,690 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>PMPP-第六章：性能方面的考虑 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="前言 第五章学了内存层次和 Tiling 技术，矩阵乘法性能提升了 10 倍。但这只是开始——实际优化中还有很多细节会影响性能。第六章系统梳理这些性能因素：内存合并、分支发散、资源分配、指令混合等。这章内容偏&quot;工程实践&quot;，掌握这些技巧，能让代码再快一倍。  📦 配套资源：本系列文章配有完整的 GitHub 仓库，包含每章的练习题解答、CUDA 代码实现和详细注释。所有代码都经">
+<meta property="og:type" content="article">
+<meta property="og:title" content="PMPP-第六章：性能方面的考虑">
+<meta property="og:url" content="https://smarter.xin/posts/220818c3/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="前言 第五章学了内存层次和 Tiling 技术，矩阵乘法性能提升了 10 倍。但这只是开始——实际优化中还有很多细节会影响性能。第六章系统梳理这些性能因素：内存合并、分支发散、资源分配、指令混合等。这章内容偏&quot;工程实践&quot;，掌握这些技巧，能让代码再快一倍。  📦 配套资源：本系列文章配有完整的 GitHub 仓库，包含每章的练习题解答、CUDA 代码实现和详细注释。所有代码都经">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/PMPP.jpg">
+<meta property="article:published_time" content="2026-01-16T09:11:58.000Z">
+<meta property="article:modified_time" content="2026-01-16T09:24:08.769Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="CUDA">
+<meta property="article:tag" content="GPU编程">
+<meta property="article:tag" content="并行计算">
+<meta property="article:tag" content="PMPP">
+<meta property="article:tag" content="性能优化">
+<meta property="article:tag" content="内存合并">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/PMPP.jpg"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "PMPP-第六章：性能方面的考虑",
+  "url": "https://smarter.xin/posts/220818c3/",
+  "image": "https://smarter.xin/img/PMPP.jpg",
+  "datePublished": "2026-01-16T09:11:58.000Z",
+  "dateModified": "2026-01-16T09:24:08.769Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/220818c3/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'PMPP-第六章：性能方面的考虑',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">65</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">92</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">12</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/PMPP.jpg);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">PMPP-第六章：性能方面的考虑</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">PMPP-第六章：性能方面的考虑</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-01-16T09:11:58.000Z" title="发表于 2026-01-16 17:11:58">2026-01-16</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-01-16T09:24:08.769Z" title="更新于 2026-01-16 17:24:08">2026-01-16</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/knowledge-sharing/">知识分享</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">3k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>11分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h2 id="qian-yan" tabindex="-1" id="前言">前言</h2>
+<p>第五章学了内存层次和 Tiling 技术，矩阵乘法性能提升了 10 倍。但这只是开始——实际优化中还有很多细节会影响性能。第六章系统梳理这些性能因素：内存合并、分支发散、资源分配、指令混合等。这章内容偏&quot;工程实践&quot;，掌握这些技巧，能让代码再快一倍。</p>
+<blockquote>
+<p><strong>📦 配套资源</strong>：本系列文章配有完整的 <a target="_blank" rel="noopener" href="https://github.com/psmarter/PMPP-Learning">GitHub 仓库</a>，包含每章的练习题解答、CUDA 代码实现和详细注释。所有代码都经过测试，可以直接运行。</p>
+</blockquote>
+<h2 id="nei-cun-he-bing-memory-coalescing" tabindex="-1" id="内存合并（Memory-Coalescing）">内存合并（Memory Coalescing）</h2>
+<h3 id="quan-ju-nei-cun-de-ying-jian-te-xing" tabindex="-1" id="全局内存的硬件特性">全局内存的硬件特性</h3>
+<p>全局内存（DRAM）不是按单个字节访问的，而是按**事务（Transaction）**批量访问：</p>
+<ul>
+<li>每次事务读取一个<strong>内存段（Memory Segment）</strong></li>
+<li>段大小通常是 32 字节或 128 字节</li>
+<li>段必须对齐（起始地址是段大小的倍数）</li>
+</ul>
+<p>这意味着：读 1 个 float（4 字节）和读 32 个 float（128 字节），如果落在同一个段，硬件开销相同。</p>
+<h3 id="he-bing-fang-wen-de-tiao-jian" tabindex="-1" id="合并访问的条件">合并访问的条件</h3>
+<p>当 Warp 中的 32 个线程访问<strong>连续且对齐</strong>的内存地址时，这些访问可以合并成最少的事务：</p>
+<p><strong>理想情况</strong>：32 线程访问连续 128 字节</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">// 合并访问（1 次 128B 事务）</span><br><span class="line">float val = data[threadIdx.x];</span><br><span class="line">// 线程 0 访问 data[0], 线程 1 访问 data[1], ...</span><br></pre></td></tr></table></figure>
+<p><strong>糟糕情况</strong>：32 线程访问跨步地址</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">// 非合并访问（可能 32 次事务！）</span><br><span class="line">float val = data[threadIdx.x * 32];</span><br><span class="line">// 线程 0 访问 data[0], 线程 1 访问 data[32], ...</span><br><span class="line">// 每个访问落在不同段</span><br></pre></td></tr></table></figure>
+<h3 id="liang-hua-ying-xiang" tabindex="-1" id="量化影响">量化影响</h3>
+<p>假设每次事务延迟相同，合并访问带来的加速：</p>
+<table>
+<thead>
+<tr>
+<th>访问模式</th>
+<th>事务数</th>
+<th>相对带宽</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>完全合并</td>
+<td>1</td>
+<td>100%</td>
+</tr>
+<tr>
+<td>步长 2</td>
+<td>2</td>
+<td>50%</td>
+</tr>
+<tr>
+<td>步长 4</td>
+<td>4</td>
+<td>25%</td>
+</tr>
+<tr>
+<td>步长 32</td>
+<td>32</td>
+<td>3%</td>
+</tr>
+</tbody>
+</table>
+<p>步长越大，带宽利用率越低。</p>
+<h3 id="ju-zhen-fang-wen-de-xian-jing" tabindex="-1" id="矩阵访问的陷阱">矩阵访问的陷阱</h3>
+<p>考虑行主序矩阵 <code>M[row][col]</code>，一维索引为 <code>M[row * width + col]</code>：</p>
+<p><strong>按行遍历（合并）</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">// 同一 warp 的线程，row 相同，col 连续</span><br><span class="line">int idx = row * width + threadIdx.x;</span><br><span class="line">float val = M[idx];  // 连续地址，合并</span><br></pre></td></tr></table></figure>
+<p><strong>按列遍历（不合并）</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">// 同一 warp 的线程，col 相同，row 连续</span><br><span class="line">int idx = threadIdx.x * width + col;</span><br><span class="line">float val = M[idx];  // 步长 = width，不合并</span><br></pre></td></tr></table></figure>
+<p>如果 width = 1024，步长就是 1024×4 = 4096 字节，远超段大小，每个线程访问不同段。</p>
+<h3 id="ju-zhen-zhuan-zhi-you-hua" tabindex="-1" id="矩阵转置优化">矩阵转置优化</h3>
+<p>矩阵转置 <code>B[j][i] = A[i][j]</code>，必然有一个矩阵按列访问。解决方案：<strong>用共享内存做中转</strong>。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line">__global__ void transposeCoalesced(float *A, float *B, int width) &#123;</span><br><span class="line">    __shared__ float tile[32][33];  // 注意 padding 防 bank 冲突</span><br><span class="line">    </span><br><span class="line">    int x = blockIdx.x * 32 + threadIdx.x;</span><br><span class="line">    int y = blockIdx.y * 32 + threadIdx.y;</span><br><span class="line">    </span><br><span class="line">    // 合并读取 A（按行）</span><br><span class="line">    if (x &lt; width &amp;&amp; y &lt; width)</span><br><span class="line">        tile[threadIdx.y][threadIdx.x] = A[y * width + x];</span><br><span class="line">    </span><br><span class="line">    __syncthreads();</span><br><span class="line">    </span><br><span class="line">    // 交换 block 索引</span><br><span class="line">    x = blockIdx.y * 32 + threadIdx.x;</span><br><span class="line">    y = blockIdx.x * 32 + threadIdx.y;</span><br><span class="line">    </span><br><span class="line">    // 合并写入 B（按行，但数据来自 tile 的列）</span><br><span class="line">    if (x &lt; width &amp;&amp; y &lt; width)</span><br><span class="line">        B[y * width + x] = tile[threadIdx.x][threadIdx.y];</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p><strong>关键</strong>：共享内存没有合并要求，可以任意顺序访问（只需注意 Bank 冲突）。通过共享内存&quot;转换&quot;访问模式，让全局内存读写都是合并的。</p>
+<h2 id="fen-qu-lu-ying-partition-camping" tabindex="-1" id="分区露营（Partition-Camping）">分区露营（Partition Camping）</h2>
+<h3 id="dram-de-fen-qu-jie-gou" tabindex="-1" id="DRAM-的分区结构">DRAM 的分区结构</h3>
+<p>全局内存由多个**分区（Partition）**组成，每个分区有独立的访问通道。地址到分区的映射通常是：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">分区 = (地址 / 256) % 分区数</span><br></pre></td></tr></table></figure>
+<p>如果所有访问都落在同一分区，其他分区空闲，带宽只有 1/N。</p>
+<h3 id="he-shi-fa-sheng" tabindex="-1" id="何时发生">何时发生</h3>
+<p>当多个 Warp 访问地址&quot;步调一致&quot;时：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">// 假设每个 block 处理矩阵的一列</span><br><span class="line">int col = blockIdx.x;</span><br><span class="line">for (int row = 0; row &lt; height; row++) &#123;</span><br><span class="line">    float val = M[row * width + col];  // 所有 block 同步访问</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>如果 width 恰好是分区数的倍数，所有 block 同时访问同一分区。</p>
+<h3 id="jie-jue-fang-an" tabindex="-1" id="解决方案">解决方案</h3>
+<ol>
+<li><strong>调整数据布局</strong>：加 padding 打破对齐</li>
+<li><strong>调整访问顺序</strong>：让不同 block 访问不同分区</li>
+<li><strong>通常问题不大</strong>：现代 GPU 分区多，自动调度能力强</li>
+</ol>
+<p>分区露营在早期 GPU 上是严重问题，现代架构（Ampere+）影响较小，但仍值得注意。</p>
+<h2 id="zhi-ling-hun-he-yu-tun-tu-liang" tabindex="-1" id="指令混合与吞吐量">指令混合与吞吐量</h2>
+<h3 id="bu-tong-zhi-ling-de-tun-tu-liang" tabindex="-1" id="不同指令的吞吐量">不同指令的吞吐量</h3>
+<p>并非所有操作速度相同：</p>
+<table>
+<thead>
+<tr>
+<th>操作类型</th>
+<th>吞吐量（FLOP/周期/SM）</th>
+<th>相对速度</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>FP32 加法/乘法</td>
+<td>128</td>
+<td>1×</td>
+</tr>
+<tr>
+<td>FP32 FMA</td>
+<td>128</td>
+<td>1×</td>
+</tr>
+<tr>
+<td>FP32 除法</td>
+<td>16</td>
+<td>1/8</td>
+</tr>
+<tr>
+<td>FP32 特殊函数</td>
+<td>32</td>
+<td>1/4</td>
+</tr>
+<tr>
+<td>FP64 加法/乘法</td>
+<td>64（或更少）</td>
+<td>1/2</td>
+</tr>
+<tr>
+<td>整数乘法</td>
+<td>64</td>
+<td>1/2</td>
+</tr>
+</tbody>
+</table>
+<p><strong>注意</strong>：除法和特殊函数（sin/cos/exp）慢很多。</p>
+<h3 id="you-hua-ce-lue" tabindex="-1" id="优化策略">优化策略</h3>
+<p><strong>用乘法替代除法</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">// 慢</span><br><span class="line">float y = x / 3.0f;</span><br><span class="line"></span><br><span class="line">// 快（预计算倒数）</span><br><span class="line">float inv3 = 1.0f / 3.0f;  // 常量，编译时计算</span><br><span class="line">float y = x * inv3;</span><br></pre></td></tr></table></figure>
+<p><strong>用近似函数</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">// 精确但慢</span><br><span class="line">float y = sinf(x);</span><br><span class="line"></span><br><span class="line">// 快速近似（误差略大）</span><br><span class="line">float y = __sinf(x);  // 内置快速版本</span><br></pre></td></tr></table></figure>
+<p><strong>减少特殊函数调用</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">// 差：3 次特殊函数</span><br><span class="line">float a = expf(x);</span><br><span class="line">float b = expf(y);</span><br><span class="line">float c = expf(z);</span><br><span class="line"></span><br><span class="line">// 好：利用数学性质</span><br><span class="line">float abc = expf(x + y + z);</span><br></pre></td></tr></table></figure>
+<h3 id="hun-he-jing-du" tabindex="-1" id="混合精度">混合精度</h3>
+<p>如果精度允许，用 FP16 或 TF32：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">// 使用 half 精度（需要 include cuda_fp16.h）</span><br><span class="line">half x = __float2half(input);</span><br><span class="line">half y = __hmul(x, x);  // FP16 乘法，吞吐量更高</span><br><span class="line">float result = __half2float(y);</span><br></pre></td></tr></table></figure>
+<p>Tensor Core 可以做 FP16/TF32 矩阵乘法，吞吐量比 FP32 CUDA 核心高数倍。</p>
+<h2 id="xian-cheng-li-du" tabindex="-1" id="线程粒度">线程粒度</h2>
+<h3 id="mei-xian-cheng-gong-zuo-liang" tabindex="-1" id="每线程工作量">每线程工作量</h3>
+<p>线程粒度指每个线程处理的数据量。两个极端：</p>
+<p><strong>细粒度</strong>：每线程处理 1 个元素</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">// 每线程 1 个元素</span><br><span class="line">int i = blockIdx.x * blockDim.x + threadIdx.x;</span><br><span class="line">C[i] = A[i] + B[i];</span><br></pre></td></tr></table></figure>
+<p><strong>粗粒度</strong>：每线程处理多个元素</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">// 每线程 4 个元素</span><br><span class="line">int base = (blockIdx.x * blockDim.x + threadIdx.x) * 4;</span><br><span class="line">for (int i = 0; i &lt; 4; i++) &#123;</span><br><span class="line">    C[base + i] = A[base + i] + B[base + i];</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<h3 id="cu-li-du-de-you-shi" tabindex="-1" id="粗粒度的优势">粗粒度的优势</h3>
+<ol>
+<li><strong>减少启动开销</strong>：更少的线程总数</li>
+<li><strong>寄存器复用</strong>：循环变量、指针可复用</li>
+<li><strong>指令级并行</strong>：循环展开后多条指令可流水</li>
+<li><strong>减少同步</strong>：每线程更多独立工作</li>
+</ol>
+<h3 id="cu-li-du-de-feng-xian" tabindex="-1" id="粗粒度的风险">粗粒度的风险</h3>
+<ol>
+<li><strong>负载不均衡</strong>：如果元素数不是粒度倍数，最后一批线程工作量不同</li>
+<li><strong>占用率下降</strong>：每线程更多寄存器，可能降低并行度</li>
+<li><strong>复杂边界处理</strong>：需要额外检查</li>
+</ol>
+<h3 id="shi-jian-jian-yi" tabindex="-1" id="实践建议">实践建议</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">// 每线程处理 4 个元素，带边界检查</span><br><span class="line">__global__ void vectorAddCoarsened(float *A, float *B, float *C, int n) &#123;</span><br><span class="line">    int tid = blockIdx.x * blockDim.x + threadIdx.x;</span><br><span class="line">    int stride = blockDim.x * gridDim.x;</span><br><span class="line">    </span><br><span class="line">    // Grid-stride loop</span><br><span class="line">    for (int i = tid; i &lt; n; i += stride) &#123;</span><br><span class="line">        C[i] = A[i] + B[i];</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p><strong>Grid-stride loop</strong> 是经典模式：每线程从自己的起始位置开始，按 grid 大小步进，直到处理完所有元素。兼顾了粒度和灵活性。</p>
+<h2 id="zi-yuan-ping-heng" tabindex="-1" id="资源平衡">资源平衡</h2>
+<h3 id="zhan-yong-lu-vs-mei-xian-cheng-zi-yuan" tabindex="-1" id="占用率-vs-每线程资源">占用率 vs 每线程资源</h3>
+<p>回顾第四章的占用率概念。资源使用增加会降低占用率：</p>
+<table>
+<thead>
+<tr>
+<th>每线程寄存器</th>
+<th>每 SM 线程数</th>
+<th>占用率</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>32</td>
+<td>2048</td>
+<td>100%</td>
+</tr>
+<tr>
+<td>64</td>
+<td>1024</td>
+<td>50%</td>
+</tr>
+<tr>
+<td>128</td>
+<td>512</td>
+<td>25%</td>
+</tr>
+<tr>
+<td>256</td>
+<td>256</td>
+<td>12.5%</td>
+</tr>
+</tbody>
+</table>
+<p>类似地，每 Block 共享内存越多，能同时运行的 Block 越少。</p>
+<h3 id="quan-heng-an-li" tabindex="-1" id="权衡案例">权衡案例</h3>
+<p><strong>场景</strong>：Tiled 矩阵乘法</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">// 方案 A：小 Tile</span><br><span class="line">#define TILE 16</span><br><span class="line">__shared__ float As[16][16];  // 2 KB</span><br><span class="line">__shared__ float Bs[16][16];  // 2 KB</span><br><span class="line">// 共享内存少，可以多 Block，高占用率</span><br><span class="line">// 但 Tile 小，算术强度低</span><br><span class="line"></span><br><span class="line">// 方案 B：大 Tile</span><br><span class="line">#define TILE 32</span><br><span class="line">__shared__ float As[32][32];  // 8 KB</span><br><span class="line">__shared__ float Bs[32][32];  // 8 KB</span><br><span class="line">// 共享内存多，Block 少，低占用率</span><br><span class="line">// 但 Tile 大，算术强度高</span><br></pre></td></tr></table></figure>
+<p><strong>通常大 Tile 更优</strong>：矩阵乘法是计算密集型，算术强度比占用率更重要。但需要实测验证。</p>
+<h3 id="shi-yong-launch-bounds" tabindex="-1" id="使用-Launch-Bounds">使用 Launch Bounds</h3>
+<p>告诉编译器你的配置，帮助优化寄存器分配：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">__global__ void __launch_bounds__(256, 4) matMulKernel(...) &#123;</span><br><span class="line">    // 每 Block 256 线程</span><br><span class="line">    // 期望每 SM 至少 4 个 Block</span><br><span class="line">    // 编译器据此限制寄存器使用</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>如果不指定，编译器可能过度使用寄存器，导致占用率低于预期。</p>
+<h2 id="warp-zhi-xing-xiao-lu" tabindex="-1" id="Warp-执行效率">Warp 执行效率</h2>
+<h3 id="xian-cheng-shu-li-yong-lu" tabindex="-1" id="线程束利用率">线程束利用率</h3>
+<p>如果 Block 大小不是 32 的倍数，最后一个 Warp 有线程空闲：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">dim3 block(100);  // 100 / 32 = 3.125 → 4 个 warp</span><br><span class="line">// Warp 3 只有 4 个活跃线程，28 个空闲</span><br><span class="line">// warp 利用率 = 100 / 128 = 78%</span><br></pre></td></tr></table></figure>
+<p><strong>永远用 32 的倍数作为 Block 大小</strong>。</p>
+<h3 id="dong-tai-fen-zhi-de-e-wai-kai-xiao" tabindex="-1" id="动态分支的额外开销">动态分支的额外开销</h3>
+<p>即使没有分支发散，动态分支本身也有开销：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">// 有分支开销</span><br><span class="line">if (condition) &#123;</span><br><span class="line">    doWork();</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">// 无分支（条件总为 true）</span><br><span class="line">doWork();</span><br></pre></td></tr></table></figure>
+<p>编译器无法知道 <code>condition</code> 是否总为 true，必须生成分支指令。如果条件可以在编译时确定，用模板或 constexpr。</p>
+<h2 id="shu-ju-yu-qu" tabindex="-1" id="数据预取">数据预取</h2>
+<h3 id="ruan-jian-liu-shui" tabindex="-1" id="软件流水">软件流水</h3>
+<p>通过提前发起内存请求，与计算重叠：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">// 无预取</span><br><span class="line">for (int i = 0; i &lt; n; i++) &#123;</span><br><span class="line">    float data = load(i);      // 等待</span><br><span class="line">    process(data);             // 计算</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">// 有预取</span><br><span class="line">float next = load(0);</span><br><span class="line">for (int i = 0; i &lt; n - 1; i++) &#123;</span><br><span class="line">    float curr = next;</span><br><span class="line">    next = load(i + 1);        // 提前请求</span><br><span class="line">    process(curr);             // 同时计算</span><br><span class="line">&#125;</span><br><span class="line">process(next);</span><br></pre></td></tr></table></figure>
+<p>预取让 load 和 compute 重叠，隐藏部分延迟。</p>
+<h3 id="zai-cuda-zhong-de-ying-yong" tabindex="-1" id="在-CUDA-中的应用">在 CUDA 中的应用</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br></pre></td><td class="code"><pre><span class="line">__global__ void prefetchExample(float *in, float *out, int n) &#123;</span><br><span class="line">    __shared__ float buffer[2][TILE_SIZE];  // 双缓冲</span><br><span class="line">    </span><br><span class="line">    int tile = 0;</span><br><span class="line">    </span><br><span class="line">    // 预加载第一块</span><br><span class="line">    buffer[0][threadIdx.x] = in[threadIdx.x];</span><br><span class="line">    </span><br><span class="line">    for (int i = TILE_SIZE; i &lt; n; i += TILE_SIZE) &#123;</span><br><span class="line">        __syncthreads();</span><br><span class="line">        </span><br><span class="line">        // 加载下一块到另一个缓冲区</span><br><span class="line">        buffer[1 - tile][threadIdx.x] = in[i + threadIdx.x];</span><br><span class="line">        </span><br><span class="line">        // 处理当前块</span><br><span class="line">        out[i - TILE_SIZE + threadIdx.x] = process(buffer[tile][threadIdx.x]);</span><br><span class="line">        </span><br><span class="line">        tile = 1 - tile;  // 切换缓冲区</span><br><span class="line">        __syncthreads();</span><br><span class="line">    &#125;</span><br><span class="line">    </span><br><span class="line">    // 处理最后一块</span><br><span class="line">    out[n - TILE_SIZE + threadIdx.x] = process(buffer[tile][threadIdx.x]);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>双缓冲是经典技术：一个缓冲区处理，另一个加载，交替进行。</p>
+<h2 id="xing-neng-fen-xi-gong-ju" tabindex="-1" id="性能分析工具">性能分析工具</h2>
+<h3 id="nsight-compute" tabindex="-1" id="Nsight-Compute">Nsight Compute</h3>
+<p>NVIDIA 官方 profiler，分析 kernel 性能：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">ncu --<span class="built_in">set</span> full ./myprogram</span><br></pre></td></tr></table></figure>
+<p>关键指标：</p>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>含义</th>
+<th>目标</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SM Throughput</td>
+<td>计算单元利用率</td>
+<td>越高越好</td>
+</tr>
+<tr>
+<td>Memory Throughput</td>
+<td>内存带宽利用率</td>
+<td>接近硬件峰值</td>
+</tr>
+<tr>
+<td>Occupancy</td>
+<td>占用率</td>
+<td>视情况而定</td>
+</tr>
+<tr>
+<td>Warp Execution Efficiency</td>
+<td>线程束效率</td>
+<td>接近 100%</td>
+</tr>
+<tr>
+<td>Memory Coalescing</td>
+<td>合并效率</td>
+<td>接近 100%</td>
+</tr>
+</tbody>
+</table>
+<h3 id="nsight-systems" tabindex="-1" id="Nsight-Systems">Nsight Systems</h3>
+<p>分析整体执行流程：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">nsys profile ./myprogram</span><br></pre></td></tr></table></figure>
+<p>可视化：</p>
+<ul>
+<li>Kernel 执行时间线</li>
+<li>Memory 拷贝时间</li>
+<li>CPU/GPU 交互</li>
+<li>流和事件</li>
+</ul>
+<h3 id="chang-jian-xing-neng-mo-shi" tabindex="-1" id="常见性能模式">常见性能模式</h3>
+<p><strong>内存受限</strong>：Memory Throughput 高，SM Throughput 低</p>
+<ul>
+<li>解决：提高算术强度、用共享内存</li>
+</ul>
+<p><strong>计算受限</strong>：SM Throughput 高，Memory Throughput 低</p>
+<ul>
+<li>解决：已经很好了，优化算法复杂度</li>
+</ul>
+<p><strong>延迟受限</strong>：两个 Throughput 都低，Occupancy 也低</p>
+<ul>
+<li>解决：增加并行度，调整 Block 配置</li>
+</ul>
+<h2 id="you-hua-jian-cha-qing-dan" tabindex="-1" id="优化检查清单">优化检查清单</h2>
+<p>按优先级排序的优化步骤：</p>
+<h3 id="1-zheng-que-xing-you-xian" tabindex="-1" id="1-正确性优先">1. 正确性优先</h3>
+<ul>
+<li>[ ] 边界检查完整</li>
+<li>[ ] 同步正确使用</li>
+<li>[ ] 无竞态条件</li>
+</ul>
+<h3 id="2-nei-cun-you-hua" tabindex="-1" id="2-内存优化">2. 内存优化</h3>
+<ul>
+<li>[ ] 全局内存合并访问</li>
+<li>[ ] 使用共享内存减少全局内存访问</li>
+<li>[ ] 避免 Bank 冲突</li>
+<li>[ ] 常量数据用 <code>__constant__</code></li>
+</ul>
+<h3 id="3-zhi-xing-you-hua" tabindex="-1" id="3-执行优化">3. 执行优化</h3>
+<ul>
+<li>[ ] Block 大小是 32 的倍数</li>
+<li>[ ] 避免 Warp 内分支发散</li>
+<li>[ ] 减少同步次数</li>
+<li>[ ] 合理线程粒度</li>
+</ul>
+<h3 id="4-zhi-ling-you-hua" tabindex="-1" id="4-指令优化">4. 指令优化</h3>
+<ul>
+<li>[ ] 避免除法和特殊函数</li>
+<li>[ ] 用 FMA（编译器自动）</li>
+<li>[ ] 考虑混合精度</li>
+</ul>
+<h3 id="5-zi-yuan-ping-heng" tabindex="-1" id="5-资源平衡">5. 资源平衡</h3>
+<ul>
+<li>[ ] 监控寄存器使用</li>
+<li>[ ] 使用 launch_bounds</li>
+<li>[ ] 实测不同配置</li>
+</ul>
+<h2 id="xiao-jie" tabindex="-1" id="小结">小结</h2>
+<p>第六章是性能优化的工程实践：</p>
+<p><strong>内存合并核心</strong>：Warp 线程访问连续地址，事务数最少。矩阵按行访问好，按列访问差。用共享内存转换访问模式。</p>
+<p><strong>分支发散回顾</strong>：Warp 内走不同分支会串行化。按 Warp 边界划分任务，用算术替代分支。</p>
+<p><strong>指令吞吐量</strong>：除法慢 8 倍，特殊函数慢 4 倍。预计算倒数，用快速近似，考虑混合精度。</p>
+<p><strong>线程粒度</strong>：每线程处理多个元素可提高效率。Grid-stride loop 是通用模式。</p>
+<p><strong>资源平衡</strong>：占用率不是越高越好。计算密集型可接受低占用率，内存密集型需要高占用率来隐藏延迟。</p>
+<p><strong>工具驱动优化</strong>：用 Nsight Compute 分析瓶颈，不要猜测。Memory Throughput 和 SM Throughput 指明优化方向。</p>
+<p>这些技巧组合使用，能让代码性能再提升数倍。下一章开始学习具体的并行模式——卷积、规约、前缀和，这些都需要本章的优化技术。</p>
+<hr>
+<p><strong>参考资料：</strong></p>
+<ul>
+<li>Hwu, W., Kirk, D., &amp; El Hajj, I. (2022). <em>Programming Massively Parallel Processors: A Hands-on Approach</em> (4th Edition). Morgan Kaufmann.</li>
+<li><a target="_blank" rel="noopener" href="https://docs.nvidia.com/cuda/cuda-c-best-practices-guide/">CUDA C++ Best Practices Guide</a></li>
+<li><a target="_blank" rel="noopener" href="https://docs.nvidia.com/nsight-compute/">Nsight Compute Documentation</a></li>
+</ul>
+<hr>
+<blockquote>
+<p><strong>本文 GitHub 仓库</strong>: <a target="_blank" rel="noopener" href="https://github.com/psmarter/PMPP-Learning">https://github.com/psmarter/PMPP-Learning</a></p>
+</blockquote>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/220818c3/">https://smarter.xin/posts/220818c3/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/CUDA/">CUDA</a><a class="post-meta__tags" href="/tags/gpu-programming/">GPU编程</a><a class="post-meta__tags" href="/tags/parallel-computing/">并行计算</a><a class="post-meta__tags" href="/tags/PMPP/">PMPP</a><a class="post-meta__tags" href="/tags/performance-optimization/">性能优化</a><a class="post-meta__tags" href="/tags/memory-coalescing/">内存合并</a></div><div class="post-share"><div class="social-share" data-image="/img/PMPP.jpg" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related full-width no-desc" href="/posts/3bb3179b/" title="PMPP-第五章：内存架构和数据局部性"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">PMPP-第五章：内存架构和数据局部性</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/10d278b0/" title="PMPP-第一章：引言"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-11</div><div class="info-item-2">PMPP-第一章：引言</div></div></div></a><a class="pagination-related no-desc" href="/posts/6b7045b6/" title="PMPP-第三章：多维网格和数据"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-12</div><div class="info-item-2">PMPP-第三章：多维网格和数据</div></div></div></a><a class="pagination-related no-desc" href="/posts/3bb3179b/" title="PMPP-第五章：内存架构和数据局部性"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-16</div><div class="info-item-2">PMPP-第五章：内存架构和数据局部性</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">65</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">92</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">12</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">Welcome to Smarter's blog</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#qian-yan"><span class="toc-text">前言</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#nei-cun-he-bing-memory-coalescing"><span class="toc-text">内存合并（Memory Coalescing）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#quan-ju-nei-cun-de-ying-jian-te-xing"><span class="toc-text">全局内存的硬件特性</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#he-bing-fang-wen-de-tiao-jian"><span class="toc-text">合并访问的条件</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#liang-hua-ying-xiang"><span class="toc-text">量化影响</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#ju-zhen-fang-wen-de-xian-jing"><span class="toc-text">矩阵访问的陷阱</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#ju-zhen-zhuan-zhi-you-hua"><span class="toc-text">矩阵转置优化</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#fen-qu-lu-ying-partition-camping"><span class="toc-text">分区露营（Partition Camping）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#dram-de-fen-qu-jie-gou"><span class="toc-text">DRAM 的分区结构</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#he-shi-fa-sheng"><span class="toc-text">何时发生</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#jie-jue-fang-an"><span class="toc-text">解决方案</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#zhi-ling-hun-he-yu-tun-tu-liang"><span class="toc-text">指令混合与吞吐量</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#bu-tong-zhi-ling-de-tun-tu-liang"><span class="toc-text">不同指令的吞吐量</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#you-hua-ce-lue"><span class="toc-text">优化策略</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#hun-he-jing-du"><span class="toc-text">混合精度</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xian-cheng-li-du"><span class="toc-text">线程粒度</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#mei-xian-cheng-gong-zuo-liang"><span class="toc-text">每线程工作量</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#cu-li-du-de-you-shi"><span class="toc-text">粗粒度的优势</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#cu-li-du-de-feng-xian"><span class="toc-text">粗粒度的风险</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#shi-jian-jian-yi"><span class="toc-text">实践建议</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#zi-yuan-ping-heng"><span class="toc-text">资源平衡</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#zhan-yong-lu-vs-mei-xian-cheng-zi-yuan"><span class="toc-text">占用率 vs 每线程资源</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#quan-heng-an-li"><span class="toc-text">权衡案例</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#shi-yong-launch-bounds"><span class="toc-text">使用 Launch Bounds</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#warp-zhi-xing-xiao-lu"><span class="toc-text">Warp 执行效率</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#xian-cheng-shu-li-yong-lu"><span class="toc-text">线程束利用率</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#dong-tai-fen-zhi-de-e-wai-kai-xiao"><span class="toc-text">动态分支的额外开销</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shu-ju-yu-qu"><span class="toc-text">数据预取</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#ruan-jian-liu-shui"><span class="toc-text">软件流水</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#zai-cuda-zhong-de-ying-yong"><span class="toc-text">在 CUDA 中的应用</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xing-neng-fen-xi-gong-ju"><span class="toc-text">性能分析工具</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#nsight-compute"><span class="toc-text">Nsight Compute</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#nsight-systems"><span class="toc-text">Nsight Systems</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#chang-jian-xing-neng-mo-shi"><span class="toc-text">常见性能模式</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#you-hua-jian-cha-qing-dan"><span class="toc-text">优化检查清单</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-zheng-que-xing-you-xian"><span class="toc-text">1. 正确性优先</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-nei-cun-you-hua"><span class="toc-text">2. 内存优化</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-zhi-xing-you-hua"><span class="toc-text">3. 执行优化</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-zhi-ling-you-hua"><span class="toc-text">4. 指令优化</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-zi-yuan-ping-heng"><span class="toc-text">5. 资源平衡</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xiao-jie"><span class="toc-text">小结</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/220818c3/" title="PMPP-第六章：性能方面的考虑"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PMPP-第六章：性能方面的考虑"/></a><div class="content"><a class="title" href="/posts/220818c3/" title="PMPP-第六章：性能方面的考虑">PMPP-第六章：性能方面的考虑</a><time datetime="2026-01-16T09:11:58.000Z" title="发表于 2026-01-16 17:11:58">2026-01-16</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/3bb3179b/" title="PMPP-第五章：内存架构和数据局部性"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PMPP-第五章：内存架构和数据局部性"/></a><div class="content"><a class="title" href="/posts/3bb3179b/" title="PMPP-第五章：内存架构和数据局部性">PMPP-第五章：内存架构和数据局部性</a><time datetime="2026-01-16T02:16:08.000Z" title="发表于 2026-01-16 10:16:08">2026-01-16</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/bd5d1d6/" title="PMPP-第四章：计算架构和调度"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PMPP-第四章：计算架构和调度"/></a><div class="content"><a class="title" href="/posts/bd5d1d6/" title="PMPP-第四章：计算架构和调度">PMPP-第四章：计算架构和调度</a><time datetime="2026-01-15T05:08:55.000Z" title="发表于 2026-01-15 13:08:55">2026-01-15</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/b21cbc80/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-31</span><a class="blog-slider__title" href="posts/b21cbc80/" alt="">AI Infra学习之旅-第一个vLLM程序</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/b21cbc80/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>
