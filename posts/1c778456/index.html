@@ -1,0 +1,658 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>PMPP-第七章：卷积 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="前言 第六章讲了性能优化的方方面面，现在开始学习具体的并行模式。第七章的主角是卷积（Convolution）——信号处理和深度学习的核心算子。卷积看似简单，但要高效实现却涉及多个内存层次的配合：常量内存存卷积核、共享内存做 Tiling、全局内存输入输出。这章就是教你如何把这些技术组合起来，写出工业级的卷积 Kernel。  📦 配套资源：本系列文章配有完整的 GitHub 仓库，包含每章的练习">
+<meta property="og:type" content="article">
+<meta property="og:title" content="PMPP-第七章：卷积">
+<meta property="og:url" content="https://smarter.xin/posts/1c778456/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="前言 第六章讲了性能优化的方方面面，现在开始学习具体的并行模式。第七章的主角是卷积（Convolution）——信号处理和深度学习的核心算子。卷积看似简单，但要高效实现却涉及多个内存层次的配合：常量内存存卷积核、共享内存做 Tiling、全局内存输入输出。这章就是教你如何把这些技术组合起来，写出工业级的卷积 Kernel。  📦 配套资源：本系列文章配有完整的 GitHub 仓库，包含每章的练习">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/PMPP.jpg">
+<meta property="article:published_time" content="2026-01-16T13:58:04.000Z">
+<meta property="article:modified_time" content="2026-01-17T06:53:39.698Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="CUDA">
+<meta property="article:tag" content="GPU编程">
+<meta property="article:tag" content="并行计算">
+<meta property="article:tag" content="PMPP">
+<meta property="article:tag" content="卷积">
+<meta property="article:tag" content="常量内存">
+<meta property="article:tag" content="Tiling">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/PMPP.jpg"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "PMPP-第七章：卷积",
+  "url": "https://smarter.xin/posts/1c778456/",
+  "image": "https://smarter.xin/img/PMPP.jpg",
+  "datePublished": "2026-01-16T13:58:04.000Z",
+  "dateModified": "2026-01-17T06:53:39.698Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/1c778456/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'PMPP-第七章：卷积',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">66</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">94</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">12</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/PMPP.jpg);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">PMPP-第七章：卷积</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">PMPP-第七章：卷积</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-01-16T13:58:04.000Z" title="发表于 2026-01-16 21:58:04">2026-01-16</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-01-17T06:53:39.698Z" title="更新于 2026-01-17 14:53:39">2026-01-17</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/knowledge-sharing/">知识分享</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">3.9k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>17分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h2 id="qian-yan" tabindex="-1" id="前言">前言</h2>
+<p>第六章讲了性能优化的方方面面，现在开始学习具体的并行模式。第七章的主角是<strong>卷积（Convolution）</strong>——信号处理和深度学习的核心算子。卷积看似简单，但要高效实现却涉及多个内存层次的配合：常量内存存卷积核、共享内存做 Tiling、全局内存输入输出。这章就是教你如何把这些技术组合起来，写出工业级的卷积 Kernel。</p>
+<blockquote>
+<p><strong>📦 配套资源</strong>：本系列文章配有完整的 <a target="_blank" rel="noopener" href="https://github.com/psmarter/PMPP-Learning">GitHub 仓库</a>，包含每章的练习题解答、CUDA 代码实现和详细注释。所有代码都经过测试，可以直接运行。</p>
+</blockquote>
+<h2 id="juan-ji-ji-chu" tabindex="-1" id="卷积基础">卷积基础</h2>
+<h3 id="shi-yao-shi-juan-ji" tabindex="-1" id="什么是卷积">什么是卷积</h3>
+<p>卷积是一种数学运算，用一个小矩阵（<strong>卷积核/滤波器</strong>）在输入数据上滑动，在每个位置计算加权和。</p>
+<p><strong>1D 卷积</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">输入：  [1, 2, 3, 4, 5, 6, 7]</span><br><span class="line">卷积核：[1, 2, 1]</span><br><span class="line">输出：  [_, 8, 12, 16, 20, 24, _]</span><br><span class="line"></span><br><span class="line">计算 Output[3]：</span><br><span class="line">= Input[2]*Kernel[0] + Input[3]*Kernel[1] + Input[4]*Kernel[2]</span><br><span class="line">= 3*1 + 4*2 + 5*1 = 12</span><br></pre></td></tr></table></figure>
+<p><strong>2D 卷积</strong>（图像处理常用）：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">输入图像                    卷积核 (3×3)</span><br><span class="line">┌───────────────┐           ┌───────┐</span><br><span class="line">│ 1 2 3 4 5     │           │ 1 0 1 │</span><br><span class="line">│ 5 6 7 8 9     │     *     │ 0 1 0 │</span><br><span class="line">│ 9 0 1 2 3     │           │ 1 0 1 │</span><br><span class="line">│ 4 5 6 7 8     │           └───────┘</span><br><span class="line">└───────────────┘</span><br></pre></td></tr></table></figure>
+<h3 id="juan-ji-de-ying-yong" tabindex="-1" id="卷积的应用">卷积的应用</h3>
+<p>卷积无处不在：</p>
+<table>
+<thead>
+<tr>
+<th>领域</th>
+<th>应用</th>
+<th>示例</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>图像处理</td>
+<td>边缘检测、模糊、锐化</td>
+<td>Sobel、Gaussian Blur</td>
+</tr>
+<tr>
+<td>音频处理</td>
+<td>回声、均衡器、降噪</td>
+<td>FIR 滤波器</td>
+</tr>
+<tr>
+<td>深度学习</td>
+<td>特征提取</td>
+<td>CNN 的核心操作</td>
+</tr>
+<tr>
+<td>物理仿真</td>
+<td>扩散方程、有限差分</td>
+<td>热传导、波动方程</td>
+</tr>
+</tbody>
+</table>
+<h3 id="juan-ji-de-shu-xue-ding-yi" tabindex="-1" id="卷积的数学定义">卷积的数学定义</h3>
+<p><strong>1D 离散卷积</strong>：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>O</mi><mi>u</mi><mi>t</mi><mi>p</mi><mi>u</mi><mi>t</mi><mo stretchy="false">[</mo><mi>i</mi><mo stretchy="false">]</mo><mo>=</mo><munderover><mo>∑</mo><mrow><mi>j</mi><mo>=</mo><mo>−</mo><mi>r</mi></mrow><mi>r</mi></munderover><mi>I</mi><mi>n</mi><mi>p</mi><mi>u</mi><mi>t</mi><mo stretchy="false">[</mo><mi>i</mi><mo>+</mo><mi>j</mi><mo stretchy="false">]</mo><mo>×</mo><mi>K</mi><mi>e</mi><mi>r</mi><mi>n</mi><mi>e</mi><mi>l</mi><mo stretchy="false">[</mo><mi>j</mi><mo>+</mo><mi>r</mi><mo stretchy="false">]</mo></mrow><annotation encoding="application/x-tex">Output[i] = \sum_{j=-r}^{r} Input[i+j] \times Kernel[j+r]
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.02778em;">O</span><span class="mord mathnormal">u</span><span class="mord mathnormal">tp</span><span class="mord mathnormal">u</span><span class="mord mathnormal">t</span><span class="mopen">[</span><span class="mord mathnormal">i</span><span class="mclose">]</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:3.0652em;vertical-align:-1.4138em;"></span><span class="mop op-limits"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:1.6514em;"><span style="top:-1.8723em;margin-left:0em;"><span class="pstrut" style="height:3.05em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight" style="margin-right:0.05724em;">j</span><span class="mrel mtight">=</span><span class="mord mtight">−</span><span class="mord mathnormal mtight" style="margin-right:0.02778em;">r</span></span></span></span><span style="top:-3.05em;"><span class="pstrut" style="height:3.05em;"></span><span><span class="mop op-symbol large-op">∑</span></span></span><span style="top:-4.3em;margin-left:0em;"><span class="pstrut" style="height:3.05em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight" style="margin-right:0.02778em;">r</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:1.4138em;"><span></span></span></span></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal" style="margin-right:0.07847em;">I</span><span class="mord mathnormal">n</span><span class="mord mathnormal">p</span><span class="mord mathnormal">u</span><span class="mord mathnormal">t</span><span class="mopen">[</span><span class="mord mathnormal">i</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.05724em;">j</span><span class="mclose">]</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.02778em;">Ker</span><span class="mord mathnormal">n</span><span class="mord mathnormal">e</span><span class="mord mathnormal" style="margin-right:0.01968em;">l</span><span class="mopen">[</span><span class="mord mathnormal" style="margin-right:0.05724em;">j</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.02778em;">r</span><span class="mclose">]</span></span></span></span></span></p>
+<p>其中 r 是卷积核的&quot;半径&quot;，卷积核大小为 2r+1。</p>
+<p><strong>2D 离散卷积</strong>：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>O</mi><mi>u</mi><mi>t</mi><mi>p</mi><mi>u</mi><mi>t</mi><mo stretchy="false">[</mo><mi>y</mi><mo stretchy="false">]</mo><mo stretchy="false">[</mo><mi>x</mi><mo stretchy="false">]</mo><mo>=</mo><munderover><mo>∑</mo><mrow><mi>d</mi><mi>y</mi><mo>=</mo><mo>−</mo><mi>r</mi></mrow><mi>r</mi></munderover><munderover><mo>∑</mo><mrow><mi>d</mi><mi>x</mi><mo>=</mo><mo>−</mo><mi>r</mi></mrow><mi>r</mi></munderover><mi>I</mi><mi>n</mi><mi>p</mi><mi>u</mi><mi>t</mi><mo stretchy="false">[</mo><mi>y</mi><mo>+</mo><mi>d</mi><mi>y</mi><mo stretchy="false">]</mo><mo stretchy="false">[</mo><mi>x</mi><mo>+</mo><mi>d</mi><mi>x</mi><mo stretchy="false">]</mo><mo>×</mo><mi>K</mi><mi>e</mi><mi>r</mi><mi>n</mi><mi>e</mi><mi>l</mi><mo stretchy="false">[</mo><mi>d</mi><mi>y</mi><mo>+</mo><mi>r</mi><mo stretchy="false">]</mo><mo stretchy="false">[</mo><mi>d</mi><mi>x</mi><mo>+</mo><mi>r</mi><mo stretchy="false">]</mo></mrow><annotation encoding="application/x-tex">Output[y][x] = \sum_{dy=-r}^{r} \sum_{dx=-r}^{r} Input[y+dy][x+dx] \times Kernel[dy+r][dx+r]
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.02778em;">O</span><span class="mord mathnormal">u</span><span class="mord mathnormal">tp</span><span class="mord mathnormal">u</span><span class="mord mathnormal">t</span><span class="mopen">[</span><span class="mord mathnormal" style="margin-right:0.03588em;">y</span><span class="mclose">]</span><span class="mopen">[</span><span class="mord mathnormal">x</span><span class="mclose">]</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:3.0896em;vertical-align:-1.4382em;"></span><span class="mop op-limits"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:1.6514em;"><span style="top:-1.8479em;margin-left:0em;"><span class="pstrut" style="height:3.05em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight">d</span><span class="mord mathnormal mtight" style="margin-right:0.03588em;">y</span><span class="mrel mtight">=</span><span class="mord mtight">−</span><span class="mord mathnormal mtight" style="margin-right:0.02778em;">r</span></span></span></span><span style="top:-3.05em;"><span class="pstrut" style="height:3.05em;"></span><span><span class="mop op-symbol large-op">∑</span></span></span><span style="top:-4.3em;margin-left:0em;"><span class="pstrut" style="height:3.05em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight" style="margin-right:0.02778em;">r</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:1.4382em;"><span></span></span></span></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mop op-limits"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:1.6514em;"><span style="top:-1.8479em;margin-left:0em;"><span class="pstrut" style="height:3.05em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight">d</span><span class="mord mathnormal mtight">x</span><span class="mrel mtight">=</span><span class="mord mtight">−</span><span class="mord mathnormal mtight" style="margin-right:0.02778em;">r</span></span></span></span><span style="top:-3.05em;"><span class="pstrut" style="height:3.05em;"></span><span><span class="mop op-symbol large-op">∑</span></span></span><span style="top:-4.3em;margin-left:0em;"><span class="pstrut" style="height:3.05em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight" style="margin-right:0.02778em;">r</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:1.3604em;"><span></span></span></span></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal" style="margin-right:0.07847em;">I</span><span class="mord mathnormal">n</span><span class="mord mathnormal">p</span><span class="mord mathnormal">u</span><span class="mord mathnormal">t</span><span class="mopen">[</span><span class="mord mathnormal" style="margin-right:0.03588em;">y</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal">d</span><span class="mord mathnormal" style="margin-right:0.03588em;">y</span><span class="mclose">]</span><span class="mopen">[</span><span class="mord mathnormal">x</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal">d</span><span class="mord mathnormal">x</span><span class="mclose">]</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.02778em;">Ker</span><span class="mord mathnormal">n</span><span class="mord mathnormal">e</span><span class="mord mathnormal" style="margin-right:0.01968em;">l</span><span class="mopen">[</span><span class="mord mathnormal">d</span><span class="mord mathnormal" style="margin-right:0.03588em;">y</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.02778em;">r</span><span class="mclose">]</span><span class="mopen">[</span><span class="mord mathnormal">d</span><span class="mord mathnormal">x</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.02778em;">r</span><span class="mclose">]</span></span></span></span></span></p>
+<h3 id="bian-jie-chu-li" tabindex="-1" id="边界处理">边界处理</h3>
+<p>当卷积窗口超出输入边界时，有几种处理策略：</p>
+<p><strong>1. 零填充（Zero Padding）</strong>：边界外的元素视为 0</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">Padding 前：[1, 2, 3, 4, 5]</span><br><span class="line">Padding 后：[0, 0, 1, 2, 3, 4, 5, 0, 0]</span><br></pre></td></tr></table></figure>
+<p><strong>2. 复制填充（Replicate Padding）</strong>：用边界值填充</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">Padding 后：[1, 1, 1, 2, 3, 4, 5, 5, 5]</span><br></pre></td></tr></table></figure>
+<p><strong>3. 镜像填充（Reflect Padding）</strong>：镜像边界元素</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">Padding 后：[3, 2, 1, 2, 3, 4, 5, 4, 3]</span><br></pre></td></tr></table></figure>
+<p>在 CUDA 实现中，零填充最简单——只需在边界判断时返回 0。</p>
+<h2 id="po-su-1-d-juan-ji-shi-xian" tabindex="-1" id="朴素-1D-卷积实现">朴素 1D 卷积实现</h2>
+<h3 id="ji-ben-si-lu" tabindex="-1" id="基本思路">基本思路</h3>
+<p>每个线程负责计算一个输出元素：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">__global__ void conv1d_basic(float *input, float *kernel, float *output,</span><br><span class="line">                              int n, int kernel_size) &#123;</span><br><span class="line">    int i = blockIdx.x * blockDim.x + threadIdx.x;</span><br><span class="line">    int r = kernel_size / 2;  // 卷积核半径</span><br><span class="line">    </span><br><span class="line">    if (i &lt; n) &#123;</span><br><span class="line">        float sum = 0.0f;</span><br><span class="line">        for (int j = -r; j &lt;= r; j++) &#123;</span><br><span class="line">            int idx = i + j;</span><br><span class="line">            if (idx &gt;= 0 &amp;&amp; idx &lt; n) &#123;</span><br><span class="line">                sum += input[idx] * kernel[j + r];</span><br><span class="line">            &#125;</span><br><span class="line">            // 边界外隐式为 0（零填充）</span><br><span class="line">        &#125;</span><br><span class="line">        output[i] = sum;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<h3 id="xing-neng-wen-ti" tabindex="-1" id="性能问题">性能问题</h3>
+<p>这个朴素实现有两个瓶颈：</p>
+<p><strong>1. 卷积核重复读取</strong></p>
+<p>每个线程都要读取整个卷积核。如果有 10 万个线程，卷积核就被读取 10 万次。但卷积核对所有线程是相同的！</p>
+<p><strong>2. 输入数据重复读取</strong></p>
+<p>相邻线程的卷积窗口高度重叠：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">线程 i   读取：input[i-1], input[i], input[i+1]</span><br><span class="line">线程 i+1 读取：input[i], input[i+1], input[i+2]</span><br><span class="line">                ↑ 共享元素</span><br></pre></td></tr></table></figure>
+<p>卷积核大小为 2r+1 时，每个输入元素平均被读取 2r+1 次。</p>
+<h2 id="chang-liang-nei-cun-you-hua" tabindex="-1" id="常量内存优化">常量内存优化</h2>
+<h3 id="chang-liang-nei-cun-te-xing" tabindex="-1" id="常量内存特性">常量内存特性</h3>
+<p>第五章提过常量内存，这里深入讲解：</p>
+<p><strong>硬件结构</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">┌──────────────────────────────────────┐</span><br><span class="line">│           常量内存 (64 KB)            │</span><br><span class="line">│           Device DRAM                │</span><br><span class="line">└──────────────┬───────────────────────┘</span><br><span class="line">               │ 广播</span><br><span class="line">┌──────────────┴───────────────────────┐</span><br><span class="line">│        常量缓存 (每 SM ~8 KB)         │</span><br><span class="line">│           On-chip Cache              │</span><br><span class="line">└──────────────┬───────────────────────┘</span><br><span class="line">               │ 极低延迟</span><br><span class="line">               ↓</span><br><span class="line">         Warp 中的线程</span><br></pre></td></tr></table></figure>
+<p><strong>特点</strong>：</p>
+<ol>
+<li><strong>只读</strong>：Kernel 执行期间不能修改</li>
+<li><strong>缓存优化</strong>：有专用缓存，命中时延迟极低</li>
+<li><strong>广播高效</strong>：同一 Warp 读相同地址时，只需一次访问</li>
+</ol>
+<p><strong>为什么适合卷积核</strong>：</p>
+<ul>
+<li>卷积核对所有线程都是相同的常量</li>
+<li>每次卷积操作，所有线程都读相同的 kernel[j]</li>
+<li>完美匹配常量内存的&quot;广播&quot;特性</li>
+</ul>
+<h3 id="shi-yong-chang-liang-nei-cun" tabindex="-1" id="使用常量内存">使用常量内存</h3>
+<p><strong>声明</strong>（全局作用域）：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">#define MAX_KERNEL_SIZE 1025</span><br><span class="line">__constant__ float d_kernel[MAX_KERNEL_SIZE];</span><br></pre></td></tr></table></figure>
+<p><strong>Host 端初始化</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">float h_kernel[kernel_size];</span><br><span class="line">// ... 填充卷积核数据 ...</span><br><span class="line"></span><br><span class="line">cudaMemcpyToSymbol(d_kernel, h_kernel, kernel_size * sizeof(float));</span><br></pre></td></tr></table></figure>
+<p><strong>Kernel 中使用</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">__global__ void conv1d_const(float *input, float *output, </span><br><span class="line">                              int n, int kernel_size) &#123;</span><br><span class="line">    int i = blockIdx.x * blockDim.x + threadIdx.x;</span><br><span class="line">    int r = kernel_size / 2;</span><br><span class="line">    </span><br><span class="line">    if (i &lt; n) &#123;</span><br><span class="line">        float sum = 0.0f;</span><br><span class="line">        for (int j = -r; j &lt;= r; j++) &#123;</span><br><span class="line">            int idx = i + j;</span><br><span class="line">            if (idx &gt;= 0 &amp;&amp; idx &lt; n) &#123;</span><br><span class="line">                sum += input[idx] * d_kernel[j + r];  // 直接使用</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">        output[i] = sum;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<h3 id="xing-neng-ti-sheng" tabindex="-1" id="性能提升">性能提升</h3>
+<p>常量内存解决了<strong>卷积核重复读取</strong>的问题：</p>
+<table>
+<thead>
+<tr>
+<th>版本</th>
+<th>卷积核读取</th>
+<th>带宽消耗</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>朴素</td>
+<td>N×K 次</td>
+<td>高</td>
+</tr>
+<tr>
+<td>常量内存</td>
+<td>K 次 + 缓存</td>
+<td>极低（广播）</td>
+</tr>
+</tbody>
+</table>
+<p>其中 N 是输出元素数，K 是卷积核大小。</p>
+<p>但输入数据的重复读取问题还没解决——这需要 Tiling。</p>
+<h2 id="tiled-juan-ji" tabindex="-1" id="Tiled-卷积">Tiled 卷积</h2>
+<h3 id="wei-shi-yao-xu-yao-tiling" tabindex="-1" id="为什么需要-Tiling">为什么需要 Tiling</h3>
+<p>回顾输入数据访问模式：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">Block 内的线程访问：</span><br><span class="line">线程 0:   input[0], input[1], ..., input[k-1]</span><br><span class="line">线程 1:   input[1], input[2], ..., input[k]</span><br><span class="line">...</span><br><span class="line">线程 255: input[255], input[256], ..., input[255+k-1]</span><br></pre></td></tr></table></figure>
+<p>Block 内的线程访问范围是连续的，有大量重叠。把这部分数据加载到共享内存，就能避免重复的全局内存访问。</p>
+<h3 id="shu-ru-tile-she-ji" tabindex="-1" id="输入-Tile-设计">输入 Tile 设计</h3>
+<p>关键问题：<strong>一个 Block 的线程需要多大的输入 Tile？</strong></p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">Block 大小：BLOCK_SIZE</span><br><span class="line">卷积核半径：r</span><br><span class="line">卷积核大小：2r + 1</span><br><span class="line"></span><br><span class="line">输出范围：[block_start, block_start + BLOCK_SIZE - 1]</span><br><span class="line">输入范围：[block_start - r, block_start + BLOCK_SIZE - 1 + r]</span><br><span class="line">         = block_start - r, block_start + BLOCK_SIZE + r - 1]</span><br><span class="line"></span><br><span class="line">输入 Tile 大小 = BLOCK_SIZE + 2r</span><br></pre></td></tr></table></figure>
+<p>也就是说，要计算 BLOCK_SIZE 个输出，需要读取 BLOCK_SIZE + 2r 个输入元素。</p>
+<h3 id="halo-yuan-su" tabindex="-1" id="Halo-元素">Halo 元素</h3>
+<p>输入 Tile 比输出 Tile 大，多出来的部分叫做 <strong>Halo（光晕）元素</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">                    Halo                 主体                  Halo</span><br><span class="line">            ┌────────────────┬─────────────────────────┬────────────────┐</span><br><span class="line">输入 Tile:  │ r 个元素       │ BLOCK_SIZE 个元素        │ r 个元素       │</span><br><span class="line">            └────────────────┴─────────────────────────┴────────────────┘</span><br><span class="line">                    ↑                                           ↑</span><br><span class="line">                左 Halo                                      右 Halo</span><br></pre></td></tr></table></figure>
+<p>Halo 元素是相邻 Block 边界的重叠部分，也叫 <strong>Ghost Cells</strong>。</p>
+<h3 id="shi-xian-ce-lue" tabindex="-1" id="实现策略">实现策略</h3>
+<p>有两种加载方式：</p>
+<p><strong>策略 1：统一加载</strong></p>
+<p>所有元素由 BLOCK_SIZE 个线程分工加载，每线程可能加载多个元素：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">__shared__ float tile[BLOCK_SIZE + 2 * MAX_R];</span><br><span class="line"></span><br><span class="line">int tile_size = BLOCK_SIZE + 2 * r;</span><br><span class="line">int loads_per_thread = (tile_size + BLOCK_SIZE - 1) / BLOCK_SIZE;</span><br><span class="line"></span><br><span class="line">for (int i = 0; i &lt; loads_per_thread; i++) &#123;</span><br><span class="line">    int tile_idx = threadIdx.x + i * BLOCK_SIZE;</span><br><span class="line">    if (tile_idx &lt; tile_size) &#123;</span><br><span class="line">        int global_idx = block_start - r + tile_idx;</span><br><span class="line">        tile[tile_idx] = (global_idx &gt;= 0 &amp;&amp; global_idx &lt; n) ? </span><br><span class="line">                          input[global_idx] : 0.0f;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p><strong>策略 2：分区加载（更高效）</strong></p>
+<p>左 Halo、主体、右 Halo 分别由不同线程加载：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line">__shared__ float tile[BLOCK_SIZE + 2 * MAX_R];</span><br><span class="line"></span><br><span class="line">int halo_left = r;</span><br><span class="line">int block_start = blockIdx.x * BLOCK_SIZE;</span><br><span class="line"></span><br><span class="line">// 左 Halo：前 r 个线程负责</span><br><span class="line">if (threadIdx.x &lt; r) &#123;</span><br><span class="line">    int idx = block_start - r + threadIdx.x;</span><br><span class="line">    tile[threadIdx.x] = (idx &gt;= 0) ? input[idx] : 0.0f;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">// 主体：所有线程各负责一个</span><br><span class="line">int main_idx = block_start + threadIdx.x;</span><br><span class="line">tile[r + threadIdx.x] = (main_idx &lt; n) ? input[main_idx] : 0.0f;</span><br><span class="line"></span><br><span class="line">// 右 Halo：前 r 个线程负责</span><br><span class="line">if (threadIdx.x &lt; r) &#123;</span><br><span class="line">    int idx = block_start + BLOCK_SIZE + threadIdx.x;</span><br><span class="line">    tile[BLOCK_SIZE + r + threadIdx.x] = (idx &lt; n) ? input[idx] : 0.0f;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">__syncthreads();</span><br></pre></td></tr></table></figure>
+<h3 id="wan-zheng-de-tiled-1-d-juan-ji" tabindex="-1" id="完整的-Tiled-1D-卷积">完整的 Tiled 1D 卷积</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br></pre></td><td class="code"><pre><span class="line">#define BLOCK_SIZE 256</span><br><span class="line">#define MAX_R 512</span><br><span class="line"></span><br><span class="line">__constant__ float d_kernel[2 * MAX_R + 1];</span><br><span class="line"></span><br><span class="line">__global__ void conv1d_tiled(float *input, float *output, </span><br><span class="line">                              int n, int r) &#123;</span><br><span class="line">    // 共享内存 Tile</span><br><span class="line">    __shared__ float tile[BLOCK_SIZE + 2 * MAX_R];</span><br><span class="line">    </span><br><span class="line">    int block_start = blockIdx.x * BLOCK_SIZE;</span><br><span class="line">    int global_idx = block_start + threadIdx.x;</span><br><span class="line">    </span><br><span class="line">    // ========== 协作加载 ==========</span><br><span class="line">    </span><br><span class="line">    // 左 Halo</span><br><span class="line">    if (threadIdx.x &lt; r) &#123;</span><br><span class="line">        int idx = block_start - r + threadIdx.x;</span><br><span class="line">        tile[threadIdx.x] = (idx &gt;= 0) ? input[idx] : 0.0f;</span><br><span class="line">    &#125;</span><br><span class="line">    </span><br><span class="line">    // 主体元素</span><br><span class="line">    tile[r + threadIdx.x] = (global_idx &lt; n) ? input[global_idx] : 0.0f;</span><br><span class="line">    </span><br><span class="line">    // 右 Halo</span><br><span class="line">    if (threadIdx.x &lt; r) &#123;</span><br><span class="line">        int idx = block_start + BLOCK_SIZE + threadIdx.x;</span><br><span class="line">        tile[BLOCK_SIZE + r + threadIdx.x] = (idx &lt; n) ? input[idx] : 0.0f;</span><br><span class="line">    &#125;</span><br><span class="line">    </span><br><span class="line">    __syncthreads();</span><br><span class="line">    </span><br><span class="line">    // ========== 计算卷积 ==========</span><br><span class="line">    </span><br><span class="line">    if (global_idx &lt; n) &#123;</span><br><span class="line">        float sum = 0.0f;</span><br><span class="line">        for (int j = 0; j &lt; 2 * r + 1; j++) &#123;</span><br><span class="line">            sum += tile[threadIdx.x + j] * d_kernel[j];</span><br><span class="line">        &#125;</span><br><span class="line">        output[global_idx] = sum;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<h3 id="xing-neng-fen-xi" tabindex="-1" id="性能分析">性能分析</h3>
+<p><strong>全局内存访问</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>版本</th>
+<th>每元素读取次数</th>
+<th>总读取量</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>朴素</td>
+<td>2r + 1</td>
+<td>N × (2r + 1)</td>
+</tr>
+<tr>
+<td>Tiled</td>
+<td>1 + 2r/BLOCK_SIZE</td>
+<td>N × (1 + 2r/B)</td>
+</tr>
+</tbody>
+</table>
+<p>当 BLOCK_SIZE = 256, r = 5 时：</p>
+<ul>
+<li>朴素：每元素 11 次</li>
+<li>Tiled：每元素 1.04 次</li>
+</ul>
+<p>全局内存访问减少约 <strong>10 倍</strong>！</p>
+<h2 id="2-d-juan-ji" tabindex="-1" id="2D-卷积">2D 卷积</h2>
+<h3 id="kuo-zhan-dao-er-wei" tabindex="-1" id="扩展到二维">扩展到二维</h3>
+<p>2D 卷积更常见，思路类似但更复杂：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">输入 Tile 大小：(BLOCK_Y + 2ry) × (BLOCK_X + 2rx)</span><br><span class="line">Halo 元素在四个边和四个角</span><br></pre></td></tr></table></figure>
+<h3 id="2-d-tile-jie-gou" tabindex="-1" id="2D-Tile-结构">2D Tile 结构</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">┌─────────────┬───────────────────────────┬─────────────┐</span><br><span class="line">│  左上角     │        上 Halo            │  右上角     │</span><br><span class="line">│  (ry×rx)    │      (ry×BLOCK_X)         │  (ry×rx)    │</span><br><span class="line">├─────────────┼───────────────────────────┼─────────────┤</span><br><span class="line">│             │                           │             │</span><br><span class="line">│  左 Halo    │       主体                │  右 Halo    │</span><br><span class="line">│ (BLOCK_Y×rx)│   (BLOCK_Y×BLOCK_X)       │(BLOCK_Y×rx) │</span><br><span class="line">│             │                           │             │</span><br><span class="line">├─────────────┼───────────────────────────┼─────────────┤</span><br><span class="line">│  左下角     │        下 Halo            │  右下角     │</span><br><span class="line">│  (ry×rx)    │      (ry×BLOCK_X)         │  (ry×rx)    │</span><br><span class="line">└─────────────┴───────────────────────────┴─────────────┘</span><br></pre></td></tr></table></figure>
+<h3 id="jian-hua-de-2-d-shi-xian" tabindex="-1" id="简化的-2D-实现">简化的 2D 实现</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br></pre></td><td class="code"><pre><span class="line">#define TILE_X 16</span><br><span class="line">#define TILE_Y 16</span><br><span class="line">#define R 1  // 3×3 卷积核的半径</span><br><span class="line"></span><br><span class="line">__constant__ float d_kernel2d[(2*R+1) * (2*R+1)];</span><br><span class="line"></span><br><span class="line">__global__ void conv2d_tiled(float *input, float *output,</span><br><span class="line">                              int width, int height) &#123;</span><br><span class="line">    // 共享内存</span><br><span class="line">    __shared__ float tile[TILE_Y + 2*R][TILE_X + 2*R];</span><br><span class="line">    </span><br><span class="line">    int tx = threadIdx.x, ty = threadIdx.y;</span><br><span class="line">    int bx = blockIdx.x * TILE_X, by = blockIdx.y * TILE_Y;</span><br><span class="line">    int gx = bx + tx, gy = by + ty;</span><br><span class="line">    </span><br><span class="line">    // ========== 加载主体 ==========</span><br><span class="line">    int tile_x = tx + R, tile_y = ty + R;</span><br><span class="line">    tile[tile_y][tile_x] = (gx &lt; width &amp;&amp; gy &lt; height) ? </span><br><span class="line">                            input[gy * width + gx] : 0.0f;</span><br><span class="line">    </span><br><span class="line">    // ========== 加载 Halo（边界线程负责）==========</span><br><span class="line">    </span><br><span class="line">    // 上边界</span><br><span class="line">    if (ty &lt; R) &#123;</span><br><span class="line">        int src_y = gy - R;</span><br><span class="line">        tile[ty][tile_x] = (gx &lt; width &amp;&amp; src_y &gt;= 0) ? </span><br><span class="line">                            input[src_y * width + gx] : 0.0f;</span><br><span class="line">    &#125;</span><br><span class="line">    // 下边界</span><br><span class="line">    if (ty &gt;= TILE_Y - R) &#123;</span><br><span class="line">        int src_y = gy + R;</span><br><span class="line">        tile[tile_y + R][tile_x] = (gx &lt; width &amp;&amp; src_y &lt; height) ? </span><br><span class="line">                                    input[src_y * width + gx] : 0.0f;</span><br><span class="line">    &#125;</span><br><span class="line">    // 左边界</span><br><span class="line">    if (tx &lt; R) &#123;</span><br><span class="line">        int src_x = gx - R;</span><br><span class="line">        tile[tile_y][tx] = (src_x &gt;= 0 &amp;&amp; gy &lt; height) ? </span><br><span class="line">                            input[gy * width + src_x] : 0.0f;</span><br><span class="line">    &#125;</span><br><span class="line">    // 右边界</span><br><span class="line">    if (tx &gt;= TILE_X - R) &#123;</span><br><span class="line">        int src_x = gx + R;</span><br><span class="line">        tile[tile_y][tile_x + R] = (src_x &lt; width &amp;&amp; gy &lt; height) ? </span><br><span class="line">                                    input[gy * width + src_x] : 0.0f;</span><br><span class="line">    &#125;</span><br><span class="line">    </span><br><span class="line">    // 四个角（角落线程负责）</span><br><span class="line">    if (tx &lt; R &amp;&amp; ty &lt; R) &#123;  // 左上</span><br><span class="line">        int sx = gx - R, sy = gy - R;</span><br><span class="line">        tile[ty][tx] = (sx &gt;= 0 &amp;&amp; sy &gt;= 0) ? input[sy * width + sx] : 0.0f;</span><br><span class="line">    &#125;</span><br><span class="line">    if (tx &gt;= TILE_X - R &amp;&amp; ty &lt; R) &#123;  // 右上</span><br><span class="line">        int sx = gx + R, sy = gy - R;</span><br><span class="line">        tile[ty][tile_x + R] = (sx &lt; width &amp;&amp; sy &gt;= 0) ? </span><br><span class="line">                                input[sy * width + sx] : 0.0f;</span><br><span class="line">    &#125;</span><br><span class="line">    if (tx &lt; R &amp;&amp; ty &gt;= TILE_Y - R) &#123;  // 左下</span><br><span class="line">        int sx = gx - R, sy = gy + R;</span><br><span class="line">        tile[tile_y + R][tx] = (sx &gt;= 0 &amp;&amp; sy &lt; height) ? </span><br><span class="line">                                input[sy * width + sx] : 0.0f;</span><br><span class="line">    &#125;</span><br><span class="line">    if (tx &gt;= TILE_X - R &amp;&amp; ty &gt;= TILE_Y - R) &#123;  // 右下</span><br><span class="line">        int sx = gx + R, sy = gy + R;</span><br><span class="line">        tile[tile_y + R][tile_x + R] = (sx &lt; width &amp;&amp; sy &lt; height) ?</span><br><span class="line">                                        input[sy * width + sx] : 0.0f;</span><br><span class="line">    &#125;</span><br><span class="line">    </span><br><span class="line">    __syncthreads();</span><br><span class="line">    </span><br><span class="line">    // ========== 计算卷积 ==========</span><br><span class="line">    if (gx &lt; width &amp;&amp; gy &lt; height) &#123;</span><br><span class="line">        float sum = 0.0f;</span><br><span class="line">        for (int dy = -R; dy &lt;= R; dy++) &#123;</span><br><span class="line">            for (int dx = -R; dx &lt;= R; dx++) &#123;</span><br><span class="line">                sum += tile[ty + R + dy][tx + R + dx] * </span><br><span class="line">                       d_kernel2d[(dy + R) * (2*R + 1) + (dx + R)];</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">        output[gy * width + gx] = sum;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<h3 id="qi-dong-pei-zhi" tabindex="-1" id="启动配置">启动配置</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">dim3 block(TILE_X, TILE_Y);  // 16×16 = 256 线程</span><br><span class="line">dim3 grid((width + TILE_X - 1) / TILE_X, </span><br><span class="line">          (height + TILE_Y - 1) / TILE_Y);</span><br><span class="line"></span><br><span class="line">conv2d_tiled&lt;&lt;&lt;grid, block&gt;&gt;&gt;(d_input, d_output, width, height);</span><br></pre></td></tr></table></figure>
+<h2 id="huan-cun-ji-zhi" tabindex="-1" id="缓存机制">缓存机制</h2>
+<h3 id="l-1-l-2-huan-cun-yu-tiling-de-guan-xi" tabindex="-1" id="L1-L2-缓存与-Tiling-的关系">L1/L2 缓存与 Tiling 的关系</h3>
+<p>前面我们手动用共享内存实现了 Tiling。但 GPU 还有自动的缓存机制：</p>
+<p><strong>L1 缓存</strong>（每 SM）：</p>
+<ul>
+<li>Ampere 架构：128 KB（可配置与共享内存分割）</li>
+<li>自动缓存全局内存访问</li>
+<li>对于小卷积核，可能&quot;免费&quot;获得数据复用</li>
+</ul>
+<p><strong>L2 缓存</strong>（全局共享）：</p>
+<ul>
+<li>几 MB 容量</li>
+<li>所有 SM 共享</li>
+<li>跨 Block 的数据访问可能命中</li>
+</ul>
+<h3 id="he-shi-yi-lai-huan-cun-vs-xian-shi-tiling" tabindex="-1" id="何时依赖缓存-vs-显式-Tiling">何时依赖缓存 vs 显式 Tiling</h3>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>推荐方式</th>
+<th>原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>小卷积核（3×3）</td>
+<td>可能只用缓存</td>
+<td>L1 够用，代码简单</td>
+</tr>
+<tr>
+<td>大卷积核（11×11+）</td>
+<td>显式 Tiling</td>
+<td>数据量大，需精确控制</td>
+</tr>
+<tr>
+<td>大图像、小 kernel</td>
+<td>显式 Tiling</td>
+<td>最大化内存带宽利用</td>
+</tr>
+<tr>
+<td>调试/原型</td>
+<td>先用缓存</td>
+<td>快速验证正确性</td>
+</tr>
+</tbody>
+</table>
+<h3 id="xian-dai-gpu-de-you-hua-jian-yi" tabindex="-1" id="现代-GPU-的优化建议">现代 GPU 的优化建议</h3>
+<ol>
+<li><strong>先写简单版本</strong>，依赖 L1/L2 缓存</li>
+<li><strong>用 Nsight Compute 分析</strong>，看内存吞吐是否成为瓶颈</li>
+<li><strong>如果受限于内存带宽</strong>，再添加共享内存 Tiling</li>
+<li><strong>常量内存始终是好选择</strong>（对于卷积核）</li>
+</ol>
+<h2 id="juan-ji-you-hua-zong-jie" tabindex="-1" id="卷积优化总结">卷积优化总结</h2>
+<h3 id="you-hua-shou-duan-ceng-ci" tabindex="-1" id="优化手段层次">优化手段层次</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line">┌─────────────────────────────────────────────────────────────────┐</span><br><span class="line">│ Level 4: 算法级优化                                              │</span><br><span class="line">│   - FFT 卷积（大卷积核）                                          │</span><br><span class="line">│   - Winograd 算法（特定尺寸）                                     │</span><br><span class="line">│   - Im2col + GEMM（cuDNN 方式）                                   │</span><br><span class="line">├─────────────────────────────────────────────────────────────────┤</span><br><span class="line">│ Level 3: 数据复用                                                 │</span><br><span class="line">│   - 共享内存 Tiling                                               │</span><br><span class="line">│   - 常量内存存储卷积核                                            │</span><br><span class="line">│   - 寄存器缓存局部结果                                            │</span><br><span class="line">├─────────────────────────────────────────────────────────────────┤</span><br><span class="line">│ Level 2: 内存访问模式                                             │</span><br><span class="line">│   - 合并访问全局内存                                              │</span><br><span class="line">│   - 避免 Bank 冲突                                                │</span><br><span class="line">│   - 预取和双缓冲                                                  │</span><br><span class="line">├─────────────────────────────────────────────────────────────────┤</span><br><span class="line">│ Level 1: 基础正确实现                                             │</span><br><span class="line">│   - 边界检查                                                      │</span><br><span class="line">│   - 正确的索引计算                                                 │</span><br><span class="line">└─────────────────────────────────────────────────────────────────┘</span><br></pre></td></tr></table></figure>
+<h3 id="xuan-ze-ce-lue" tabindex="-1" id="选择策略">选择策略</h3>
+<table>
+<thead>
+<tr>
+<th>卷积核大小</th>
+<th>推荐方法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>3×3</td>
+<td>Tiled + 常量内存</td>
+</tr>
+<tr>
+<td>5×5 ~ 11×11</td>
+<td>Tiled + 常量内存</td>
+</tr>
+<tr>
+<td>大于 11×11</td>
+<td>考虑 FFT 或 cuDNN</td>
+</tr>
+</tbody>
+</table>
+<h3 id="cu-dnn-gong-ye-ji-xuan-ze" tabindex="-1" id="cuDNN：工业级选择">cuDNN：工业级选择</h3>
+<p>实际生产中，卷积通常用 cuDNN：</p>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cudnnConvolutionForward</span>(handle,</span><br><span class="line">    &amp;alpha,</span><br><span class="line">    inputDesc, d_input,</span><br><span class="line">    filterDesc, d_filter,</span><br><span class="line">    convDesc,</span><br><span class="line">    algo,  <span class="comment">// 自动选择最优算法</span></span><br><span class="line">    workspace, workspaceSize,</span><br><span class="line">    &amp;beta,</span><br><span class="line">    outputDesc, d_output);</span><br></pre></td></tr></table></figure>
+<p>cuDNN 会根据输入尺寸、卷积核大小、GPU 架构，自动选择最优实现（直接卷积、FFT、Winograd、Im2col+GEMM 等）。</p>
+<p>但理解底层原理仍然重要——知道 cuDNN 在做什么，才能正确调用和调优。</p>
+<h2 id="shi-zhan-tu-xiang-rui-hua" tabindex="-1" id="实战：图像锐化">实战：图像锐化</h2>
+<h3 id="rui-hua-juan-ji-he" tabindex="-1" id="锐化卷积核">锐化卷积核</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">┌─────┬─────┬─────┐</span><br><span class="line">│  0  │ -1  │  0  │</span><br><span class="line">├─────┼─────┼─────┤</span><br><span class="line">│ -1  │  5  │ -1  │</span><br><span class="line">├─────┼─────┼─────┤</span><br><span class="line">│  0  │ -1  │  0  │</span><br><span class="line">└─────┴─────┴─────┘</span><br></pre></td></tr></table></figure>
+<h3 id="wan-zheng-shi-li" tabindex="-1" id="完整示例">完整示例</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br></pre></td><td class="code"><pre><span class="line">#include &lt;cuda_runtime.h&gt;</span><br><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line"></span><br><span class="line">#define TILE_SIZE 16</span><br><span class="line">#define R 1</span><br><span class="line"></span><br><span class="line">__constant__ float d_sharpen_kernel[9] = &#123;</span><br><span class="line">    0, -1,  0,</span><br><span class="line">   -1,  5, -1,</span><br><span class="line">    0, -1,  0</span><br><span class="line">&#125;;</span><br><span class="line"></span><br><span class="line">__global__ void sharpen_image(unsigned char *input, unsigned char *output,</span><br><span class="line">                               int width, int height) &#123;</span><br><span class="line">    __shared__ float tile[TILE_SIZE + 2][TILE_SIZE + 2];</span><br><span class="line">    </span><br><span class="line">    int tx = threadIdx.x, ty = threadIdx.y;</span><br><span class="line">    int gx = blockIdx.x * TILE_SIZE + tx;</span><br><span class="line">    int gy = blockIdx.y * TILE_SIZE + ty;</span><br><span class="line">    </span><br><span class="line">    // 加载（简化版，假设边界内）</span><br><span class="line">    if (gx &lt; width &amp;&amp; gy &lt; height) &#123;</span><br><span class="line">        tile[ty + 1][tx + 1] = (float)input[gy * width + gx];</span><br><span class="line">    &#125; else &#123;</span><br><span class="line">        tile[ty + 1][tx + 1] = 0.0f;</span><br><span class="line">    &#125;</span><br><span class="line">    </span><br><span class="line">    // 加载 Halo（简化，仅示意）</span><br><span class="line">    if (tx == 0 &amp;&amp; gx &gt; 0) </span><br><span class="line">        tile[ty + 1][0] = input[gy * width + gx - 1];</span><br><span class="line">    if (tx == TILE_SIZE - 1 &amp;&amp; gx &lt; width - 1) </span><br><span class="line">        tile[ty + 1][TILE_SIZE + 1] = input[gy * width + gx + 1];</span><br><span class="line">    if (ty == 0 &amp;&amp; gy &gt; 0) </span><br><span class="line">        tile[0][tx + 1] = input[(gy - 1) * width + gx];</span><br><span class="line">    if (ty == TILE_SIZE - 1 &amp;&amp; gy &lt; height - 1) </span><br><span class="line">        tile[TILE_SIZE + 1][tx + 1] = input[(gy + 1) * width + gx];</span><br><span class="line">    </span><br><span class="line">    // 角落处理省略...</span><br><span class="line">    </span><br><span class="line">    __syncthreads();</span><br><span class="line">    </span><br><span class="line">    // 卷积计算</span><br><span class="line">    if (gx &lt; width &amp;&amp; gy &lt; height) &#123;</span><br><span class="line">        float sum = 0.0f;</span><br><span class="line">        for (int dy = -1; dy &lt;= 1; dy++) &#123;</span><br><span class="line">            for (int dx = -1; dx &lt;= 1; dx++) &#123;</span><br><span class="line">                sum += tile[ty + 1 + dy][tx + 1 + dx] * </span><br><span class="line">                       d_sharpen_kernel[(dy + 1) * 3 + (dx + 1)];</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">        // 钳制到 [0, 255]</span><br><span class="line">        sum = fminf(fmaxf(sum, 0.0f), 255.0f);</span><br><span class="line">        output[gy * width + gx] = (unsigned char)sum;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<h2 id="1-d-vs-2-d-juan-ji-de-ke-fen-chi-xing" tabindex="-1" id="1D-vs-2D-卷积的可分离性">1D vs 2D 卷积的可分离性</h2>
+<h3 id="ke-fen-chi-juan-ji" tabindex="-1" id="可分离卷积">可分离卷积</h3>
+<p>有些 2D 卷积核可以分解为两个 1D 卷积核的外积：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">                       ┌───┐   ┌─────────────┐</span><br><span class="line">┌───────────┐          │ 1 │   │             │</span><br><span class="line">│ 1  4  6  4  1 │      │ 4 │ × │ 1 4 6 4 1   │</span><br><span class="line">│ 4 16 24 16 4 │  =    │ 6 │   │             │</span><br><span class="line">│ 6 24 36 24 6 │       │ 4 │   │             │</span><br><span class="line">│ 4 16 24 16 4 │       │ 1 │   │             │</span><br><span class="line">│ 1  4  6  4  1 │      └───┘   └─────────────┘</span><br><span class="line">└───────────┘        垂直 1D     水平 1D</span><br><span class="line">   5×5 高斯</span><br></pre></td></tr></table></figure>
+<h3 id="ke-fen-chi-juan-ji-de-you-shi" tabindex="-1" id="可分离卷积的优势">可分离卷积的优势</h3>
+<p>原始 2D：每像素 5×5 = 25 次乘法<br>
+可分离：每像素 5 + 5 = 10 次乘法</p>
+<p><strong>计算量减少 60%！</strong></p>
+<h3 id="cuda-shi-xian-si-lu" tabindex="-1" id="CUDA-实现思路">CUDA 实现思路</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">// 第一步：水平卷积（每行）</span><br><span class="line">conv1d_horizontal&lt;&lt;&lt;gridH, blockH&gt;&gt;&gt;(input, temp, width, height, kernel_h);</span><br><span class="line"></span><br><span class="line">// 第二步：垂直卷积（每列）</span><br><span class="line">conv1d_vertical&lt;&lt;&lt;gridV, blockV&gt;&gt;&gt;(temp, output, width, height, kernel_v);</span><br></pre></td></tr></table></figure>
+<p>常见的高斯模糊、盒状模糊都是可分离的，这是实际优化中的重要技巧。</p>
+<h2 id="xiao-jie" tabindex="-1" id="小结">小结</h2>
+<p>第七章围绕卷积，整合了多项内存优化技术：</p>
+<p><strong>常量内存</strong>：卷积核对所有线程相同，放常量内存是自然选择。广播访问让带宽消耗趋近于零。</p>
+<p><strong>Tiled 共享内存</strong>：输入数据有大量重叠访问。用共享内存缓存 Tile，全局内存访问降低到接近 1 次/元素。</p>
+<p><strong>Halo 处理</strong>：2D Tiling 的关键难点。边界、角落需要细心处理。建议分区加载——不同区域由不同线程负责。</p>
+<p><strong>缓存利用</strong>：现代 GPU 的 L1/L2 缓存能自动覆盖部分数据复用。小卷积核、调试阶段可以依赖缓存，正式优化再加 Tiling。</p>
+<p><strong>可分离卷积</strong>：高斯等可分离核，分解成两次 1D 卷积，计算量直接减半。</p>
+<p>卷积是深度学习和图像处理的核心算子，优化卷积的思路——常量内存、Tiling、Halo 处理——适用于很多相似的模板计算模式。下一章会学习另一个重要模式——Stencil（模板计算），思路类似但有自己的特点。</p>
+<hr>
+<p><strong>参考资料：</strong></p>
+<ul>
+<li>Hwu, W., Kirk, D., &amp; El Hajj, I. (2022). <em>Programming Massively Parallel Processors: A Hands-on Approach</em> (4th Edition). Morgan Kaufmann.</li>
+<li><a target="_blank" rel="noopener" href="https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#constant-memory">CUDA C++ Programming Guide - Constant Memory</a></li>
+<li><a target="_blank" rel="noopener" href="https://docs.nvidia.com/deeplearning/cudnn/developer-guide/index.html">cuDNN Developer Guide</a></li>
+</ul>
+<hr>
+<blockquote>
+<p><strong>本文 GitHub 仓库</strong>: <a target="_blank" rel="noopener" href="https://github.com/psmarter/PMPP-Learning">https://github.com/psmarter/PMPP-Learning</a></p>
+</blockquote>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/1c778456/">https://smarter.xin/posts/1c778456/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/CUDA/">CUDA</a><a class="post-meta__tags" href="/tags/gpu-programming/">GPU编程</a><a class="post-meta__tags" href="/tags/parallel-computing/">并行计算</a><a class="post-meta__tags" href="/tags/PMPP/">PMPP</a><a class="post-meta__tags" href="/tags/convolution/">卷积</a><a class="post-meta__tags" href="/tags/constant-memory/">常量内存</a><a class="post-meta__tags" href="/tags/Tiling/">Tiling</a></div><div class="post-share"><div class="social-share" data-image="/img/PMPP.jpg" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related full-width no-desc" href="/posts/220818c3/" title="PMPP-第六章：性能方面的考虑"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">PMPP-第六章：性能方面的考虑</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/3bb3179b/" title="PMPP-第五章：内存架构和数据局部性"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-16</div><div class="info-item-2">PMPP-第五章：内存架构和数据局部性</div></div></div></a><a class="pagination-related no-desc" href="/posts/10d278b0/" title="PMPP-第一章：引言"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-11</div><div class="info-item-2">PMPP-第一章：引言</div></div></div></a><a class="pagination-related no-desc" href="/posts/6b7045b6/" title="PMPP-第三章：多维网格和数据"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-12</div><div class="info-item-2">PMPP-第三章：多维网格和数据</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">66</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">94</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">12</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">Welcome to Smarter's blog</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#qian-yan"><span class="toc-text">前言</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#juan-ji-ji-chu"><span class="toc-text">卷积基础</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#shi-yao-shi-juan-ji"><span class="toc-text">什么是卷积</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#juan-ji-de-ying-yong"><span class="toc-text">卷积的应用</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#juan-ji-de-shu-xue-ding-yi"><span class="toc-text">卷积的数学定义</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#bian-jie-chu-li"><span class="toc-text">边界处理</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#po-su-1-d-juan-ji-shi-xian"><span class="toc-text">朴素 1D 卷积实现</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#ji-ben-si-lu"><span class="toc-text">基本思路</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#xing-neng-wen-ti"><span class="toc-text">性能问题</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#chang-liang-nei-cun-you-hua"><span class="toc-text">常量内存优化</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#chang-liang-nei-cun-te-xing"><span class="toc-text">常量内存特性</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#shi-yong-chang-liang-nei-cun"><span class="toc-text">使用常量内存</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#xing-neng-ti-sheng"><span class="toc-text">性能提升</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#tiled-juan-ji"><span class="toc-text">Tiled 卷积</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#wei-shi-yao-xu-yao-tiling"><span class="toc-text">为什么需要 Tiling</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#shu-ru-tile-she-ji"><span class="toc-text">输入 Tile 设计</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#halo-yuan-su"><span class="toc-text">Halo 元素</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#shi-xian-ce-lue"><span class="toc-text">实现策略</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#wan-zheng-de-tiled-1-d-juan-ji"><span class="toc-text">完整的 Tiled 1D 卷积</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#xing-neng-fen-xi"><span class="toc-text">性能分析</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-d-juan-ji"><span class="toc-text">2D 卷积</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#kuo-zhan-dao-er-wei"><span class="toc-text">扩展到二维</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-d-tile-jie-gou"><span class="toc-text">2D Tile 结构</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#jian-hua-de-2-d-shi-xian"><span class="toc-text">简化的 2D 实现</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#qi-dong-pei-zhi"><span class="toc-text">启动配置</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#huan-cun-ji-zhi"><span class="toc-text">缓存机制</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#l-1-l-2-huan-cun-yu-tiling-de-guan-xi"><span class="toc-text">L1&#x2F;L2 缓存与 Tiling 的关系</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#he-shi-yi-lai-huan-cun-vs-xian-shi-tiling"><span class="toc-text">何时依赖缓存 vs 显式 Tiling</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#xian-dai-gpu-de-you-hua-jian-yi"><span class="toc-text">现代 GPU 的优化建议</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#juan-ji-you-hua-zong-jie"><span class="toc-text">卷积优化总结</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#you-hua-shou-duan-ceng-ci"><span class="toc-text">优化手段层次</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#xuan-ze-ce-lue"><span class="toc-text">选择策略</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#cu-dnn-gong-ye-ji-xuan-ze"><span class="toc-text">cuDNN：工业级选择</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-zhan-tu-xiang-rui-hua"><span class="toc-text">实战：图像锐化</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#rui-hua-juan-ji-he"><span class="toc-text">锐化卷积核</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#wan-zheng-shi-li"><span class="toc-text">完整示例</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#1-d-vs-2-d-juan-ji-de-ke-fen-chi-xing"><span class="toc-text">1D vs 2D 卷积的可分离性</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#ke-fen-chi-juan-ji"><span class="toc-text">可分离卷积</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#ke-fen-chi-juan-ji-de-you-shi"><span class="toc-text">可分离卷积的优势</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#cuda-shi-xian-si-lu"><span class="toc-text">CUDA 实现思路</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xiao-jie"><span class="toc-text">小结</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/1c778456/" title="PMPP-第七章：卷积"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PMPP-第七章：卷积"/></a><div class="content"><a class="title" href="/posts/1c778456/" title="PMPP-第七章：卷积">PMPP-第七章：卷积</a><time datetime="2026-01-16T13:58:04.000Z" title="发表于 2026-01-16 21:58:04">2026-01-16</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/220818c3/" title="PMPP-第六章：性能方面的考虑"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PMPP-第六章：性能方面的考虑"/></a><div class="content"><a class="title" href="/posts/220818c3/" title="PMPP-第六章：性能方面的考虑">PMPP-第六章：性能方面的考虑</a><time datetime="2026-01-16T09:11:58.000Z" title="发表于 2026-01-16 17:11:58">2026-01-16</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/3bb3179b/" title="PMPP-第五章：内存架构和数据局部性"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PMPP-第五章：内存架构和数据局部性"/></a><div class="content"><a class="title" href="/posts/3bb3179b/" title="PMPP-第五章：内存架构和数据局部性">PMPP-第五章：内存架构和数据局部性</a><time datetime="2026-01-16T02:16:08.000Z" title="发表于 2026-01-16 10:16:08">2026-01-16</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/b21cbc80/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-31</span><a class="blog-slider__title" href="posts/b21cbc80/" alt="">AI Infra学习之旅-第一个vLLM程序</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/b21cbc80/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>
