@@ -1,0 +1,626 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>PMPP-第十二章：归并 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="前言 第十一章学了前缀和，这章学归并（Merge）——把两个有序数组合并成一个有序数组。归并是排序算法的核心组件（归并排序），也是数据库操作的基础（JOIN）。并行归并的挑战在于：输出位置取决于两个数组的数据内容，不像矩阵乘法那样位置固定。第十二章讲解如何用**协同排名（Co-Rank）**技术解决这个&quot;动态输入数据识别&quot;问题。  📦 配套资源：本系列文章配有完整的 GitH">
+<meta property="og:type" content="article">
+<meta property="og:title" content="PMPP-第十二章：归并">
+<meta property="og:url" content="https://smarter.xin/posts/31928809/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="前言 第十一章学了前缀和，这章学归并（Merge）——把两个有序数组合并成一个有序数组。归并是排序算法的核心组件（归并排序），也是数据库操作的基础（JOIN）。并行归并的挑战在于：输出位置取决于两个数组的数据内容，不像矩阵乘法那样位置固定。第十二章讲解如何用**协同排名（Co-Rank）**技术解决这个&quot;动态输入数据识别&quot;问题。  📦 配套资源：本系列文章配有完整的 GitH">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/PMPP.jpg">
+<meta property="article:published_time" content="2026-01-18T13:42:06.000Z">
+<meta property="article:modified_time" content="2026-01-18T13:48:26.997Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="CUDA">
+<meta property="article:tag" content="GPU编程">
+<meta property="article:tag" content="并行计算">
+<meta property="article:tag" content="PMPP">
+<meta property="article:tag" content="归并">
+<meta property="article:tag" content="Merge">
+<meta property="article:tag" content="动态数据识别">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/PMPP.jpg"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "PMPP-第十二章：归并",
+  "url": "https://smarter.xin/posts/31928809/",
+  "image": "https://smarter.xin/img/PMPP.jpg",
+  "datePublished": "2026-01-18T13:42:06.000Z",
+  "dateModified": "2026-01-18T13:48:26.997Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/31928809/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'PMPP-第十二章：归并',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">71</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">108</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">12</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/PMPP.jpg);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">PMPP-第十二章：归并</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">PMPP-第十二章：归并</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-01-18T13:42:06.000Z" title="发表于 2026-01-18 21:42:06">2026-01-18</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-01-18T13:48:26.997Z" title="更新于 2026-01-18 21:48:26">2026-01-18</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/knowledge-sharing/">知识分享</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">2.9k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>12分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h2 id="qian-yan" tabindex="-1" id="前言">前言</h2>
+<p>第十一章学了前缀和，这章学<strong>归并（Merge）</strong>——把两个有序数组合并成一个有序数组。归并是排序算法的核心组件（归并排序），也是数据库操作的基础（JOIN）。并行归并的挑战在于：<strong>输出位置取决于两个数组的数据内容</strong>，不像矩阵乘法那样位置固定。第十二章讲解如何用**协同排名（Co-Rank）**技术解决这个&quot;动态输入数据识别&quot;问题。</p>
+<blockquote>
+<p><strong>📦 配套资源</strong>：本系列文章配有完整的 <a target="_blank" rel="noopener" href="https://github.com/psmarter/PMPP-Learning">GitHub 仓库</a>，包含每章的练习题解答、CUDA 代码实现和详细注释。所有代码都经过测试，可以直接运行。</p>
+</blockquote>
+<h2 id="gui-bing-ji-chu" tabindex="-1" id="归并基础">归并基础</h2>
+<h3 id="shi-yao-shi-gui-bing" tabindex="-1" id="什么是归并">什么是归并</h3>
+<p><strong>归并</strong>：给定两个<strong>已排序</strong>的数组 A 和 B，生成一个包含所有元素的<strong>有序</strong>数组 C。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">A = [1, 3, 5, 7, 9]</span><br><span class="line">B = [2, 4, 6, 8, 10]</span><br><span class="line">C = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]</span><br></pre></td></tr></table></figure>
+<h3 id="chuan-xing-gui-bing" tabindex="-1" id="串行归并">串行归并</h3>
+<p>经典的双指针算法：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">void</span> <span class="title function_">merge_sequential</span><span class="params">(<span class="type">int</span> *A, <span class="type">int</span> m, <span class="type">int</span> *B, <span class="type">int</span> n, <span class="type">int</span> *C)</span> &#123;</span><br><span class="line">    <span class="type">int</span> i = <span class="number">0</span>, j = <span class="number">0</span>, k = <span class="number">0</span>;</span><br><span class="line">    </span><br><span class="line">    <span class="keyword">while</span> (i &lt; m &amp;&amp; j &lt; n) &#123;</span><br><span class="line">        <span class="keyword">if</span> (A[i] &lt;= B[j]) &#123;</span><br><span class="line">            C[k++] = A[i++];</span><br><span class="line">        &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">            C[k++] = B[j++];</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    </span><br><span class="line">    <span class="comment">// 处理剩余元素</span></span><br><span class="line">    <span class="keyword">while</span> (i &lt; m) C[k++] = A[i++];</span><br><span class="line">    <span class="keyword">while</span> (j &lt; n) C[k++] = B[j++];</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>时间复杂度 O(m+n)，空间复杂度 O(1)（不计输出）。</p>
+<h3 id="bing-xing-hua-de-tiao-zhan" tabindex="-1" id="并行化的挑战">并行化的挑战</h3>
+<p><strong>问题</strong>：输出位置 k 对应的输入位置 (i, j) 取决于数据内容。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">要填充 C[5]，需要知道：</span><br><span class="line">- A 和 B 中有多少元素 ≤ C[5] 的值</span><br><span class="line">- 这取决于 A 和 B 的具体内容</span><br></pre></td></tr></table></figure>
+<p>不像矩阵乘法那样可以根据线程 ID 直接计算输入位置。</p>
+<p><strong>核心问题</strong>：如何让每个线程知道自己应该处理 A 和 B 的哪一段？</p>
+<h2 id="xie-tong-pai-ming-co-rank" tabindex="-1" id="协同排名（Co-Rank）">协同排名（Co-Rank）</h2>
+<h3 id="he-xin-dong-cha" tabindex="-1" id="核心洞察">核心洞察</h3>
+<p>对于输出位置 k，假设它对应 A 中的前 i 个元素和 B 中的前 j 个元素，则：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">i + j = k</span><br></pre></td></tr></table></figure>
+<p>这就是<strong>协同排名</strong>约束。</p>
+<p><strong>问题转化</strong>：给定 k，找到满足约束且保持有序性的 (i, j)。</p>
+<h3 id="er-fen-sou-suo-jie-fa" tabindex="-1" id="二分搜索解法">二分搜索解法</h3>
+<p><strong>有序性条件</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">A[i-1] ≤ B[j]  且  B[j-1] ≤ A[i]</span><br></pre></td></tr></table></figure>
+<p>即：A 中第 i 个元素应该排在 B 的第 j 个元素之前或相等，反之亦然。</p>
+<p><strong>算法</strong>：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">int</span> <span class="title function_">co_rank</span><span class="params">(<span class="type">int</span> k, <span class="type">int</span> *A, <span class="type">int</span> m, <span class="type">int</span> *B, <span class="type">int</span> n)</span> &#123;</span><br><span class="line">    <span class="comment">// i 的范围</span></span><br><span class="line">    <span class="type">int</span> i_low = max(<span class="number">0</span>, k - n);</span><br><span class="line">    <span class="type">int</span> i_high = min(k, m);</span><br><span class="line">    </span><br><span class="line">    <span class="keyword">while</span> (i_low &lt; i_high) &#123;</span><br><span class="line">        <span class="type">int</span> i = (i_low + i_high) / <span class="number">2</span>;</span><br><span class="line">        <span class="type">int</span> j = k - i;</span><br><span class="line">        </span><br><span class="line">        <span class="keyword">if</span> (i &gt; <span class="number">0</span> &amp;&amp; j &lt; n &amp;&amp; A[i<span class="number">-1</span>] &gt; B[j]) &#123;</span><br><span class="line">            <span class="comment">// A[i-1] 太大，i 需要减小</span></span><br><span class="line">            i_high = i;</span><br><span class="line">        &#125; <span class="keyword">else</span> <span class="keyword">if</span> (j &gt; <span class="number">0</span> &amp;&amp; i &lt; m &amp;&amp; B[j<span class="number">-1</span>] &gt; A[i]) &#123;</span><br><span class="line">            <span class="comment">// B[j-1] 太大，i 需要增大</span></span><br><span class="line">            i_low = i + <span class="number">1</span>;</span><br><span class="line">        &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">            <span class="comment">// 找到了</span></span><br><span class="line">            <span class="keyword">return</span> i;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> i_low;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p><strong>时间复杂度</strong>：O(log(min(k, m, n)))</p>
+<h3 id="shi-li" tabindex="-1" id="示例">示例</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">A = [1, 3, 5, 7, 9]  (m=5)</span><br><span class="line">B = [2, 4, 6, 8, 10] (n=5)</span><br><span class="line">k = 6（输出位置 6）</span><br><span class="line"></span><br><span class="line">i + j = 6</span><br><span class="line"></span><br><span class="line">尝试 i=3: j=3</span><br><span class="line">  A[2]=5 ≤ B[3]=8? ✓</span><br><span class="line">  B[2]=6 ≤ A[3]=7? ✓</span><br><span class="line">  找到！</span><br><span class="line"></span><br><span class="line">所以 C[0..5] 来自 A[0..2] 和 B[0..2]</span><br><span class="line">C[6..9] 来自 A[3..4] 和 B[3..4]</span><br></pre></td></tr></table></figure>
+<h2 id="ji-chu-bing-xing-gui-bing" tabindex="-1" id="基础并行归并">基础并行归并</h2>
+<h3 id="mei-xian-cheng-yi-ge-yuan-su" tabindex="-1" id="每线程一个元素">每线程一个元素</h3>
+<p>最简单的并行化：每个线程负责计算一个输出元素。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line">__global__ void merge_basic(int *A, int m, int *B, int n, int *C) &#123;</span><br><span class="line">    int k = blockIdx.x * blockDim.x + threadIdx.x;</span><br><span class="line">    </span><br><span class="line">    if (k &lt; m + n) &#123;</span><br><span class="line">        int i = co_rank(k, A, m, B, n);</span><br><span class="line">        int j = k - i;</span><br><span class="line">        </span><br><span class="line">        int i_next = co_rank(k + 1, A, m, B, n);</span><br><span class="line">        int j_next = k + 1 - i_next;</span><br><span class="line">        </span><br><span class="line">        // 确定这个位置的值</span><br><span class="line">        if (i_next &gt; i) &#123;</span><br><span class="line">            C[k] = A[i];</span><br><span class="line">        &#125; else &#123;</span><br><span class="line">            C[k] = B[j];</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<h3 id="wen-ti" tabindex="-1" id="问题">问题</h3>
+<p><strong>效率低</strong>：每个线程都做一次二分搜索（O(log n)），总工作量 O(n log n)。</p>
+<p>串行只需 O(n)，并行反而做了更多工作！</p>
+<h2 id="fen-kuai-bing-xing-gui-bing" tabindex="-1" id="分块并行归并">分块并行归并</h2>
+<h3 id="si-lu" tabindex="-1" id="思路">思路</h3>
+<p>不要每个元素都二分搜索，而是：</p>
+<ol>
+<li>把输出分成若干块（Tile）</li>
+<li>每个 Tile 做一次 Co-Rank 找到边界</li>
+<li>Tile 内部用串行归并</li>
+</ol>
+<h3 id="suan-fa" tabindex="-1" id="算法">算法</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">输出大小：m + n</span><br><span class="line">Tile 大小：T</span><br><span class="line">Tile 数量：(m + n + T - 1) / T</span><br><span class="line"></span><br><span class="line">对于 Tile k：</span><br><span class="line">  起始位置：k * T</span><br><span class="line">  结束位置：min((k+1) * T, m+n)</span><br><span class="line">  </span><br><span class="line">  Co-Rank 找到 (i_start, j_start) 和 (i_end, j_end)</span><br><span class="line">  </span><br><span class="line">  归并 A[i_start..i_end] 和 B[j_start..j_end]</span><br></pre></td></tr></table></figure>
+<h3 id="cuda-shi-xian" tabindex="-1" id="CUDA-实现">CUDA 实现</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br></pre></td><td class="code"><pre><span class="line">#define TILE_SIZE 1024</span><br><span class="line"></span><br><span class="line">__global__ void merge_tiled(int *A, int m, int *B, int n, int *C) &#123;</span><br><span class="line">    // 每个 Block 处理一个 Tile</span><br><span class="line">    int k_start = blockIdx.x * TILE_SIZE;</span><br><span class="line">    int k_end = min(k_start + TILE_SIZE, m + n);</span><br><span class="line">    </span><br><span class="line">    // Co-Rank 找边界</span><br><span class="line">    __shared__ int i_start, j_start, i_end, j_end;</span><br><span class="line">    </span><br><span class="line">    if (threadIdx.x == 0) &#123;</span><br><span class="line">        i_start = co_rank(k_start, A, m, B, n);</span><br><span class="line">        j_start = k_start - i_start;</span><br><span class="line">        i_end = co_rank(k_end, A, m, B, n);</span><br><span class="line">        j_end = k_end - i_end;</span><br><span class="line">    &#125;</span><br><span class="line">    __syncthreads();</span><br><span class="line">    </span><br><span class="line">    // 每个线程处理 Tile 中的一部分</span><br><span class="line">    int tile_size = k_end - k_start;</span><br><span class="line">    int elements_per_thread = (tile_size + blockDim.x - 1) / blockDim.x;</span><br><span class="line">    </span><br><span class="line">    int local_k = threadIdx.x * elements_per_thread;</span><br><span class="line">    int local_k_end = min(local_k + elements_per_thread, tile_size);</span><br><span class="line">    </span><br><span class="line">    // 线程内 Co-Rank</span><br><span class="line">    int A_seg_size = i_end - i_start;</span><br><span class="line">    int B_seg_size = j_end - j_start;</span><br><span class="line">    </span><br><span class="line">    int local_i = co_rank(local_k, A + i_start, A_seg_size, </span><br><span class="line">                                   B + j_start, B_seg_size);</span><br><span class="line">    int local_j = local_k - local_i;</span><br><span class="line">    </span><br><span class="line">    int local_i_end = co_rank(local_k_end, A + i_start, A_seg_size,</span><br><span class="line">                                           B + j_start, B_seg_size);</span><br><span class="line">    int local_j_end = local_k_end - local_i_end;</span><br><span class="line">    </span><br><span class="line">    // 串行归并</span><br><span class="line">    merge_sequential(A + i_start + local_i, local_i_end - local_i,</span><br><span class="line">                     B + j_start + local_j, local_j_end - local_j,</span><br><span class="line">                     C + k_start + local_k);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<h3 id="gong-zuo-liang-fen-xi" tabindex="-1" id="工作量分析">工作量分析</h3>
+<table>
+<thead>
+<tr>
+<th>操作</th>
+<th>次数</th>
+<th>单次复杂度</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Block Co-Rank</td>
+<td>(m+n)/T</td>
+<td>O(log(m+n))</td>
+</tr>
+<tr>
+<td>线程 Co-Rank</td>
+<td>(m+n)/T × blockDim</td>
+<td>O(log T)</td>
+</tr>
+<tr>
+<td>串行归并</td>
+<td>(m+n)/T × blockDim</td>
+<td>O(T/blockDim)</td>
+</tr>
+</tbody>
+</table>
+<p>总工作量 ≈ O(m+n)，接近串行！</p>
+<h2 id="gong-xiang-nei-cun-you-hua" tabindex="-1" id="共享内存优化">共享内存优化</h2>
+<h3 id="dong-ji" tabindex="-1" id="动机">动机</h3>
+<p>前面的实现每个线程都访问全局内存做串行归并。如果把 Tile 数据加载到共享内存，可以大幅减少全局内存访问。</p>
+<h3 id="shi-xian" tabindex="-1" id="实现">实现</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br></pre></td><td class="code"><pre><span class="line">#define TILE_SIZE 1024</span><br><span class="line"></span><br><span class="line">__global__ void merge_shared(int *A, int m, int *B, int n, int *C) &#123;</span><br><span class="line">    __shared__ int A_s[TILE_SIZE];</span><br><span class="line">    __shared__ int B_s[TILE_SIZE];</span><br><span class="line">    __shared__ int C_s[TILE_SIZE];</span><br><span class="line">    </span><br><span class="line">    int k_start = blockIdx.x * TILE_SIZE;</span><br><span class="line">    int k_end = min(k_start + TILE_SIZE, m + n);</span><br><span class="line">    int tile_size = k_end - k_start;</span><br><span class="line">    </span><br><span class="line">    // Co-Rank 找边界</span><br><span class="line">    __shared__ int i_start, j_start, i_end, j_end;</span><br><span class="line">    </span><br><span class="line">    if (threadIdx.x == 0) &#123;</span><br><span class="line">        i_start = co_rank(k_start, A, m, B, n);</span><br><span class="line">        j_start = k_start - i_start;</span><br><span class="line">        i_end = co_rank(k_end, A, m, B, n);</span><br><span class="line">        j_end = k_end - i_end;</span><br><span class="line">    &#125;</span><br><span class="line">    __syncthreads();</span><br><span class="line">    </span><br><span class="line">    int A_size = i_end - i_start;</span><br><span class="line">    int B_size = j_end - j_start;</span><br><span class="line">    </span><br><span class="line">    // 加载到共享内存</span><br><span class="line">    for (int i = threadIdx.x; i &lt; A_size; i += blockDim.x) &#123;</span><br><span class="line">        A_s[i] = A[i_start + i];</span><br><span class="line">    &#125;</span><br><span class="line">    for (int i = threadIdx.x; i &lt; B_size; i += blockDim.x) &#123;</span><br><span class="line">        B_s[i] = B[j_start + i];</span><br><span class="line">    &#125;</span><br><span class="line">    __syncthreads();</span><br><span class="line">    </span><br><span class="line">    // 线程内 Co-Rank（使用共享内存）</span><br><span class="line">    int elements_per_thread = (tile_size + blockDim.x - 1) / blockDim.x;</span><br><span class="line">    int local_k = threadIdx.x * elements_per_thread;</span><br><span class="line">    int local_k_end = min(local_k + elements_per_thread, tile_size);</span><br><span class="line">    </span><br><span class="line">    int local_i = co_rank(local_k, A_s, A_size, B_s, B_size);</span><br><span class="line">    int local_j = local_k - local_i;</span><br><span class="line">    </span><br><span class="line">    int local_i_end = co_rank(local_k_end, A_s, A_size, B_s, B_size);</span><br><span class="line">    int local_j_end = local_k_end - local_i_end;</span><br><span class="line">    </span><br><span class="line">    // 归并到共享内存</span><br><span class="line">    merge_sequential(A_s + local_i, local_i_end - local_i,</span><br><span class="line">                     B_s + local_j, local_j_end - local_j,</span><br><span class="line">                     C_s + local_k);</span><br><span class="line">    __syncthreads();</span><br><span class="line">    </span><br><span class="line">    // 写回全局内存</span><br><span class="line">    for (int i = threadIdx.x; i &lt; tile_size; i += blockDim.x) &#123;</span><br><span class="line">        C[k_start + i] = C_s[i];</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<h3 id="xing-neng-ti-sheng" tabindex="-1" id="性能提升">性能提升</h3>
+<table>
+<thead>
+<tr>
+<th>版本</th>
+<th>全局内存访问</th>
+<th>性能</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>基础</td>
+<td>O(m+n) 次</td>
+<td>1×</td>
+</tr>
+<tr>
+<td>分块</td>
+<td>O(m+n) 次</td>
+<td>~5×</td>
+</tr>
+<tr>
+<td>共享内存</td>
+<td>O(m+n)/T 次</td>
+<td>~10×</td>
+</tr>
+</tbody>
+</table>
+<h2 id="xun-huan-huan-chong-qu-you-hua" tabindex="-1" id="循环缓冲区优化">循环缓冲区优化</h2>
+<h3 id="wen-ti-1" tabindex="-1" id="问题-2">问题</h3>
+<p>共享内存有限，如果 A_size + B_size &gt; 共享内存容量怎么办？</p>
+<h3 id="si-lu-liu-shi-chu-li" tabindex="-1" id="思路：流式处理">思路：流式处理</h3>
+<p>用<strong>循环缓冲区</strong>逐块处理：</p>
+<ol>
+<li>加载 A 和 B 的一小块到共享内存</li>
+<li>归并能归并的部分</li>
+<li>加载下一块，继续归并</li>
+<li>重复直到完成</li>
+</ol>
+<h3 id="guan-jian-dian" tabindex="-1" id="关键点">关键点</h3>
+<p><strong>消费跟踪</strong>：记录 A 和 B 各消费了多少元素。</p>
+<p><strong>缓冲区管理</strong>：循环使用缓冲区空间。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line">__global__ void merge_circular(int *A, int m, int *B, int n, int *C) &#123;</span><br><span class="line">    __shared__ int buffer_A[BUFFER_SIZE];</span><br><span class="line">    __shared__ int buffer_B[BUFFER_SIZE];</span><br><span class="line">    </span><br><span class="line">    // ... 初始化 ...</span><br><span class="line">    </span><br><span class="line">    int a_consumed = 0, b_consumed = 0;</span><br><span class="line">    int a_loaded = 0, b_loaded = 0;</span><br><span class="line">    int c_produced = 0;</span><br><span class="line">    </span><br><span class="line">    while (c_produced &lt; tile_size) &#123;</span><br><span class="line">        // 填充缓冲区</span><br><span class="line">        while (a_loaded - a_consumed &lt; BUFFER_SIZE &amp;&amp; a_loaded &lt; A_size) &#123;</span><br><span class="line">            buffer_A[a_loaded % BUFFER_SIZE] = A_s[a_loaded];</span><br><span class="line">            a_loaded++;</span><br><span class="line">        &#125;</span><br><span class="line">        while (b_loaded - b_consumed &lt; BUFFER_SIZE &amp;&amp; b_loaded &lt; B_size) &#123;</span><br><span class="line">            buffer_B[b_loaded % BUFFER_SIZE] = B_s[b_loaded];</span><br><span class="line">            b_loaded++;</span><br><span class="line">        &#125;</span><br><span class="line">        </span><br><span class="line">        // 归并一批</span><br><span class="line">        // ...</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>这种技术在数据量远超共享内存时很有用。</p>
+<h2 id="gui-bing-lu-jing-ke-shi-hua" tabindex="-1" id="归并路径可视化">归并路径可视化</h2>
+<h3 id="co-rank-de-ji-he-jie-shi" tabindex="-1" id="Co-Rank-的几何解释">Co-Rank 的几何解释</h3>
+<p>把归并过程可视化为 2D 网格中的路径：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">  B: 0   1   2   3   4</span><br><span class="line">     +---+---+---+---+</span><br><span class="line">A:0  |   |   |   |   |</span><br><span class="line">     +---+---+---+---+</span><br><span class="line">  1  |   |   |   |   |</span><br><span class="line">     +---+---+───+───+</span><br><span class="line">  2  |   |   |\  |   |</span><br><span class="line">     +---+---+─\─+---+</span><br><span class="line">  3  |   |   |  \|   |</span><br><span class="line">     +---+---+---+\--+</span><br><span class="line">  4  |   |   |   | \ |</span><br><span class="line">     +---+---+---+---+</span><br></pre></td></tr></table></figure>
+<p><strong>路径规则</strong>：</p>
+<ul>
+<li>从 (0,0) 到 (m,n)</li>
+<li>每步向右（取 A 元素）或向下（取 B 元素）</li>
+<li>选择较小的元素决定方向</li>
+</ul>
+<p><strong>Co-Rank(k)</strong>：路径上第 k 步的位置。</p>
+<h3 id="bing-xing-hua-shi-jiao" tabindex="-1" id="并行化视角">并行化视角</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">把输出分成 T 段：</span><br><span class="line">  段 0: 路径 [0, T)</span><br><span class="line">  段 1: 路径 [T, 2T)</span><br><span class="line">  ...</span><br><span class="line"></span><br><span class="line">每段的起点由 Co-Rank 确定。</span><br></pre></td></tr></table></figure>
+<h2 id="gui-bing-pai-xu" tabindex="-1" id="归并排序">归并排序</h2>
+<h3 id="fen-zhi-jie-gou" tabindex="-1" id="分治结构">分治结构</h3>
+<p>归并排序 = 递归拆分 + 归并合并</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">[3,1,7,4,5,2,6,8]</span><br><span class="line">       ↓ 拆分</span><br><span class="line">[3,1,7,4] [5,2,6,8]</span><br><span class="line">    ↓ 拆分</span><br><span class="line">[3,1] [7,4] [5,2] [6,8]</span><br><span class="line">  ↓ 拆分</span><br><span class="line">[3][1] [7][4] [5][2] [6][8]</span><br><span class="line">  ↓ 归并</span><br><span class="line">[1,3] [4,7] [2,5] [6,8]</span><br><span class="line">    ↓ 归并</span><br><span class="line">[1,3,4,7] [2,5,6,8]</span><br><span class="line">       ↓ 归并</span><br><span class="line">[1,2,3,4,5,6,7,8]</span><br></pre></td></tr></table></figure>
+<h3 id="bing-xing-gui-bing-pai-xu" tabindex="-1" id="并行归并排序">并行归并排序</h3>
+<p>每层归并可以并行：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line">void parallel_merge_sort(int *data, int n) &#123;</span><br><span class="line">    // 从单元素开始，逐层归并</span><br><span class="line">    for (int width = 1; width &lt; n; width *= 2) &#123;</span><br><span class="line">        int num_merges = (n + 2 * width - 1) / (2 * width);</span><br><span class="line">        </span><br><span class="line">        // 并行执行所有归并</span><br><span class="line">        merge_kernel&lt;&lt;&lt;num_merges, BLOCK_SIZE&gt;&gt;&gt;(</span><br><span class="line">            data, n, width</span><br><span class="line">        );</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">__global__ void merge_kernel(int *data, int n, int width) &#123;</span><br><span class="line">    int merge_id = blockIdx.x;</span><br><span class="line">    int left = merge_id * 2 * width;</span><br><span class="line">    int mid = min(left + width, n);</span><br><span class="line">    int right = min(left + 2 * width, n);</span><br><span class="line">    </span><br><span class="line">    // 归并 [left, mid) 和 [mid, right)</span><br><span class="line">    merge_shared(data + left, mid - left, </span><br><span class="line">                 data + mid, right - mid, </span><br><span class="line">                 temp + left);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<h3 id="fu-za-du" tabindex="-1" id="复杂度">复杂度</h3>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>串行归并排序</th>
+<th>并行归并排序</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>层数</td>
+<td>log₂N</td>
+<td>log₂N</td>
+</tr>
+<tr>
+<td>每层工作</td>
+<td>O(N)</td>
+<td>O(N)</td>
+</tr>
+<tr>
+<td>总工作</td>
+<td>O(N log N)</td>
+<td>O(N log N)</td>
+</tr>
+<tr>
+<td>并行时间</td>
+<td>O(N log N)</td>
+<td>O(log²N)*</td>
+</tr>
+</tbody>
+</table>
+<p>*假设有足够多的处理器，每层归并并行完成。</p>
+<h2 id="yu-qi-ta-suan-fa-de-guan-xi" tabindex="-1" id="与其他算法的关系">与其他算法的关系</h2>
+<h3 id="gui-bing-vs-ji-shu-pai-xu" tabindex="-1" id="归并-vs-基数排序">归并 vs 基数排序</h3>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>归并排序</th>
+<th>基数排序</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>比较次数</td>
+<td>O(N log N)</td>
+<td>O(N × 位数)</td>
+</tr>
+<tr>
+<td>稳定性</td>
+<td>稳定</td>
+<td>稳定</td>
+</tr>
+<tr>
+<td>适用类型</td>
+<td>通用</td>
+<td>整数/定长键</td>
+</tr>
+<tr>
+<td>GPU 友好度</td>
+<td>中等</td>
+<td>高</td>
+</tr>
+</tbody>
+</table>
+<p>基数排序在 GPU 上通常更快，但归并排序适用范围更广。</p>
+<h3 id="gui-bing-vs-kuai-su-pai-xu" tabindex="-1" id="归并-vs-快速排序">归并 vs 快速排序</h3>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>归并排序</th>
+<th>快速排序</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>最坏复杂度</td>
+<td>O(N log N)</td>
+<td>O(N²)</td>
+</tr>
+<tr>
+<td>空间</td>
+<td>O(N)</td>
+<td>O(log N)</td>
+</tr>
+<tr>
+<td>并行化</td>
+<td>容易</td>
+<td>较难</td>
+</tr>
+<tr>
+<td>稳定性</td>
+<td>稳定</td>
+<td>不稳定</td>
+</tr>
+</tbody>
+</table>
+<p>归并排序的确定性和稳定性使其在并行计算中更受欢迎。</p>
+<h2 id="cub-thrust-ku" tabindex="-1" id="CUB-Thrust-库">CUB/Thrust 库</h2>
+<h3 id="shi-yong-thrust" tabindex="-1" id="使用-Thrust">使用 Thrust</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">#include &lt;thrust/merge.h&gt;</span><br><span class="line">#include &lt;thrust/device_vector.h&gt;</span><br><span class="line"></span><br><span class="line">void mergeWithThrust(int *A, int m, int *B, int n, int *C) &#123;</span><br><span class="line">    thrust::device_ptr&lt;int&gt; d_A(A);</span><br><span class="line">    thrust::device_ptr&lt;int&gt; d_B(B);</span><br><span class="line">    thrust::device_ptr&lt;int&gt; d_C(C);</span><br><span class="line">    </span><br><span class="line">    thrust::merge(d_A, d_A + m, d_B, d_B + n, d_C);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<h3 id="shi-yong-cub" tabindex="-1" id="使用-CUB">使用 CUB</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">#include &lt;cub/cub.cuh&gt;</span><br><span class="line"></span><br><span class="line">void mergeWithCub(int *d_A, int m, int *d_B, int n, int *d_C) &#123;</span><br><span class="line">    void *d_temp = nullptr;</span><br><span class="line">    size_t temp_bytes = 0;</span><br><span class="line">    </span><br><span class="line">    cub::DeviceMerge::Merge(d_temp, temp_bytes, </span><br><span class="line">                            d_A, m, d_B, n, d_C);</span><br><span class="line">    </span><br><span class="line">    cudaMalloc(&amp;d_temp, temp_bytes);</span><br><span class="line">    </span><br><span class="line">    cub::DeviceMerge::Merge(d_temp, temp_bytes,</span><br><span class="line">                            d_A, m, d_B, n, d_C);</span><br><span class="line">    </span><br><span class="line">    cudaFree(d_temp);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<h2 id="xiao-jie" tabindex="-1" id="小结">小结</h2>
+<p>第十二章深入讲解并行归并：</p>
+<p><strong>核心挑战</strong>：输出位置取决于输入数据内容（动态数据识别），不能简单根据线程 ID 确定。</p>
+<p><strong>Co-Rank 技术</strong>：给定输出位置 k，用二分搜索找到对应的输入位置 (i, j)，满足 i + j = k。这是并行归并的关键。</p>
+<p><strong>分块归并</strong>：把输出分成 Tile，每个 Tile 做一次 Co-Rank 找边界，Tile 内串行归并。平衡了并行开销和工作效率。</p>
+<p><strong>共享内存优化</strong>：把 Tile 数据加载到共享内存，减少全局内存访问。循环缓冲区处理大 Tile。</p>
+<p><strong>归并路径</strong>：归并过程可视化为 2D 网格中的路径，Co-Rank 找的是路径上的点。</p>
+<p><strong>归并排序</strong>：log N 层归并，每层可以并行。总工作量 O(N log N)，并行时间可达 O(log² N)。</p>
+<p>归并是排序、数据库操作的基础。掌握 Co-Rank 技术，就能处理各种&quot;输出位置依赖输入数据&quot;的问题。下一章学习排序——归并的直接应用。</p>
+<hr>
+<p><strong>参考资料：</strong></p>
+<ul>
+<li>Hwu, W., Kirk, D., &amp; El Hajj, I. (2022). <em>Programming Massively Parallel Processors: A Hands-on Approach</em> (4th Edition). Morgan Kaufmann.</li>
+<li>Odeh, S., Green, O., Miklau, Z., Rupnow, K., &amp; Hwu, W. (2012). <em>Merge Path - A Visually Intuitive Approach to Parallel Merging</em>. IPDPS.</li>
+<li><a target="_blank" rel="noopener" href="https://nvlabs.github.io/cub/">NVIDIA CUB Library</a></li>
+</ul>
+<hr>
+<blockquote>
+<p><strong>本文 GitHub 仓库</strong>: <a target="_blank" rel="noopener" href="https://github.com/psmarter/PMPP-Learning">https://github.com/psmarter/PMPP-Learning</a></p>
+</blockquote>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/31928809/">https://smarter.xin/posts/31928809/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/CUDA/">CUDA</a><a class="post-meta__tags" href="/tags/gpu-programming/">GPU编程</a><a class="post-meta__tags" href="/tags/parallel-computing/">并行计算</a><a class="post-meta__tags" href="/tags/PMPP/">PMPP</a><a class="post-meta__tags" href="/tags/merge/">归并</a><a class="post-meta__tags" href="/tags/Merge/">Merge</a><a class="post-meta__tags" href="/tags/dynamic-data-identification/">动态数据识别</a></div><div class="post-share"><div class="social-share" data-image="/img/PMPP.jpg" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related full-width no-desc" href="/posts/a6fc4cf6/" title="PMPP-第十一章：前缀和"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">PMPP-第十一章：前缀和</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/10d278b0/" title="PMPP-第一章：引言"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-11</div><div class="info-item-2">PMPP-第一章：引言</div></div></div></a><a class="pagination-related no-desc" href="/posts/1c778456/" title="PMPP-第七章：卷积"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-16</div><div class="info-item-2">PMPP-第七章：卷积</div></div></div></a><a class="pagination-related no-desc" href="/posts/6b7045b6/" title="PMPP-第三章：多维网格和数据"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-12</div><div class="info-item-2">PMPP-第三章：多维网格和数据</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">71</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">108</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">12</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">Welcome to Smarter's blog</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#qian-yan"><span class="toc-text">前言</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#gui-bing-ji-chu"><span class="toc-text">归并基础</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#shi-yao-shi-gui-bing"><span class="toc-text">什么是归并</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#chuan-xing-gui-bing"><span class="toc-text">串行归并</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#bing-xing-hua-de-tiao-zhan"><span class="toc-text">并行化的挑战</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xie-tong-pai-ming-co-rank"><span class="toc-text">协同排名（Co-Rank）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#he-xin-dong-cha"><span class="toc-text">核心洞察</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#er-fen-sou-suo-jie-fa"><span class="toc-text">二分搜索解法</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#shi-li"><span class="toc-text">示例</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#ji-chu-bing-xing-gui-bing"><span class="toc-text">基础并行归并</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#mei-xian-cheng-yi-ge-yuan-su"><span class="toc-text">每线程一个元素</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#wen-ti"><span class="toc-text">问题</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#fen-kuai-bing-xing-gui-bing"><span class="toc-text">分块并行归并</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#si-lu"><span class="toc-text">思路</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#suan-fa"><span class="toc-text">算法</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#cuda-shi-xian"><span class="toc-text">CUDA 实现</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#gong-zuo-liang-fen-xi"><span class="toc-text">工作量分析</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#gong-xiang-nei-cun-you-hua"><span class="toc-text">共享内存优化</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#dong-ji"><span class="toc-text">动机</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#shi-xian"><span class="toc-text">实现</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#xing-neng-ti-sheng"><span class="toc-text">性能提升</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xun-huan-huan-chong-qu-you-hua"><span class="toc-text">循环缓冲区优化</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#wen-ti-1"><span class="toc-text">问题</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#si-lu-liu-shi-chu-li"><span class="toc-text">思路：流式处理</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#guan-jian-dian"><span class="toc-text">关键点</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#gui-bing-lu-jing-ke-shi-hua"><span class="toc-text">归并路径可视化</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#co-rank-de-ji-he-jie-shi"><span class="toc-text">Co-Rank 的几何解释</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#bing-xing-hua-shi-jiao"><span class="toc-text">并行化视角</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#gui-bing-pai-xu"><span class="toc-text">归并排序</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#fen-zhi-jie-gou"><span class="toc-text">分治结构</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#bing-xing-gui-bing-pai-xu"><span class="toc-text">并行归并排序</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#fu-za-du"><span class="toc-text">复杂度</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#yu-qi-ta-suan-fa-de-guan-xi"><span class="toc-text">与其他算法的关系</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#gui-bing-vs-ji-shu-pai-xu"><span class="toc-text">归并 vs 基数排序</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#gui-bing-vs-kuai-su-pai-xu"><span class="toc-text">归并 vs 快速排序</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#cub-thrust-ku"><span class="toc-text">CUB&#x2F;Thrust 库</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#shi-yong-thrust"><span class="toc-text">使用 Thrust</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#shi-yong-cub"><span class="toc-text">使用 CUB</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xiao-jie"><span class="toc-text">小结</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/31928809/" title="PMPP-第十二章：归并"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PMPP-第十二章：归并"/></a><div class="content"><a class="title" href="/posts/31928809/" title="PMPP-第十二章：归并">PMPP-第十二章：归并</a><time datetime="2026-01-18T13:42:06.000Z" title="发表于 2026-01-18 21:42:06">2026-01-18</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/a6fc4cf6/" title="PMPP-第十一章：前缀和"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PMPP-第十一章：前缀和"/></a><div class="content"><a class="title" href="/posts/a6fc4cf6/" title="PMPP-第十一章：前缀和">PMPP-第十一章：前缀和</a><time datetime="2026-01-18T07:51:17.000Z" title="发表于 2026-01-18 15:51:17">2026-01-18</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/43b40d12/" title="PMPP-第十章：归约和最小化发散"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PMPP-第十章：归约和最小化发散"/></a><div class="content"><a class="title" href="/posts/43b40d12/" title="PMPP-第十章：归约和最小化发散">PMPP-第十章：归约和最小化发散</a><time datetime="2026-01-18T02:14:18.000Z" title="发表于 2026-01-18 10:14:18">2026-01-18</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/b21cbc80/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-31</span><a class="blog-slider__title" href="posts/b21cbc80/" alt="">AI Infra学习之旅-第一个vLLM程序</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/b21cbc80/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>
