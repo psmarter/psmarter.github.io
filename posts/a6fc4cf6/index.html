@@ -1,0 +1,743 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>PMPP-第十一章：前缀和 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="前言 第十章学了归约——把 N 个数变成 1 个数。这章学前缀和（Prefix Sum），也叫 Scan——把 N 个数变成 N 个数，每个位置存储之前所有元素的累计结果。看起来计算量更大，但前缀和是并行计算的&quot;瑞士军刀&quot;，能解决很多看似不可并行的问题：流压缩、基数排序、稀疏矩阵运算等。第十一章重点讲解工作效率——如何让并行算法做的总工作量不超过串行算法太多。  📦 配套资源">
+<meta property="og:type" content="article">
+<meta property="og:title" content="PMPP-第十一章：前缀和">
+<meta property="og:url" content="https://smarter.xin/posts/a6fc4cf6/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="前言 第十章学了归约——把 N 个数变成 1 个数。这章学前缀和（Prefix Sum），也叫 Scan——把 N 个数变成 N 个数，每个位置存储之前所有元素的累计结果。看起来计算量更大，但前缀和是并行计算的&quot;瑞士军刀&quot;，能解决很多看似不可并行的问题：流压缩、基数排序、稀疏矩阵运算等。第十一章重点讲解工作效率——如何让并行算法做的总工作量不超过串行算法太多。  📦 配套资源">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/PMPP.jpg">
+<meta property="article:published_time" content="2026-01-18T07:51:17.000Z">
+<meta property="article:modified_time" content="2026-01-18T08:16:37.084Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="CUDA">
+<meta property="article:tag" content="GPU编程">
+<meta property="article:tag" content="并行计算">
+<meta property="article:tag" content="PMPP">
+<meta property="article:tag" content="前缀和">
+<meta property="article:tag" content="Scan">
+<meta property="article:tag" content="工作效率">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/PMPP.jpg"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "PMPP-第十一章：前缀和",
+  "url": "https://smarter.xin/posts/a6fc4cf6/",
+  "image": "https://smarter.xin/img/PMPP.jpg",
+  "datePublished": "2026-01-18T07:51:17.000Z",
+  "dateModified": "2026-01-18T08:16:37.084Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/a6fc4cf6/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'PMPP-第十一章：前缀和',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">70</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">105</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">12</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/PMPP.jpg);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">PMPP-第十一章：前缀和</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">PMPP-第十一章：前缀和</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-01-18T07:51:17.000Z" title="发表于 2026-01-18 15:51:17">2026-01-18</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-01-18T08:16:37.084Z" title="更新于 2026-01-18 16:16:37">2026-01-18</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/knowledge-sharing/">知识分享</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">3.2k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>13分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h2 id="qian-yan" tabindex="-1" id="前言">前言</h2>
+<p>第十章学了归约——把 N 个数变成 1 个数。这章学<strong>前缀和（Prefix Sum）</strong>，也叫 <strong>Scan</strong>——把 N 个数变成 N 个数，每个位置存储之前所有元素的累计结果。看起来计算量更大，但前缀和是并行计算的&quot;瑞士军刀&quot;，能解决很多看似不可并行的问题：流压缩、基数排序、稀疏矩阵运算等。第十一章重点讲解<strong>工作效率</strong>——如何让并行算法做的总工作量不超过串行算法太多。</p>
+<blockquote>
+<p><strong>📦 配套资源</strong>：本系列文章配有完整的 <a target="_blank" rel="noopener" href="https://github.com/psmarter/PMPP-Learning">GitHub 仓库</a>，包含每章的练习题解答、CUDA 代码实现和详细注释。所有代码都经过测试，可以直接运行。</p>
+</blockquote>
+<h2 id="qian-zhui-he-ji-chu" tabindex="-1" id="前缀和基础">前缀和基础</h2>
+<h3 id="shi-yao-shi-qian-zhui-he" tabindex="-1" id="什么是前缀和">什么是前缀和</h3>
+<p><strong>前缀和</strong>：对于输入数组 <code>[a₀, a₁, a₂, ..., aₙ₋₁]</code>，输出每个位置之前所有元素的累计值。</p>
+<p>有两种变体：</p>
+<p><strong>包含式扫描（Inclusive Scan）</strong>：包含当前元素</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">输入:  [3, 1, 7, 0, 4, 1, 6, 3]</span><br><span class="line">输出:  [3, 4, 11, 11, 15, 16, 22, 25]</span><br><span class="line">       3  3+1  4+7  11+0  ...</span><br></pre></td></tr></table></figure>
+<p><strong>排除式扫描（Exclusive Scan）</strong>：不包含当前元素</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">输入:  [3, 1, 7, 0, 4, 1, 6, 3]</span><br><span class="line">输出:  [0, 3, 4, 11, 11, 15, 16, 22]</span><br><span class="line">       0  前缀  前缀+1  前缀+7  ...</span><br></pre></td></tr></table></figure>
+<p><strong>关系</strong>：<code>exclusive[i] = inclusive[i-1]</code>，<code>exclusive[0] = 0</code></p>
+<h3 id="shu-xue-ding-yi" tabindex="-1" id="数学定义">数学定义</h3>
+<p>对于二元结合运算 ⊕：</p>
+<p><strong>Inclusive Scan</strong>:</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><msub><mi>y</mi><mi>i</mi></msub><mo>=</mo><munderover><mo>⨁</mo><mrow><mi>j</mi><mo>=</mo><mn>0</mn></mrow><mi>i</mi></munderover><msub><mi>x</mi><mi>j</mi></msub><mo>=</mo><msub><mi>x</mi><mn>0</mn></msub><mo>⊕</mo><msub><mi>x</mi><mn>1</mn></msub><mo>⊕</mo><mi mathvariant="normal">.</mi><mi mathvariant="normal">.</mi><mi mathvariant="normal">.</mi><mo>⊕</mo><msub><mi>x</mi><mi>i</mi></msub></mrow><annotation encoding="application/x-tex">y_i = \bigoplus_{j=0}^{i} x_j = x_0 \oplus x_1 \oplus ... \oplus x_i
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.625em;vertical-align:-0.1944em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.03588em;">y</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3117em;"><span style="top:-2.55em;margin-left:-0.0359em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">i</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:3.2254em;vertical-align:-1.4138em;"></span><span class="mop op-limits"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:1.8117em;"><span style="top:-1.8723em;margin-left:0em;"><span class="pstrut" style="height:3.05em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight" style="margin-right:0.05724em;">j</span><span class="mrel mtight">=</span><span class="mord mtight">0</span></span></span></span><span style="top:-3.05em;"><span class="pstrut" style="height:3.05em;"></span><span><span class="mop op-symbol large-op">⨁</span></span></span><span style="top:-4.3em;margin-left:0em;"><span class="pstrut" style="height:3.05em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight">i</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:1.4138em;"><span></span></span></span></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3117em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.05724em;">j</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.2861em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.7333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">0</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">⊕</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.7333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">1</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">⊕</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.6667em;vertical-align:-0.0833em;"></span><span class="mord">...</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">⊕</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.5806em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3117em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">i</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span></span></p>
+<p><strong>Exclusive Scan</strong>:</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><msub><mi>y</mi><mi>i</mi></msub><mo>=</mo><munderover><mo>⨁</mo><mrow><mi>j</mi><mo>=</mo><mn>0</mn></mrow><mrow><mi>i</mi><mo>−</mo><mn>1</mn></mrow></munderover><msub><mi>x</mi><mi>j</mi></msub><mo>=</mo><msub><mi>x</mi><mn>0</mn></msub><mo>⊕</mo><msub><mi>x</mi><mn>1</mn></msub><mo>⊕</mo><mi mathvariant="normal">.</mi><mi mathvariant="normal">.</mi><mi mathvariant="normal">.</mi><mo>⊕</mo><msub><mi>x</mi><mrow><mi>i</mi><mo>−</mo><mn>1</mn></mrow></msub></mrow><annotation encoding="application/x-tex">y_i = \bigoplus_{j=0}^{i-1} x_j = x_0 \oplus x_1 \oplus ... \oplus x_{i-1}
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.625em;vertical-align:-0.1944em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.03588em;">y</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3117em;"><span style="top:-2.55em;margin-left:-0.0359em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">i</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:3.2254em;vertical-align:-1.4138em;"></span><span class="mop op-limits"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:1.8117em;"><span style="top:-1.8723em;margin-left:0em;"><span class="pstrut" style="height:3.05em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight" style="margin-right:0.05724em;">j</span><span class="mrel mtight">=</span><span class="mord mtight">0</span></span></span></span><span style="top:-3.05em;"><span class="pstrut" style="height:3.05em;"></span><span><span class="mop op-symbol large-op">⨁</span></span></span><span style="top:-4.3em;margin-left:0em;"><span class="pstrut" style="height:3.05em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight">i</span><span class="mbin mtight">−</span><span class="mord mtight">1</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:1.4138em;"><span></span></span></span></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3117em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.05724em;">j</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.2861em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.7333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">0</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">⊕</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.7333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">1</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">⊕</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.6667em;vertical-align:-0.0833em;"></span><span class="mord">...</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">⊕</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.6389em;vertical-align:-0.2083em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3117em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight">i</span><span class="mbin mtight">−</span><span class="mord mtight">1</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.2083em;"><span></span></span></span></span></span></span></span></span></span></span></p>
+<p>其中 <code>y₀ = identity</code>（单位元）。</p>
+<h3 id="ying-yong-chang-jing" tabindex="-1" id="应用场景">应用场景</h3>
+<p>前缀和用途极广：</p>
+<table>
+<thead>
+<tr>
+<th>应用</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>流压缩</strong></td>
+<td>根据条件筛选元素</td>
+</tr>
+<tr>
+<td><strong>基数排序</strong></td>
+<td>计算每个桶的起始位置</td>
+</tr>
+<tr>
+<td><strong>稀疏矩阵</strong></td>
+<td>CSR 格式的行指针数组</td>
+</tr>
+<tr>
+<td><strong>多项式求值</strong></td>
+<td>Horner 法则的并行化</td>
+</tr>
+<tr>
+<td><strong>求解三对角方程</strong></td>
+<td>循环归约</td>
+</tr>
+<tr>
+<td><strong>直方图均衡化</strong></td>
+<td>累积分布函数</td>
+</tr>
+</tbody>
+</table>
+<p><strong>核心思想</strong>：前缀和把&quot;依赖前面结果&quot;的问题转化为可并行的形式。</p>
+<h3 id="chuan-xing-shi-xian" tabindex="-1" id="串行实现">串行实现</h3>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">void</span> <span class="title function_">inclusive_scan_sequential</span><span class="params">(<span class="type">float</span> *x, <span class="type">float</span> *y, <span class="type">int</span> n)</span> &#123;</span><br><span class="line">    y[<span class="number">0</span>] = x[<span class="number">0</span>];</span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> i = <span class="number">1</span>; i &lt; n; i++) &#123;</span><br><span class="line">        y[i] = y[i<span class="number">-1</span>] + x[i];</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>时间复杂度 O(n)，存在严格的数据依赖：<code>y[i]</code> 依赖 <code>y[i-1]</code>。</p>
+<p>看似无法并行？其实可以！</p>
+<h2 id="kogge-stone-suan-fa" tabindex="-1" id="Kogge-Stone-算法">Kogge-Stone 算法</h2>
+<h3 id="he-xin-si-xiang" tabindex="-1" id="核心思想">核心思想</h3>
+<p>利用结合律，不需要按顺序计算：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">y[i] = x[0] + x[1] + ... + x[i]</span><br><span class="line">     = (x[0] + x[1] + ... + x[i-k]) + (x[i-k+1] + ... + x[i])</span><br></pre></td></tr></table></figure>
+<p><strong>思路</strong>：每一步让每个元素与距离为 2^k 的元素相加。</p>
+<h3 id="suan-fa-guo-cheng" tabindex="-1" id="算法过程">算法过程</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">初始:     [3, 1, 7, 0, 4, 1, 6, 3]</span><br><span class="line"></span><br><span class="line">Step 1 (stride=1):</span><br><span class="line">  y[i] = x[i] + x[i-1]</span><br><span class="line">  结果: [3, 4, 8, 7, 4, 5, 7, 9]</span><br><span class="line"></span><br><span class="line">Step 2 (stride=2):</span><br><span class="line">  y[i] = y[i] + y[i-2]</span><br><span class="line">  结果: [3, 4, 11, 11, 12, 12, 11, 14]</span><br><span class="line"></span><br><span class="line">Step 3 (stride=4):</span><br><span class="line">  y[i] = y[i] + y[i-4]</span><br><span class="line">  结果: [3, 4, 11, 11, 15, 16, 22, 25]</span><br><span class="line"></span><br><span class="line">完成！</span><br></pre></td></tr></table></figure>
+<p>每一步，每个元素都并行更新。log₂N 步后完成。</p>
+<h3 id="cuda-shi-xian" tabindex="-1" id="CUDA-实现">CUDA 实现</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br></pre></td><td class="code"><pre><span class="line">__global__ void kogge_stone_scan(float *X, float *Y, int n) &#123;</span><br><span class="line">    __shared__ float XY[SECTION_SIZE];</span><br><span class="line">    </span><br><span class="line">    int i = blockIdx.x * blockDim.x + threadIdx.x;</span><br><span class="line">    </span><br><span class="line">    // 加载到共享内存</span><br><span class="line">    if (i &lt; n) &#123;</span><br><span class="line">        XY[threadIdx.x] = X[i];</span><br><span class="line">    &#125; else &#123;</span><br><span class="line">        XY[threadIdx.x] = 0;</span><br><span class="line">    &#125;</span><br><span class="line">    </span><br><span class="line">    // Kogge-Stone 扫描</span><br><span class="line">    for (unsigned int stride = 1; stride &lt; blockDim.x; stride *= 2) &#123;</span><br><span class="line">        __syncthreads();</span><br><span class="line">        float temp;</span><br><span class="line">        if (threadIdx.x &gt;= stride) &#123;</span><br><span class="line">            temp = XY[threadIdx.x] + XY[threadIdx.x - stride];</span><br><span class="line">        &#125;</span><br><span class="line">        __syncthreads();</span><br><span class="line">        if (threadIdx.x &gt;= stride) &#123;</span><br><span class="line">            XY[threadIdx.x] = temp;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    </span><br><span class="line">    // 写回</span><br><span class="line">    if (i &lt; n) &#123;</span><br><span class="line">        Y[i] = XY[threadIdx.x];</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<h3 id="wei-shi-yao-xu-yao-liang-ci-tong-bu" tabindex="-1" id="为什么需要两次同步？">为什么需要两次同步？</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">__syncthreads();  // 第一次：确保所有线程读完</span><br><span class="line">temp = XY[...] + XY[...];  // 读取</span><br><span class="line">__syncthreads();  // 第二次：确保所有线程读完再写</span><br><span class="line">XY[...] = temp;  // 写入</span><br></pre></td></tr></table></figure>
+<p>如果不用临时变量：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">// 错误！</span><br><span class="line">XY[i] = XY[i] + XY[i-stride];  // 如果邻居还没读完就被覆盖</span><br></pre></td></tr></table></figure>
+<p><strong>关键</strong>：读和写必须分离，用同步保证。</p>
+<h3 id="gong-zuo-liang-fen-xi" tabindex="-1" id="工作量分析">工作量分析</h3>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>串行算法</th>
+<th>Kogge-Stone</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>步数</td>
+<td>N</td>
+<td>log₂N</td>
+</tr>
+<tr>
+<td>每步操作</td>
+<td>1</td>
+<td>~N</td>
+</tr>
+<tr>
+<td>总操作</td>
+<td>N</td>
+<td>N·log₂N</td>
+</tr>
+</tbody>
+</table>
+<p><strong>问题</strong>：Kogge-Stone 做了更多的工作！</p>
+<p>对于 N=1024：</p>
+<ul>
+<li>串行：1024 次操作</li>
+<li>Kogge-Stone：1024 × 10 = 10240 次操作</li>
+</ul>
+<p>这就是**工作效率（Work Efficiency）**问题。</p>
+<h2 id="brent-kung-suan-fa" tabindex="-1" id="Brent-Kung-算法">Brent-Kung 算法</h2>
+<h3 id="gong-zuo-xiao-lu-you-hua" tabindex="-1" id="工作效率优化">工作效率优化</h3>
+<p><strong>思路</strong>：减少冗余计算，分两个阶段：</p>
+<ol>
+<li><strong>归约阶段（Reduce）</strong>：自底向上，构建部分和</li>
+<li><strong>分发阶段（Downsweep）</strong>：自顶向下，分发结果</li>
+</ol>
+<h3 id="suan-fa-guo-cheng-1" tabindex="-1" id="算法过程-2">算法过程</h3>
+<p><strong>阶段 1：归约</strong></p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">初始:     [3, 1, 7, 0, 4, 1, 6, 3]</span><br><span class="line"></span><br><span class="line">Step 1 (stride=1): 相邻元素配对求和</span><br><span class="line">          [3, 4, 7, 7, 4, 5, 6, 9]</span><br><span class="line">              ↑     ↑     ↑     ↑</span><br><span class="line">             1+3   0+7   1+4   3+6</span><br><span class="line"></span><br><span class="line">Step 2 (stride=2): 隔一个配对</span><br><span class="line">          [3, 4, 7, 11, 4, 5, 6, 14]</span><br><span class="line">                   ↑           ↑</span><br><span class="line">                  4+7         5+9</span><br><span class="line"></span><br><span class="line">Step 3 (stride=4): 隔三个配对</span><br><span class="line">          [3, 4, 7, 11, 4, 5, 6, 25]</span><br><span class="line">                               ↑</span><br><span class="line">                             11+14</span><br></pre></td></tr></table></figure>
+<p>现在 <code>XY[7] = 25 = 全部元素之和</code>。</p>
+<p><strong>阶段 2：分发（Downsweep）</strong></p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">从右到左，把部分和&quot;传播&quot;下去：</span><br><span class="line"></span><br><span class="line">Step 1 (stride=2):</span><br><span class="line">  XY[5] = XY[5] + XY[3] = 5 + 11 = 16</span><br><span class="line">          [3, 4, 7, 11, 4, 16, 6, 25]</span><br><span class="line"></span><br><span class="line">Step 2 (stride=1):</span><br><span class="line">  XY[2] = XY[2] + XY[1] = 7 + 4 = 11</span><br><span class="line">  XY[4] = XY[4] + XY[3] = 4 + 11 = 15</span><br><span class="line">  XY[6] = XY[6] + XY[5] = 6 + 16 = 22</span><br><span class="line">          [3, 4, 11, 11, 15, 16, 22, 25]</span><br><span class="line"></span><br><span class="line">完成！</span><br></pre></td></tr></table></figure>
+<h3 id="cuda-shi-xian-1" tabindex="-1" id="CUDA-实现-2">CUDA 实现</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br></pre></td><td class="code"><pre><span class="line">__global__ void brent_kung_scan(float *X, float *Y, int n) &#123;</span><br><span class="line">    __shared__ float XY[SECTION_SIZE];</span><br><span class="line">    </span><br><span class="line">    int i = 2 * blockIdx.x * blockDim.x + threadIdx.x;</span><br><span class="line">    </span><br><span class="line">    // 加载（每线程两个元素）</span><br><span class="line">    if (i &lt; n) XY[threadIdx.x] = X[i];</span><br><span class="line">    if (i + blockDim.x &lt; n) XY[threadIdx.x + blockDim.x] = X[i + blockDim.x];</span><br><span class="line">    </span><br><span class="line">    // ========== 归约阶段 ==========</span><br><span class="line">    for (unsigned int stride = 1; stride &lt;= blockDim.x; stride *= 2) &#123;</span><br><span class="line">        __syncthreads();</span><br><span class="line">        int index = (threadIdx.x + 1) * 2 * stride - 1;</span><br><span class="line">        if (index &lt; SECTION_SIZE) &#123;</span><br><span class="line">            XY[index] += XY[index - stride];</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    </span><br><span class="line">    // ========== 分发阶段 ==========</span><br><span class="line">    for (unsigned int stride = SECTION_SIZE / 4; stride &gt; 0; stride /= 2) &#123;</span><br><span class="line">        __syncthreads();</span><br><span class="line">        int index = (threadIdx.x + 1) * 2 * stride - 1;</span><br><span class="line">        if (index + stride &lt; SECTION_SIZE) &#123;</span><br><span class="line">            XY[index + stride] += XY[index];</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    </span><br><span class="line">    __syncthreads();</span><br><span class="line">    </span><br><span class="line">    // 写回</span><br><span class="line">    if (i &lt; n) Y[i] = XY[threadIdx.x];</span><br><span class="line">    if (i + blockDim.x &lt; n) Y[i + blockDim.x] = XY[threadIdx.x + blockDim.x];</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<h3 id="gong-zuo-liang-fen-xi-1" tabindex="-1" id="工作量分析-2">工作量分析</h3>
+<table>
+<thead>
+<tr>
+<th>阶段</th>
+<th>步数</th>
+<th>每步操作</th>
+<th>总操作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>归约</td>
+<td>log₂N</td>
+<td>N/2^k</td>
+<td>N-1</td>
+</tr>
+<tr>
+<td>分发</td>
+<td>log₂N - 1</td>
+<td>N/2^k</td>
+<td>N-1-log₂N</td>
+</tr>
+<tr>
+<td><strong>总计</strong></td>
+<td></td>
+<td></td>
+<td><strong>2N-2-log₂N</strong></td>
+</tr>
+</tbody>
+</table>
+<p>对于 N=1024：</p>
+<ul>
+<li>Kogge-Stone：10240 次操作</li>
+<li>Brent-Kung：~2046 次操作</li>
+</ul>
+<p><strong>工作效率提升 5 倍！</strong></p>
+<h3 id="wei-shi-yao-mei-xian-cheng-chu-li-liang-ge-yuan-su" tabindex="-1" id="为什么每线程处理两个元素？">为什么每线程处理两个元素？</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">int i = 2 * blockIdx.x * blockDim.x + threadIdx.x;</span><br></pre></td></tr></table></figure>
+<p>如果 Section 有 1024 个元素，只需要 512 个线程。每线程加载两个元素，减少了线程开销。</p>
+<h2 id="kogge-stone-vs-brent-kung" tabindex="-1" id="Kogge-Stone-vs-Brent-Kung">Kogge-Stone vs Brent-Kung</h2>
+<h3 id="dui-bi" tabindex="-1" id="对比">对比</h3>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>Kogge-Stone</th>
+<th>Brent-Kung</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>总操作数</td>
+<td>N·log₂N</td>
+<td>2N - 2 - log₂N</td>
+</tr>
+<tr>
+<td>步数</td>
+<td>log₂N</td>
+<td>2·log₂N - 1</td>
+</tr>
+<tr>
+<td>并行度（每步）</td>
+<td>N</td>
+<td>递减/递增</td>
+</tr>
+<tr>
+<td>控制逻辑</td>
+<td>简单</td>
+<td>复杂</td>
+</tr>
+<tr>
+<td>工作效率</td>
+<td>低</td>
+<td>高（~串行）</td>
+</tr>
+</tbody>
+</table>
+<h3 id="xuan-ze-ce-lue" tabindex="-1" id="选择策略">选择策略</h3>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>推荐算法</th>
+<th>原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>小数组（&lt;1K）</td>
+<td>Kogge-Stone</td>
+<td>简单，步数少</td>
+</tr>
+<tr>
+<td>大数组</td>
+<td>Brent-Kung</td>
+<td>工作量小</td>
+</tr>
+<tr>
+<td>带宽受限</td>
+<td>Kogge-Stone</td>
+<td>更多并行隐藏延迟</td>
+</tr>
+<tr>
+<td>计算受限</td>
+<td>Brent-Kung</td>
+<td>总操作少</td>
+</tr>
+</tbody>
+</table>
+<p>实际中，混合策略最常见：大部分用 Brent-Kung，最后几层用 Kogge-Stone。</p>
+<h2 id="san-jie-duan-fen-ceng-sao-miao" tabindex="-1" id="三阶段分层扫描">三阶段分层扫描</h2>
+<h3 id="wen-ti-chao-chu-dan-block" tabindex="-1" id="问题：超出单-Block">问题：超出单 Block</h3>
+<p>当数据量超过共享内存容量时，需要<strong>多 Block 协作</strong>。</p>
+<h3 id="san-jie-duan-suan-fa" tabindex="-1" id="三阶段算法">三阶段算法</h3>
+<p><strong>阶段 1：Block 内扫描</strong></p>
+<p>每个 Block 独立扫描自己的 Section，保存最后一个元素（Section Sum）。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">Block 0: [3,4,11,11]  → sum[0] = 11</span><br><span class="line">Block 1: [4,5,11,14]  → sum[1] = 14</span><br><span class="line">Block 2: [5,6,12,15]  → sum[2] = 15</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
+<p><strong>阶段 2：扫描 Section Sums</strong></p>
+<p>对所有 Block 的 sum 做扫描：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">sum: [11, 14, 15, ...]</span><br><span class="line">扫描后: [0, 11, 25, 40, ...]  // Exclusive</span><br></pre></td></tr></table></figure>
+<p>这给出了每个 Block 的&quot;起始偏移&quot;。</p>
+<p><strong>阶段 3：加上偏移</strong></p>
+<p>每个 Block 的所有元素加上对应的偏移：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">Block 0: [3,4,11,11] + 0  → [3,4,11,11]</span><br><span class="line">Block 1: [4,5,11,14] + 11 → [15,16,22,25]</span><br><span class="line">Block 2: [5,6,12,15] + 25 → [30,31,37,40]</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
+<h3 id="shi-xian" tabindex="-1" id="实现">实现</h3>
+<p><strong>Kernel 1：Block 内扫描</strong></p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">__global__ void scan_phase1(float *X, float *Y, float *S, int n) &#123;</span><br><span class="line">    __shared__ float XY[SECTION_SIZE];</span><br><span class="line">    </span><br><span class="line">    // Block 内扫描（Brent-Kung）</span><br><span class="line">    // ...</span><br><span class="line">    </span><br><span class="line">    // 保存 Section Sum</span><br><span class="line">    if (threadIdx.x == blockDim.x - 1) &#123;</span><br><span class="line">        S[blockIdx.x] = XY[SECTION_SIZE - 1];</span><br><span class="line">    &#125;</span><br><span class="line">    </span><br><span class="line">    // 写回</span><br><span class="line">    // ...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p><strong>Kernel 2：扫描 Section Sums</strong></p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">// 通常只有一个 Block，因为 Section 数量不多</span><br><span class="line">scan_single_block&lt;&lt;&lt;1, numSections&gt;&gt;&gt;(S, S, numSections);</span><br></pre></td></tr></table></figure>
+<p><strong>Kernel 3：加偏移</strong></p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">__global__ void scan_phase3(float *Y, float *S, int n) &#123;</span><br><span class="line">    int i = blockIdx.x * SECTION_SIZE + threadIdx.x;</span><br><span class="line">    if (blockIdx.x &gt; 0 &amp;&amp; i &lt; n) &#123;</span><br><span class="line">        Y[i] += S[blockIdx.x - 1];  // Exclusive 扫描的结果</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<h3 id="di-gui-chu-li" tabindex="-1" id="递归处理">递归处理</h3>
+<p>如果 Section 数量也很大，对 S 的扫描本身需要分层。形成<strong>递归结构</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">Level 0: 扫描原始数据 → Section Sums</span><br><span class="line">Level 1: 扫描 Section Sums → Super Section Sums</span><br><span class="line">Level 2: 扫描 Super Section Sums</span><br><span class="line">...</span><br><span class="line">Level K: 单 Block 完成</span><br><span class="line"></span><br><span class="line">然后逆向加偏移：</span><br><span class="line">Level K → Level K-1 → ... → Level 0</span><br></pre></td></tr></table></figure>
+<p><strong>层数</strong>：log(N/SECTION_SIZE)</p>
+<h2 id="dan-bian-sao-miao-single-pass-scan" tabindex="-1" id="单遍扫描（Single-Pass-Scan）">单遍扫描（Single-Pass Scan）</h2>
+<h3 id="dong-ji" tabindex="-1" id="动机">动机</h3>
+<p>三阶段扫描需要多次 Kernel 启动，有开销。能否一遍完成？</p>
+<h3 id="si-lu" tabindex="-1" id="思路">思路</h3>
+<p>用<strong>原子操作 + 内存标志</strong>实现 Block 间通信：</p>
+<ol>
+<li>每个 Block 完成扫描后，发布自己的 Section Sum</li>
+<li>等待前一个 Block 的结果</li>
+<li>加上前缀并继续</li>
+</ol>
+<h3 id="shi-xian-1" tabindex="-1" id="实现-2">实现</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br></pre></td><td class="code"><pre><span class="line">__global__ void single_pass_scan(float *X, float *Y, float *flags, </span><br><span class="line">                                  float *sums, int n) &#123;</span><br><span class="line">    __shared__ float XY[SECTION_SIZE];</span><br><span class="line">    __shared__ float prefix;</span><br><span class="line">    </span><br><span class="line">    int bid = blockIdx.x;</span><br><span class="line">    </span><br><span class="line">    // Phase 1: Block 内扫描</span><br><span class="line">    // ... 标准 Brent-Kung ...</span><br><span class="line">    </span><br><span class="line">    // Phase 2: 等待前一个 Block</span><br><span class="line">    if (threadIdx.x == 0) &#123;</span><br><span class="line">        // 发布自己的和</span><br><span class="line">        sums[bid] = XY[SECTION_SIZE - 1];</span><br><span class="line">        __threadfence();  // 确保写入对其他 Block 可见</span><br><span class="line">        atomicExch(&amp;flags[bid], 1);  // 标记完成</span><br><span class="line">        </span><br><span class="line">        // 等待前缀</span><br><span class="line">        if (bid &gt; 0) &#123;</span><br><span class="line">            // 等待 Block bid-1</span><br><span class="line">            while (atomicAdd(&amp;flags[bid - 1], 0) == 0);</span><br><span class="line">            __threadfence();</span><br><span class="line">            </span><br><span class="line">            // 累加所有前缀（可优化为 Kogge-Stone 风格）</span><br><span class="line">            float pre = 0;</span><br><span class="line">            for (int i = 0; i &lt; bid; i++) &#123;</span><br><span class="line">                pre += sums[i];</span><br><span class="line">            &#125;</span><br><span class="line">            prefix = pre;</span><br><span class="line">        &#125; else &#123;</span><br><span class="line">            prefix = 0;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    __syncthreads();</span><br><span class="line">    </span><br><span class="line">    // Phase 3: 加偏移并写回</span><br><span class="line">    int i = bid * SECTION_SIZE + threadIdx.x;</span><br><span class="line">    if (i &lt; n) &#123;</span><br><span class="line">        Y[i] = XY[threadIdx.x] + prefix;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<h3 id="wen-ti" tabindex="-1" id="问题">问题</h3>
+<p><strong>顺序依赖</strong>：Block 必须按顺序完成，可能导致<strong>串行化</strong>。</p>
+<p><strong>改进</strong>：使用 <strong>Decoupled Look-back</strong>（分离回溯）算法，每个 Block 只查看部分前缀，链式传播。</p>
+<h2 id="gong-zuo-xiao-lu-de-ben-zhi" tabindex="-1" id="工作效率的本质">工作效率的本质</h2>
+<h3 id="shi-jian-vs-cao-zuo" tabindex="-1" id="时间-vs-操作">时间 vs 操作</h3>
+<p><strong>并行时间</strong>：所有处理器同时工作需要的时间步数</p>
+<p><strong>总操作数</strong>：所有处理器执行的操作总和</p>
+<p><strong>工作效率 = 串行操作数 / 并行操作数</strong></p>
+<table>
+<thead>
+<tr>
+<th>算法</th>
+<th>并行时间</th>
+<th>总操作</th>
+<th>工作效率</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>串行</td>
+<td>N</td>
+<td>N</td>
+<td>100%</td>
+</tr>
+<tr>
+<td>Kogge-Stone</td>
+<td>log N</td>
+<td>N·log N</td>
+<td>1/log N</td>
+</tr>
+<tr>
+<td>Brent-Kung</td>
+<td>2·log N</td>
+<td>2N</td>
+<td>~50%</td>
+</tr>
+</tbody>
+</table>
+<h3 id="he-shi-zhui-qiu-gong-zuo-xiao-lu" tabindex="-1" id="何时追求工作效率？">何时追求工作效率？</h3>
+<p><strong>处理器充足时</strong>：</p>
+<ul>
+<li>操作数主导时间</li>
+<li>应该追求工作效率</li>
+</ul>
+<p><strong>处理器不足时</strong>：</p>
+<ul>
+<li>步数主导时间</li>
+<li>可以牺牲工作效率换取更少步数</li>
+</ul>
+<p>GPU 通常处理器&quot;足够多&quot;，所以工作效率很重要。</p>
+<h2 id="qian-zhui-he-de-ying-yong" tabindex="-1" id="前缀和的应用">前缀和的应用</h2>
+<h3 id="liu-ya-suo-stream-compaction" tabindex="-1" id="流压缩（Stream-Compaction）">流压缩（Stream Compaction）</h3>
+<p>筛选满足条件的元素：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">输入:    [3, 1, 7, 0, 4, 1, 6, 3]</span><br><span class="line">条件:    x &gt; 2</span><br><span class="line">标志:    [1, 0, 1, 0, 1, 0, 1, 1]</span><br><span class="line">前缀和:  [0, 1, 1, 2, 2, 3, 3, 4]  // Exclusive</span><br><span class="line">输出位置: 0, -, 1, -, 2, -, 3, 4</span><br><span class="line">输出:    [3, 7, 4, 6, 3]</span><br></pre></td></tr></table></figure>
+<p><strong>Exclusive 前缀和给出每个满足条件元素的输出位置！</strong></p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">__global__ void compact(int *flags, int *positions, </span><br><span class="line">                        float *in, float *out, int n) &#123;</span><br><span class="line">    int i = blockIdx.x * blockDim.x + threadIdx.x;</span><br><span class="line">    if (i &lt; n &amp;&amp; flags[i]) &#123;</span><br><span class="line">        out[positions[i]] = in[i];</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<h3 id="ji-shu-pai-xu" tabindex="-1" id="基数排序">基数排序</h3>
+<p>按位排序，每一位用前缀和确定位置：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">第 0 位 = 0 的元素: 前缀和确定位置</span><br><span class="line">第 0 位 = 1 的元素: 紧随其后</span><br></pre></td></tr></table></figure>
+<h3 id="fen-pei-gong-zuo" tabindex="-1" id="分配工作">分配工作</h3>
+<p>根据负载分配任务：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">任务大小:  [5, 3, 8, 2, 4]</span><br><span class="line">前缀和:    [0, 5, 8, 16, 18]</span><br><span class="line"></span><br><span class="line">线程 7 应该处理哪个任务？</span><br><span class="line">→ 二分查找前缀和数组</span><br><span class="line">→ 任务 1（因为 5 ≤ 7 &lt; 8）</span><br></pre></td></tr></table></figure>
+<h2 id="cub-ku" tabindex="-1" id="CUB-库">CUB 库</h2>
+<h3 id="shi-yong-cub-shi-xian-sao-miao" tabindex="-1" id="使用-CUB-实现扫描">使用 CUB 实现扫描</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">#include &lt;cub/cub.cuh&gt;</span><br><span class="line"></span><br><span class="line">void scanWithCub(float *d_in, float *d_out, int n) &#123;</span><br><span class="line">    void *d_temp = nullptr;</span><br><span class="line">    size_t temp_bytes = 0;</span><br><span class="line">    </span><br><span class="line">    // 确定临时存储大小</span><br><span class="line">    cub::DeviceScan::InclusiveSum(d_temp, temp_bytes, d_in, d_out, n);</span><br><span class="line">    </span><br><span class="line">    cudaMalloc(&amp;d_temp, temp_bytes);</span><br><span class="line">    </span><br><span class="line">    // 执行扫描</span><br><span class="line">    cub::DeviceScan::InclusiveSum(d_temp, temp_bytes, d_in, d_out, n);</span><br><span class="line">    </span><br><span class="line">    cudaFree(d_temp);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<h3 id="cub-ti-gong-de-sao-miao" tabindex="-1" id="CUB-提供的扫描">CUB 提供的扫描</h3>
+<table>
+<thead>
+<tr>
+<th>函数</th>
+<th>功能</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DeviceScan::InclusiveSum</code></td>
+<td>包含式求和</td>
+</tr>
+<tr>
+<td><code>DeviceScan::ExclusiveSum</code></td>
+<td>排除式求和</td>
+</tr>
+<tr>
+<td><code>DeviceScan::InclusiveScan</code></td>
+<td>包含式自定义</td>
+</tr>
+<tr>
+<td><code>DeviceScan::ExclusiveScan</code></td>
+<td>排除式自定义</td>
+</tr>
+</tbody>
+</table>
+<h3 id="zi-ding-yi-cao-zuo" tabindex="-1" id="自定义操作">自定义操作</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">struct MaxOp &#123;</span><br><span class="line">    __device__ float operator()(float a, float b) &#123;</span><br><span class="line">        return (a &gt; b) ? a : b;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;;</span><br><span class="line"></span><br><span class="line">MaxOp max_op;</span><br><span class="line">cub::DeviceScan::InclusiveScan(d_temp, temp_bytes, </span><br><span class="line">                                d_in, d_out, max_op, n);</span><br></pre></td></tr></table></figure>
+<h2 id="xiao-jie" tabindex="-1" id="小结">小结</h2>
+<p>第十一章深入讲解前缀和：</p>
+<p><strong>两种变体</strong>：Inclusive（含当前）vs Exclusive（不含当前）。Exclusive 的应用更广，特别是确定输出位置。</p>
+<p><strong>Kogge-Stone</strong>：简单直接，log N 步，但工作量 N·log N，工作效率低。</p>
+<p><strong>Brent-Kung</strong>：分归约和分发两阶段，工作量 ~2N，接近串行。步数略多但更高效。</p>
+<p><strong>分层扫描</strong>：大数据需要多 Block 协作。三阶段：Block 内扫描 → 扫描 Section Sums → 加偏移。可递归处理超大数据。</p>
+<p><strong>工作效率</strong>：并行算法的总操作数不应远超串行。GPU 处理器多，工作效率比步数更重要。</p>
+<p><strong>核心应用</strong>：流压缩、基数排序、负载分配。前缀和把&quot;输出位置&quot;问题变成并行可解。</p>
+<p>前缀和是并行计算的基础原语，理解它对于实现复杂并行算法至关重要。下一章学习合并（Merge）——另一个重要的并行原语。</p>
+<hr>
+<p><strong>参考资料：</strong></p>
+<ul>
+<li>Hwu, W., Kirk, D., &amp; El Hajj, I. (2022). <em>Programming Massively Parallel Processors: A Hands-on Approach</em> (4th Edition). Morgan Kaufmann.</li>
+<li>Blelloch, G. E. (1990). <em>Prefix Sums and Their Applications</em>. CMU Technical Report.</li>
+<li><a target="_blank" rel="noopener" href="https://nvlabs.github.io/cub/structcub_1_1_device_scan.html">NVIDIA CUB Library - Scan</a></li>
+</ul>
+<hr>
+<blockquote>
+<p><strong>本文 GitHub 仓库</strong>: <a target="_blank" rel="noopener" href="https://github.com/psmarter/PMPP-Learning">https://github.com/psmarter/PMPP-Learning</a></p>
+</blockquote>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/a6fc4cf6/">https://smarter.xin/posts/a6fc4cf6/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/CUDA/">CUDA</a><a class="post-meta__tags" href="/tags/gpu-programming/">GPU编程</a><a class="post-meta__tags" href="/tags/parallel-computing/">并行计算</a><a class="post-meta__tags" href="/tags/PMPP/">PMPP</a><a class="post-meta__tags" href="/tags/prefix-sum/">前缀和</a><a class="post-meta__tags" href="/tags/Scan/">Scan</a><a class="post-meta__tags" href="/tags/work-efficiency/">工作效率</a></div><div class="post-share"><div class="social-share" data-image="/img/PMPP.jpg" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related full-width no-desc" href="/posts/43b40d12/" title="PMPP-第十章：归约和最小化发散"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">PMPP-第十章：归约和最小化发散</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/10d278b0/" title="PMPP-第一章：引言"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-11</div><div class="info-item-2">PMPP-第一章：引言</div></div></div></a><a class="pagination-related no-desc" href="/posts/1c778456/" title="PMPP-第七章：卷积"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-16</div><div class="info-item-2">PMPP-第七章：卷积</div></div></div></a><a class="pagination-related no-desc" href="/posts/6b7045b6/" title="PMPP-第三章：多维网格和数据"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-12</div><div class="info-item-2">PMPP-第三章：多维网格和数据</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">70</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">105</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">12</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">Welcome to Smarter's blog</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#qian-yan"><span class="toc-text">前言</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#qian-zhui-he-ji-chu"><span class="toc-text">前缀和基础</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#shi-yao-shi-qian-zhui-he"><span class="toc-text">什么是前缀和</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#shu-xue-ding-yi"><span class="toc-text">数学定义</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#ying-yong-chang-jing"><span class="toc-text">应用场景</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#chuan-xing-shi-xian"><span class="toc-text">串行实现</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#kogge-stone-suan-fa"><span class="toc-text">Kogge-Stone 算法</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#he-xin-si-xiang"><span class="toc-text">核心思想</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#suan-fa-guo-cheng"><span class="toc-text">算法过程</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#cuda-shi-xian"><span class="toc-text">CUDA 实现</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#wei-shi-yao-xu-yao-liang-ci-tong-bu"><span class="toc-text">为什么需要两次同步？</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#gong-zuo-liang-fen-xi"><span class="toc-text">工作量分析</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#brent-kung-suan-fa"><span class="toc-text">Brent-Kung 算法</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#gong-zuo-xiao-lu-you-hua"><span class="toc-text">工作效率优化</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#suan-fa-guo-cheng-1"><span class="toc-text">算法过程</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#cuda-shi-xian-1"><span class="toc-text">CUDA 实现</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#gong-zuo-liang-fen-xi-1"><span class="toc-text">工作量分析</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#wei-shi-yao-mei-xian-cheng-chu-li-liang-ge-yuan-su"><span class="toc-text">为什么每线程处理两个元素？</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#kogge-stone-vs-brent-kung"><span class="toc-text">Kogge-Stone vs Brent-Kung</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#dui-bi"><span class="toc-text">对比</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#xuan-ze-ce-lue"><span class="toc-text">选择策略</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#san-jie-duan-fen-ceng-sao-miao"><span class="toc-text">三阶段分层扫描</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#wen-ti-chao-chu-dan-block"><span class="toc-text">问题：超出单 Block</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#san-jie-duan-suan-fa"><span class="toc-text">三阶段算法</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#shi-xian"><span class="toc-text">实现</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#di-gui-chu-li"><span class="toc-text">递归处理</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#dan-bian-sao-miao-single-pass-scan"><span class="toc-text">单遍扫描（Single-Pass Scan）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#dong-ji"><span class="toc-text">动机</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#si-lu"><span class="toc-text">思路</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#shi-xian-1"><span class="toc-text">实现</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#wen-ti"><span class="toc-text">问题</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#gong-zuo-xiao-lu-de-ben-zhi"><span class="toc-text">工作效率的本质</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#shi-jian-vs-cao-zuo"><span class="toc-text">时间 vs 操作</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#he-shi-zhui-qiu-gong-zuo-xiao-lu"><span class="toc-text">何时追求工作效率？</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#qian-zhui-he-de-ying-yong"><span class="toc-text">前缀和的应用</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#liu-ya-suo-stream-compaction"><span class="toc-text">流压缩（Stream Compaction）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#ji-shu-pai-xu"><span class="toc-text">基数排序</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#fen-pei-gong-zuo"><span class="toc-text">分配工作</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#cub-ku"><span class="toc-text">CUB 库</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#shi-yong-cub-shi-xian-sao-miao"><span class="toc-text">使用 CUB 实现扫描</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#cub-ti-gong-de-sao-miao"><span class="toc-text">CUB 提供的扫描</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#zi-ding-yi-cao-zuo"><span class="toc-text">自定义操作</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xiao-jie"><span class="toc-text">小结</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/a6fc4cf6/" title="PMPP-第十一章：前缀和"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PMPP-第十一章：前缀和"/></a><div class="content"><a class="title" href="/posts/a6fc4cf6/" title="PMPP-第十一章：前缀和">PMPP-第十一章：前缀和</a><time datetime="2026-01-18T07:51:17.000Z" title="发表于 2026-01-18 15:51:17">2026-01-18</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/43b40d12/" title="PMPP-第十章：归约和最小化发散"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PMPP-第十章：归约和最小化发散"/></a><div class="content"><a class="title" href="/posts/43b40d12/" title="PMPP-第十章：归约和最小化发散">PMPP-第十章：归约和最小化发散</a><time datetime="2026-01-18T02:14:18.000Z" title="发表于 2026-01-18 10:14:18">2026-01-18</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/d29973f1/" title="PMPP-第九章：并行直方图"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PMPP-第九章：并行直方图"/></a><div class="content"><a class="title" href="/posts/d29973f1/" title="PMPP-第九章：并行直方图">PMPP-第九章：并行直方图</a><time datetime="2026-01-17T12:54:04.000Z" title="发表于 2026-01-17 20:54:04">2026-01-17</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/b21cbc80/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-31</span><a class="blog-slider__title" href="posts/b21cbc80/" alt="">AI Infra学习之旅-第一个vLLM程序</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/b21cbc80/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>
