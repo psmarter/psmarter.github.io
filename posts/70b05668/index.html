@@ -1,0 +1,497 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>PMPP-第十五章：图遍历 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="前言 第十四章我们学习了稀疏矩阵，那一章的重点是 SpMV（稀疏矩阵-向量乘法）。其实，图（Graph）和稀疏矩阵是一体两面的：图的邻接矩阵通常就是稀疏矩阵。第十五章我们将深入探讨图算法的核心——图遍历，特别是广度优先搜索（BFS）。BFS 是最短路径、连通分量、最大流等众多图算法的基础，也是 GPU 处理不规则数据结构的典型案例。  📦 配套资源：本系列文章配有完整的 GitHub 仓库，包含">
+<meta property="og:type" content="article">
+<meta property="og:title" content="PMPP-第十五章：图遍历">
+<meta property="og:url" content="https://smarter.xin/posts/70b05668/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="前言 第十四章我们学习了稀疏矩阵，那一章的重点是 SpMV（稀疏矩阵-向量乘法）。其实，图（Graph）和稀疏矩阵是一体两面的：图的邻接矩阵通常就是稀疏矩阵。第十五章我们将深入探讨图算法的核心——图遍历，特别是广度优先搜索（BFS）。BFS 是最短路径、连通分量、最大流等众多图算法的基础，也是 GPU 处理不规则数据结构的典型案例。  📦 配套资源：本系列文章配有完整的 GitHub 仓库，包含">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/PMPP.jpg">
+<meta property="article:published_time" content="2026-01-19T08:12:39.000Z">
+<meta property="article:modified_time" content="2026-01-19T08:20:22.823Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="CUDA">
+<meta property="article:tag" content="GPU编程">
+<meta property="article:tag" content="并行计算">
+<meta property="article:tag" content="PMPP">
+<meta property="article:tag" content="图算法">
+<meta property="article:tag" content="BFS">
+<meta property="article:tag" content="CSR格式">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/PMPP.jpg"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "PMPP-第十五章：图遍历",
+  "url": "https://smarter.xin/posts/70b05668/",
+  "image": "https://smarter.xin/img/PMPP.jpg",
+  "datePublished": "2026-01-19T08:12:39.000Z",
+  "dateModified": "2026-01-19T08:20:22.823Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/70b05668/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'PMPP-第十五章：图遍历',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">74</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">115</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">12</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/PMPP.jpg);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">PMPP-第十五章：图遍历</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">PMPP-第十五章：图遍历</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-01-19T08:12:39.000Z" title="发表于 2026-01-19 16:12:39">2026-01-19</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-01-19T08:20:22.823Z" title="更新于 2026-01-19 16:20:22">2026-01-19</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/knowledge-sharing/">知识分享</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">2.2k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>7分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h2 id="qian-yan" tabindex="-1" id="前言">前言</h2>
+<p>第十四章我们学习了稀疏矩阵，那一章的重点是 SpMV（稀疏矩阵-向量乘法）。其实，<strong>图（Graph）<strong>和稀疏矩阵是一体两面的：图的邻接矩阵通常就是稀疏矩阵。第十五章我们将深入探讨图算法的核心——<strong>图遍历</strong>，特别是</strong>广度优先搜索（BFS）</strong>。BFS 是最短路径、连通分量、最大流等众多图算法的基础，也是 GPU 处理不规则数据结构的典型案例。</p>
+<blockquote>
+<p><strong>📦 配套资源</strong>：本系列文章配有完整的 <a target="_blank" rel="noopener" href="https://github.com/psmarter/PMPP-Learning">GitHub 仓库</a>，包含每章的练习题解答、CUDA 代码实现和详细注释。所有代码都经过测试，可以直接运行。</p>
+</blockquote>
+<h2 id="tu-de-biao-shi" tabindex="-1" id="图的表示">图的表示</h2>
+<h3 id="cong-xian-shi-shi-jie-dao-tu" tabindex="-1" id="从现实世界到图">从现实世界到图</h3>
+<p>图由节点（Vertex）和边（Edge）组成。</p>
+<ul>
+<li><strong>社交网络</strong>：节点是人，边是关注/好友关系。</li>
+<li><strong>道路网</strong>：节点是路口，边是道路。</li>
+<li><strong>引用网络</strong>：节点是论文，边是引用关系。</li>
+</ul>
+<p>这些图通常是<strong>稀疏</strong>的（每个节点平均只连接少数其他节点）且<strong>无标度</strong>的（少数节点有极多连接，俗称&quot;大V&quot;）。</p>
+<h3 id="cun-chu-ge-shi-csr" tabindex="-1" id="存储格式：CSR">存储格式：CSR</h3>
+<p>上一章介绍的 <strong>CSR (Compressed Sparse Row)</strong> 格式不仅适合 SpMV，也是存储图的标准格式。</p>
+<p>对于一个有 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>V</mi></mrow><annotation encoding="application/x-tex">V</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.22222em;">V</span></span></span></span> 个节点、<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>E</mi></mrow><annotation encoding="application/x-tex">E</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.05764em;">E</span></span></span></span> 条边的图：</p>
+<ul>
+<li><strong>row_ptr</strong> (长度 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>V</mi><mo>+</mo><mn>1</mn></mrow><annotation encoding="application/x-tex">V+1</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7667em;vertical-align:-0.0833em;"></span><span class="mord mathnormal" style="margin-right:0.22222em;">V</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">1</span></span></span></span>)：<code>row_ptr[i]</code> 指向节点 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>i</mi></mrow><annotation encoding="application/x-tex">i</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6595em;"></span><span class="mord mathnormal">i</span></span></span></span> 的邻居列表在 <code>col_idx</code> 中的起始位置。</li>
+<li><strong>col_idx</strong> (长度 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>E</mi></mrow><annotation encoding="application/x-tex">E</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.05764em;">E</span></span></span></span>)：存储所有边的目标节点。</li>
+</ul>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">节点 0 的邻居：col_idx[row_ptr[0]] ... col_idx[row_ptr[1]-1]</span><br><span class="line">节点 i 的邻居数：row_ptr[i+1] - row_ptr[i]</span><br></pre></td></tr></table></figure>
+<h2 id="yan-du-you-xian-sou-suo-bfs" tabindex="-1" id="广度优先搜索-BFS">广度优先搜索 (BFS)</h2>
+<h3 id="wen-ti-ding-yi" tabindex="-1" id="问题定义">问题定义</h3>
+<p>给定起点 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>S</mi></mrow><annotation encoding="application/x-tex">S</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.05764em;">S</span></span></span></span>，BFS 需要访问所有可达节点，并计算从 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>S</mi></mrow><annotation encoding="application/x-tex">S</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.05764em;">S</span></span></span></span> 到每个节点的最短距离（层数）。</p>
+<h3 id="chuan-xing-bfs" tabindex="-1" id="串行-BFS">串行 BFS</h3>
+<p>经典实现使用<strong>队列（Queue）</strong>：</p>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="type">void</span> <span class="title">BFS_sequential</span><span class="params">(<span class="type">int</span> S, <span class="type">int</span> *row_ptr, <span class="type">int</span> *col_idx, <span class="type">int</span> *level, <span class="type">int</span> num_nodes)</span> </span>&#123;</span><br><span class="line">    std::queue&lt;<span class="type">int</span>&gt; q;</span><br><span class="line">    q.<span class="built_in">push</span>(S);</span><br><span class="line">    level[S] = <span class="number">0</span>; <span class="comment">// 初始化其他为 -1</span></span><br><span class="line"></span><br><span class="line">    <span class="keyword">while</span> (!q.<span class="built_in">empty</span>()) &#123;</span><br><span class="line">        <span class="type">int</span> u = q.<span class="built_in">front</span>(); q.<span class="built_in">pop</span>();</span><br><span class="line">        </span><br><span class="line">        <span class="comment">// 遍历所有邻居 v</span></span><br><span class="line">        <span class="keyword">for</span> (<span class="type">int</span> i = row_ptr[u]; i &lt; row_ptr[u<span class="number">+1</span>]; i++) &#123;</span><br><span class="line">            <span class="type">int</span> v = col_idx[i];</span><br><span class="line">            </span><br><span class="line">            <span class="comment">// 如果 v 未被访问</span></span><br><span class="line">            <span class="keyword">if</span> (level[v] == <span class="number">-1</span>) &#123;</span><br><span class="line">                level[v] = level[u] + <span class="number">1</span>;</span><br><span class="line">                q.<span class="built_in">push</span>(v);</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<h3 id="bing-xing-hua-de-tiao-zhan" tabindex="-1" id="并行化的挑战">并行化的挑战</h3>
+<ol>
+<li><strong>不规则访问</strong>：每个节点的邻居数量差异巨大（负载不均衡）。</li>
+<li><strong>动态工作集</strong>：每一层的节点数都在变化。</li>
+<li><strong>并发冲突</strong>：多个节点可能同时尝试访问同一个邻居。</li>
+</ol>
+<h2 id="bing-xing-bfs-an-ceng-tong-bu" tabindex="-1" id="并行-BFS：按层同步">并行 BFS：按层同步</h2>
+<p>GPU 适合解决可以分层的任务。BFS 天然分层：<br>
+第 0 层（起点） -&gt; 第 1 层邻居 -&gt; 第 2 层邻居 -&gt; …</p>
+<p>我们可以采用**按层同步（Level Synchronous）**的方法：</p>
+<ol>
+<li>维护一个**前沿（Frontier）**数组，标记当前层需要扩展的节点。</li>
+<li>并行处理 Frontier 中的每个节点，找到下一层的邻居。</li>
+<li>更新 Frontier，进入下一轮迭代。</li>
+</ol>
+<h3 id="chu-shi-ban-ben-bu-er-qian-yan-shu-zu" tabindex="-1" id="初始版本：布尔前沿数组">初始版本：布尔前沿数组</h3>
+<p>用一个布尔数组 <code>F</code> 表示当前层节点，<code>next_F</code> 表示下一层。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line">__global__ void BFS_kernel(int *row_ptr, int *col_idx, int *level, </span><br><span class="line">                           bool *F, bool *next_F, int num_nodes, int current_depth) &#123;</span><br><span class="line">    int tid = blockIdx.x * blockDim.x + threadIdx.x;</span><br><span class="line">    </span><br><span class="line">    if (tid &lt; num_nodes &amp;&amp; F[tid]) &#123; // 如果我是当前层节点</span><br><span class="line">        F[tid] = false; // 移除自己</span><br><span class="line">        </span><br><span class="line">        // 遍历邻居</span><br><span class="line">        int start = row_ptr[tid];</span><br><span class="line">        int end = row_ptr[tid+1];</span><br><span class="line">        for (int i = start; i &lt; end; i++) &#123;</span><br><span class="line">            int neighbor = col_idx[i];</span><br><span class="line">            </span><br><span class="line">            // 如果邻居未访问</span><br><span class="line">            if (level[neighbor] == -1) &#123;</span><br><span class="line">                level[neighbor] = current_depth + 1;</span><br><span class="line">                next_F[neighbor] = true; // 加入下一层</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p><strong>Host 端循环</strong>：</p>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">while</span> (frontier_not_empty) &#123;</span><br><span class="line">    BFS_kernel&lt;&lt;&lt;...&gt;&gt;&gt;(..., depth);</span><br><span class="line">    <span class="built_in">cudaDeviceSynchronize</span>();</span><br><span class="line">    <span class="built_in">swap</span>(F, next_F);</span><br><span class="line">    depth++;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<h3 id="tong-dian-bing-fa-xie-chong-tu" tabindex="-1" id="痛点：并发写冲突">痛点：并发写冲突</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">if (level[neighbor] == -1) &#123;</span><br><span class="line">    level[neighbor] = current_depth + 1; // 冲突！</span><br><span class="line">    next_F[neighbor] = true;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>当多个节点指向同一个邻居时，会发生<strong>写竞争</strong>。<br>
+虽然在这里，只要有一个线程写入成功即可（因为距离都是 <code>current_depth + 1</code>），且 <code>next_F</code> 设为 true 多次也无妨，但在有些硬件或算法变体上，这会导致数据未定义行为。</p>
+<p><strong>更安全的做法</strong>是使用原子操作，但这很慢。<br>
+在 BFS 这种距离只更新一次的场景，可以利用<strong>良性竞争</strong>：多线程同时写入相同的值通常是可以接受的，或者使用 <code>atomicCAS</code> 保证只有第一个访问者能更新。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">if (level[neighbor] == -1) &#123;</span><br><span class="line">    // 利用 level 值作为锁</span><br><span class="line">    // 只有原来的值为 -1 时才更新</span><br><span class="line">    // 实际上对于简单的 BFS，直接写在某些架构上可行，但标准做法应考虑数据竞争</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<h2 id="you-hua-yi-gong-zuo-xiao-lu-yu-xi-shu-qian-yan" tabindex="-1" id="优化一：工作效率与稀疏前沿">优化一：工作效率与稀疏前沿</h2>
+<p>上面的布尔数组方法有一个大问题：<strong>工作效率极低</strong>。<br>
+每一层都要启动 <code>num_nodes</code> 个线程，即使当前层只有 1 个节点！</p>
+<p><strong>稀疏前沿（Sparse Frontier）</strong>：<br>
+不存储布尔值，而是将当前层节点的 ID 存储在一个紧凑的队列中。<br>
+<code>Queue: [0, 5, 12]</code></p>
+<p>这样只需启动 <code>num_frontier</code> 个线程。这需要<strong>动态队列管理</strong>。</p>
+<h3 id="quan-ju-yuan-zi-dui-lie" tabindex="-1" id="全局原子队列">全局原子队列</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">__global__ void BFS_queue_kernel(..., int *queue, int *q_count, int *next_queue, int *next_q_count) &#123;</span><br><span class="line">    int tid = ...;</span><br><span class="line">    // 从 queue 中取节点 u</span><br><span class="line">    int u = queue[tid]; </span><br><span class="line">    </span><br><span class="line">    // 遍历邻居 v</span><br><span class="line">    // ...</span><br><span class="line">    if (atomicCAS(&amp;level[v], -1, depth+1) == -1) &#123; // 只有第一个更新成功的才入队</span><br><span class="line">         int pos = atomicAdd(next_q_count, 1);</span><br><span class="line">         next_queue[pos] = v;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p><strong>问题</strong>：所有线程争抢 <code>next_q_count</code> 这个全局计数器，原子操作争用极其严重！</p>
+<h2 id="you-hua-er-si-you-hua-yu-fen-ceng-dui-lie" tabindex="-1" id="优化二：私有化与分层队列">优化二：私有化与分层队列</h2>
+<p>类似于第九章的直方图优化，我们可以使用**私有化（Privatization）**技术。</p>
+<ol>
+<li><strong>Block 级队列</strong>：每个 Block 在共享内存中维护一个小的局部队列。</li>
+<li><strong>局部聚合</strong>：线程发现新邻居时，先写入共享内存队列。</li>
+<li><strong>全局提交</strong>：Block 满或结束时，一次性申请全局队列空间，将局部队列拷贝过去。</li>
+</ol>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line">__shared__ int s_queue[BLOCK_SIZE];</span><br><span class="line">__shared__ int s_tail;</span><br><span class="line"></span><br><span class="line">// 1. 发现邻居入局部队</span><br><span class="line">int s_pos = atomicAdd(&amp;s_tail, 1);</span><br><span class="line">if (s_pos &lt; BLOCK_SIZE) s_queue[s_pos] = v;</span><br><span class="line"></span><br><span class="line">__syncthreads();</span><br><span class="line"></span><br><span class="line">// 2. Block 申请全局空间</span><br><span class="line">__shared__ int g_offset;</span><br><span class="line">if (threadIdx.x == 0) &#123;</span><br><span class="line">    g_offset = atomicAdd(global_counter, s_tail);</span><br><span class="line">&#125;</span><br><span class="line">__syncthreads();</span><br><span class="line"></span><br><span class="line">// 3. 拷贝到全局</span><br><span class="line">if (threadIdx.x &lt; s_tail) &#123;</span><br><span class="line">    next_queue[g_offset + threadIdx.x] = s_queue[threadIdx.x];</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>这大大减少了全局原子操作的次数。</p>
+<h2 id="you-hua-san-fang-xiang-you-hua-top-down-vs-bottom-up" tabindex="-1" id="优化三：方向优化（Top-Down-vs-Bottom-Up）">优化三：方向优化（Top-Down vs Bottom-Up）</h2>
+<p>这是 BFS 优化中最重要的策略之一，源自 Scott Beamer 的开创性工作。</p>
+<h3 id="top-down-push" tabindex="-1" id="Top-Down-Push">Top-Down (Push)</h3>
+<p>传统的 BFS 是**推（Push）**模式：</p>
+<ul>
+<li>看着 frontier 里的节点。</li>
+<li>检查它们的邻居。</li>
+<li>如果邻居没访问过，更新邻居。</li>
+</ul>
+<p><strong>优点</strong>：前沿（Frontier）很小时效率高。<br>
+<strong>缺点</strong>：前沿很大时，边数可能是节点数的几十倍，大量冗余检查（很多邻居已经被访问过了）。</p>
+<h3 id="bottom-up-pull" tabindex="-1" id="Bottom-Up-Pull">Bottom-Up (Pull)</h3>
+<p>反过来思考：**拉（Pull）**模式。</p>
+<ul>
+<li>看着所有<strong>未访问</strong>的节点。</li>
+<li>检查它们的邻居是否在 frontier 里。</li>
+<li>只要发现<strong>一个</strong>邻居在 frontier 里，我就&quot;被发现&quot;了，更新自己，不需要检查其他邻居。</li>
+</ul>
+<p><strong>优点</strong>：当前沿很大时，不需要遍历所有边，只需找到一个父节点即可停止。<br>
+<strong>缺点</strong>：需要扫描所有未访问节点，前沿小时效率极低。</p>
+<h3 id="hun-he-ce-lue-direction-optimizing-bfs" tabindex="-1" id="混合策略-Direction-Optimizing-BFS">混合策略 (Direction-Optimizing BFS)</h3>
+<ul>
+<li>开始时（前沿小）：用 Top-Down。</li>
+<li>中间时（前沿爆炸）：切换到 Bottom-Up。</li>
+<li>结尾时（前沿收缩）：切回 Top-Down。</li>
+</ul>
+<p>这通常能带来数倍的性能提升。</p>
+<h2 id="fu-zai-jun-heng-chu-li-wu-biao-du-wang-luo" tabindex="-1" id="负载均衡：处理无标度网络">负载均衡：处理无标度网络</h2>
+<p>在社交网络中，某些节点可能有百万级邻居（如名人），而大多节点只有几个邻居。<br>
+如果一个线程处理一个节点：</p>
+<ul>
+<li>线程 A 处理 2 个邻居（瞬间完成）。</li>
+<li>线程 B 处理 100万 个邻居（卡死整个 Warp/Block）。</li>
+</ul>
+<p><strong>解决方案</strong>：</p>
+<ol>
+<li><strong>节点并行</strong>：每个线程处理一个节点（适合普通节点）。</li>
+<li><strong>边并行</strong>：对于度数极大的节点，让整个 Warp 甚至整个 Block 协作处理它的邻居列表。</li>
+</ol>
+<p>这需要预处理来识别大度节点，类似 SpMV 中的 CSR-Vector 或 CSR-Stream 策略。</p>
+<h2 id="zong-jie" tabindex="-1" id="总结">总结</h2>
+<p>第十五章展示了如何用 GPU 解决图遍历问题。相比于规则的矩阵运算，图算法充满了挑战：</p>
+<ol>
+<li><strong>CSR 格式</strong>：是图和稀疏矩阵的桥梁。</li>
+<li><strong>按层同步</strong>：是并行 BFS 的基本框架。</li>
+<li><strong>队列管理</strong>：从简单的布尔数组到复杂的双层队列（私有化），是为了解决工作效率和原子争用问题。</li>
+<li><strong>方向优化</strong>：Push vs Pull 的动态切换，体现了算法设计对数据特征的适应。</li>
+<li><strong>负载均衡</strong>：应对无标度特性，需要细粒度的任务调度。</li>
+</ol>
+<p>图算法是高性能计算（HPC）皇冠上的明珠之一（Graph500 排名），掌握了它，意味着你对 GPU 并行模式的理解达到了新的高度。</p>
+<hr>
+<p><strong>参考资料：</strong></p>
+<ul>
+<li>Hwu, W., Kirk, D., &amp; El Hajj, I. (2022). <em>Programming Massively Parallel Processors: A Hands-on Approach</em> (4th Edition). Morgan Kaufmann.</li>
+<li>Merrill, D., et al. (2012). <em>Scalable GPU Graph Traversal</em>. PPoPP.</li>
+<li>Beamer, S., et al. (2012). <em>Direction-Optimizing Breadth-First Search</em>. SC12.</li>
+</ul>
+<hr>
+<blockquote>
+<p><strong>本文 GitHub 仓库</strong>: <a target="_blank" rel="noopener" href="https://github.com/psmarter/PMPP-Learning">https://github.com/psmarter/PMPP-Learning</a></p>
+</blockquote>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/70b05668/">https://smarter.xin/posts/70b05668/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/CUDA/">CUDA</a><a class="post-meta__tags" href="/tags/gpu-programming/">GPU编程</a><a class="post-meta__tags" href="/tags/parallel-computing/">并行计算</a><a class="post-meta__tags" href="/tags/PMPP/">PMPP</a><a class="post-meta__tags" href="/tags/%E5%9B%BE%E7%AE%97%E6%B3%95/">图算法</a><a class="post-meta__tags" href="/tags/BFS/">BFS</a><a class="post-meta__tags" href="/tags/csr-format/">CSR格式</a></div><div class="post-share"><div class="social-share" data-image="/img/PMPP.jpg" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related full-width no-desc" href="/posts/7af84cf7/" title="PMPP-第十四章：稀疏矩阵计算"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">PMPP-第十四章：稀疏矩阵计算</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/7af84cf7/" title="PMPP-第十四章：稀疏矩阵计算"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-19</div><div class="info-item-2">PMPP-第十四章：稀疏矩阵计算</div></div></div></a><a class="pagination-related no-desc" href="/posts/10d278b0/" title="PMPP-第一章：引言"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-11</div><div class="info-item-2">PMPP-第一章：引言</div></div></div></a><a class="pagination-related no-desc" href="/posts/1c778456/" title="PMPP-第七章：卷积"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-16</div><div class="info-item-2">PMPP-第七章：卷积</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">74</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">115</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">12</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">Welcome to Smarter's blog</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#qian-yan"><span class="toc-text">前言</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#tu-de-biao-shi"><span class="toc-text">图的表示</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#cong-xian-shi-shi-jie-dao-tu"><span class="toc-text">从现实世界到图</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#cun-chu-ge-shi-csr"><span class="toc-text">存储格式：CSR</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#yan-du-you-xian-sou-suo-bfs"><span class="toc-text">广度优先搜索 (BFS)</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#wen-ti-ding-yi"><span class="toc-text">问题定义</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#chuan-xing-bfs"><span class="toc-text">串行 BFS</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#bing-xing-hua-de-tiao-zhan"><span class="toc-text">并行化的挑战</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#bing-xing-bfs-an-ceng-tong-bu"><span class="toc-text">并行 BFS：按层同步</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#chu-shi-ban-ben-bu-er-qian-yan-shu-zu"><span class="toc-text">初始版本：布尔前沿数组</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#tong-dian-bing-fa-xie-chong-tu"><span class="toc-text">痛点：并发写冲突</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#you-hua-yi-gong-zuo-xiao-lu-yu-xi-shu-qian-yan"><span class="toc-text">优化一：工作效率与稀疏前沿</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#quan-ju-yuan-zi-dui-lie"><span class="toc-text">全局原子队列</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#you-hua-er-si-you-hua-yu-fen-ceng-dui-lie"><span class="toc-text">优化二：私有化与分层队列</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#you-hua-san-fang-xiang-you-hua-top-down-vs-bottom-up"><span class="toc-text">优化三：方向优化（Top-Down vs Bottom-Up）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#top-down-push"><span class="toc-text">Top-Down (Push)</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#bottom-up-pull"><span class="toc-text">Bottom-Up (Pull)</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#hun-he-ce-lue-direction-optimizing-bfs"><span class="toc-text">混合策略 (Direction-Optimizing BFS)</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#fu-zai-jun-heng-chu-li-wu-biao-du-wang-luo"><span class="toc-text">负载均衡：处理无标度网络</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#zong-jie"><span class="toc-text">总结</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/70b05668/" title="PMPP-第十五章：图遍历"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PMPP-第十五章：图遍历"/></a><div class="content"><a class="title" href="/posts/70b05668/" title="PMPP-第十五章：图遍历">PMPP-第十五章：图遍历</a><time datetime="2026-01-19T08:12:39.000Z" title="发表于 2026-01-19 16:12:39">2026-01-19</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/7af84cf7/" title="PMPP-第十四章：稀疏矩阵计算"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PMPP-第十四章：稀疏矩阵计算"/></a><div class="content"><a class="title" href="/posts/7af84cf7/" title="PMPP-第十四章：稀疏矩阵计算">PMPP-第十四章：稀疏矩阵计算</a><time datetime="2026-01-19T02:49:30.000Z" title="发表于 2026-01-19 10:49:30">2026-01-19</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/d9ee9484/" title="PMPP-第十三章：排序"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PMPP-第十三章：排序"/></a><div class="content"><a class="title" href="/posts/d9ee9484/" title="PMPP-第十三章：排序">PMPP-第十三章：排序</a><time datetime="2026-01-18T14:04:20.000Z" title="发表于 2026-01-18 22:04:20">2026-01-18</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/b21cbc80/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-31</span><a class="blog-slider__title" href="posts/b21cbc80/" alt="">AI Infra学习之旅-第一个vLLM程序</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/b21cbc80/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>
