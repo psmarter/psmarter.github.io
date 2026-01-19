@@ -1,0 +1,684 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>PMPP-第十六章：深度学习 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="前言 前面我们学习了各种并行算法原语：归约、扫描、排序、稀疏矩阵、图遍历。这些技术在深度学习中都有用武之地。第十六章将这些技术串联起来，展示 GPU 如何加速深度学习——这是当今 GPU 最重要的应用之一。本章不会深入讲解神经网络理论，而是聚焦于计算视角：神经网络的核心操作是什么？GPU 如何高效实现它们？  📦 配套资源：本系列文章配有完整的 GitHub 仓库，包含每章的练习题解答、CUDA">
+<meta property="og:type" content="article">
+<meta property="og:title" content="PMPP-第十六章：深度学习">
+<meta property="og:url" content="https://smarter.xin/posts/feaca34d/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="前言 前面我们学习了各种并行算法原语：归约、扫描、排序、稀疏矩阵、图遍历。这些技术在深度学习中都有用武之地。第十六章将这些技术串联起来，展示 GPU 如何加速深度学习——这是当今 GPU 最重要的应用之一。本章不会深入讲解神经网络理论，而是聚焦于计算视角：神经网络的核心操作是什么？GPU 如何高效实现它们？  📦 配套资源：本系列文章配有完整的 GitHub 仓库，包含每章的练习题解答、CUDA">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/PMPP.jpg">
+<meta property="article:published_time" content="2026-01-19T15:07:59.000Z">
+<meta property="article:modified_time" content="2026-01-19T15:16:27.344Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="深度学习">
+<meta property="article:tag" content="CUDA">
+<meta property="article:tag" content="GPU编程">
+<meta property="article:tag" content="并行计算">
+<meta property="article:tag" content="PMPP">
+<meta property="article:tag" content="卷积神经网络">
+<meta property="article:tag" content="cuDNN">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/PMPP.jpg"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "PMPP-第十六章：深度学习",
+  "url": "https://smarter.xin/posts/feaca34d/",
+  "image": "https://smarter.xin/img/PMPP.jpg",
+  "datePublished": "2026-01-19T15:07:59.000Z",
+  "dateModified": "2026-01-19T15:16:27.344Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/feaca34d/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'PMPP-第十六章：深度学习',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">75</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">117</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">12</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/PMPP.jpg);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">PMPP-第十六章：深度学习</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">PMPP-第十六章：深度学习</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-01-19T15:07:59.000Z" title="发表于 2026-01-19 23:07:59">2026-01-19</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-01-19T15:16:27.344Z" title="更新于 2026-01-19 23:16:27">2026-01-19</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/knowledge-sharing/">知识分享</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">2.5k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>10分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h2 id="qian-yan" tabindex="-1" id="前言">前言</h2>
+<p>前面我们学习了各种并行算法原语：归约、扫描、排序、稀疏矩阵、图遍历。这些技术在深度学习中都有用武之地。第十六章将这些技术串联起来，展示 GPU 如何加速<strong>深度学习</strong>——这是当今 GPU 最重要的应用之一。本章不会深入讲解神经网络理论，而是聚焦于<strong>计算视角</strong>：神经网络的核心操作是什么？GPU 如何高效实现它们？</p>
+<blockquote>
+<p><strong>📦 配套资源</strong>：本系列文章配有完整的 <a target="_blank" rel="noopener" href="https://github.com/psmarter/PMPP-Learning">GitHub 仓库</a>，包含每章的练习题解答、CUDA 代码实现和详细注释。所有代码都经过测试，可以直接运行。</p>
+</blockquote>
+<h2 id="shen-du-xue-xi-ji-chu" tabindex="-1" id="深度学习基础">深度学习基础</h2>
+<h3 id="shen-jing-wang-luo-de-ji-suan-ben-zhi" tabindex="-1" id="神经网络的计算本质">神经网络的计算本质</h3>
+<p>无论是全连接层、卷积层还是注意力层，神经网络的核心操作都是：</p>
+<ol>
+<li><strong>线性变换</strong>：矩阵乘法（GEMM）</li>
+<li><strong>非线性激活</strong>：ReLU、Sigmoid、Softmax 等</li>
+<li><strong>归约操作</strong>：Pooling、Normalization</li>
+</ol>
+<p><strong>计算量分布</strong>（以 ResNet-50 为例）：</p>
+<ul>
+<li>卷积层：~95% 的计算量</li>
+<li>全连接层：~4%</li>
+<li>其他：~1%</li>
+</ul>
+<p>卷积才是 GPU 优化的主战场。</p>
+<h3 id="shen-du-xue-xi-wei-shi-yao-xu-yao-gpu" tabindex="-1" id="深度学习为什么需要-GPU">深度学习为什么需要 GPU</h3>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>CPU</th>
+<th>GPU</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>核心数</td>
+<td>8-64</td>
+<td>数千</td>
+</tr>
+<tr>
+<td>时钟频率</td>
+<td>3-5 GHz</td>
+<td>1-2 GHz</td>
+</tr>
+<tr>
+<td>峰值算力(FP32)</td>
+<td>~1 TFLOPS</td>
+<td>~30 TFLOPS</td>
+</tr>
+<tr>
+<td>内存带宽</td>
+<td>~100 GB/s</td>
+<td>~1000 GB/s</td>
+</tr>
+</tbody>
+</table>
+<p>深度学习的计算是<strong>高度并行</strong>的：</p>
+<ul>
+<li>批量处理（Batch）：独立样本并行</li>
+<li>空间并行：图像不同位置并行</li>
+<li>通道并行：不同特征图并行</li>
+</ul>
+<p>这是 GPU 的理想场景。</p>
+<h2 id="juan-ji-ceng-de-gpu-shi-xian" tabindex="-1" id="卷积层的-GPU-实现">卷积层的 GPU 实现</h2>
+<h3 id="juan-ji-de-ji-suan-fu-za-du" tabindex="-1" id="卷积的计算复杂度">卷积的计算复杂度</h3>
+<p>给定输入张量 <code>[N, C_in, H, W]</code> 和卷积核 <code>[C_out, C_in, K, K]</code>：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mtext>FLOPs</mtext><mo>=</mo><mn>2</mn><mo>×</mo><mi>N</mi><mo>×</mo><msub><mi>C</mi><mrow><mi>o</mi><mi>u</mi><mi>t</mi></mrow></msub><mo>×</mo><msub><mi>H</mi><mrow><mi>o</mi><mi>u</mi><mi>t</mi></mrow></msub><mo>×</mo><msub><mi>W</mi><mrow><mi>o</mi><mi>u</mi><mi>t</mi></mrow></msub><mo>×</mo><msub><mi>C</mi><mrow><mi>i</mi><mi>n</mi></mrow></msub><mo>×</mo><mi>K</mi><mo>×</mo><mi>K</mi></mrow><annotation encoding="application/x-tex">\text{FLOPs} = 2 \times N \times C_{out} \times H_{out} \times W_{out} \times C_{in} \times K \times K
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord text"><span class="mord">FLOPs</span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.7278em;vertical-align:-0.0833em;"></span><span class="mord">2</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.7667em;vertical-align:-0.0833em;"></span><span class="mord mathnormal" style="margin-right:0.10903em;">N</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.8333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.07153em;">C</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.2806em;"><span style="top:-2.55em;margin-left:-0.0715em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight">o</span><span class="mord mathnormal mtight">u</span><span class="mord mathnormal mtight">t</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.8333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.08125em;">H</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.2806em;"><span style="top:-2.55em;margin-left:-0.0813em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight">o</span><span class="mord mathnormal mtight">u</span><span class="mord mathnormal mtight">t</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.8333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.13889em;">W</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.2806em;"><span style="top:-2.55em;margin-left:-0.1389em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight">o</span><span class="mord mathnormal mtight">u</span><span class="mord mathnormal mtight">t</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.8333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.07153em;">C</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3117em;"><span style="top:-2.55em;margin-left:-0.0715em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight">in</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.7667em;vertical-align:-0.0833em;"></span><span class="mord mathnormal" style="margin-right:0.07153em;">K</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.07153em;">K</span></span></span></span></span></p>
+<p>对于 ResNet-50 的第一个卷积层：</p>
+<ul>
+<li>输入：<code>[1, 3, 224, 224]</code></li>
+<li>卷积核：<code>[64, 3, 7, 7]</code></li>
+<li>FLOPs ≈ 1.2 亿次</li>
+</ul>
+<p>整个网络约需 40 亿次浮点操作。</p>
+<h3 id="zhi-jie-juan-ji" tabindex="-1" id="直接卷积">直接卷积</h3>
+<p>最直观的实现，第七章已详细讲过：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br></pre></td><td class="code"><pre><span class="line">__global__ void conv2d_direct(float *input, float *kernel, float *output,</span><br><span class="line">                               int N, int C_in, int H, int W, </span><br><span class="line">                               int C_out, int K) &#123;</span><br><span class="line">    int n = blockIdx.z;</span><br><span class="line">    int c_out = blockIdx.y;</span><br><span class="line">    int h_out = blockIdx.x * blockDim.x + threadIdx.x;</span><br><span class="line">    int w_out = blockIdx.x * blockDim.y + threadIdx.y;</span><br><span class="line">    </span><br><span class="line">    if (h_out &lt; H_out &amp;&amp; w_out &lt; W_out) &#123;</span><br><span class="line">        float sum = 0.0f;</span><br><span class="line">        for (int c_in = 0; c_in &lt; C_in; c_in++) &#123;</span><br><span class="line">            for (int kh = 0; kh &lt; K; kh++) &#123;</span><br><span class="line">                for (int kw = 0; kw &lt; K; kw++) &#123;</span><br><span class="line">                    int h_in = h_out + kh - K/2;</span><br><span class="line">                    int w_in = w_out + kw - K/2;</span><br><span class="line">                    if (h_in &gt;= 0 &amp;&amp; h_in &lt; H &amp;&amp; w_in &gt;= 0 &amp;&amp; w_in &lt; W) &#123;</span><br><span class="line">                        sum += input[...] * kernel[...];</span><br><span class="line">                    &#125;</span><br><span class="line">                &#125;</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">        output[...] = sum;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p><strong>问题</strong>：循环太多，内存访问不规则，效率低。</p>
+<h3 id="im-2-col-gemm" tabindex="-1" id="Im2col-GEMM">Im2col + GEMM</h3>
+<p><strong>核心思想</strong>：把卷积转化为矩阵乘法。</p>
+<p><strong>Im2col</strong>：把输入的每个滑动窗口展开成一列。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">输入图像 [C_in, H, W]，卷积核 [K, K]</span><br><span class="line"></span><br><span class="line">Im2col 后：</span><br><span class="line">  列数 = H_out × W_out</span><br><span class="line">  行数 = C_in × K × K</span><br><span class="line"></span><br><span class="line">每一列对应一个滑动窗口的展开</span><br></pre></td></tr></table></figure>
+<p><strong>转换后</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">输出 = Kernel × Im2col(Input)</span><br><span class="line">[C_out, H_out×W_out] = [C_out, C_in×K×K] × [C_in×K×K, H_out×W_out]</span><br></pre></td></tr></table></figure>
+<p>这是标准的 GEMM！可以调用高度优化的 cuBLAS。</p>
+<p><strong>代价</strong>：Im2col 需要额外内存，约为原输入的 K² 倍。</p>
+<h3 id="winograd-juan-ji" tabindex="-1" id="Winograd-卷积">Winograd 卷积</h3>
+<p><strong>核心思想</strong>：用更多加法换更少乘法。</p>
+<p>对于 3×3 卷积，Winograd F(2×2, 3×3) 可以把乘法次数从 36 减少到 16。</p>
+<p><strong>公式</strong>：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>Y</mi><mo>=</mo><msup><mi>A</mi><mi>T</mi></msup><mrow><mo fence="true">[</mo><mo stretchy="false">(</mo><mi>G</mi><mo>⋅</mo><mi>g</mi><mo>⋅</mo><msup><mi>G</mi><mi>T</mi></msup><mo stretchy="false">)</mo><mo>⊙</mo><mo stretchy="false">(</mo><msup><mi>B</mi><mi>T</mi></msup><mo>⋅</mo><mi>d</mi><mo>⋅</mo><mi>B</mi><mo stretchy="false">)</mo><mo fence="true">]</mo></mrow><mi>A</mi></mrow><annotation encoding="application/x-tex">Y = A^T \left[ (G \cdot g \cdot G^T) \odot (B^T \cdot d \cdot B) \right] A
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.22222em;">Y</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1.2413em;vertical-align:-0.35em;"></span><span class="mord"><span class="mord mathnormal">A</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8913em;"><span style="top:-3.113em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.13889em;">T</span></span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="minner"><span class="mopen delimcenter" style="top:0em;"><span class="delimsizing size1">[</span></span><span class="mopen">(</span><span class="mord mathnormal">G</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">⋅</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mord mathnormal" style="margin-right:0.03588em;">g</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">⋅</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mord"><span class="mord mathnormal">G</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8913em;"><span style="top:-3.113em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.13889em;">T</span></span></span></span></span></span></span></span><span class="mclose">)</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">⊙</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mopen">(</span><span class="mord"><span class="mord mathnormal" style="margin-right:0.05017em;">B</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8913em;"><span style="top:-3.113em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.13889em;">T</span></span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">⋅</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mord mathnormal">d</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">⋅</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mord mathnormal" style="margin-right:0.05017em;">B</span><span class="mclose">)</span><span class="mclose delimcenter" style="top:0em;"><span class="delimsizing size1">]</span></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal">A</span></span></span></span></span></p>
+<p>其中：</p>
+<ul>
+<li><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>g</mi></mrow><annotation encoding="application/x-tex">g</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.625em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.03588em;">g</span></span></span></span>：卷积核</li>
+<li><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>d</mi></mrow><annotation encoding="application/x-tex">d</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6944em;"></span><span class="mord mathnormal">d</span></span></span></span>：输入 Tile</li>
+<li><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>G</mi><mo separator="true">,</mo><mi>B</mi><mo separator="true">,</mo><mi>A</mi></mrow><annotation encoding="application/x-tex">G, B, A</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8778em;vertical-align:-0.1944em;"></span><span class="mord mathnormal">G</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal" style="margin-right:0.05017em;">B</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal">A</span></span></span></span>：变换矩阵</li>
+<li><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>⊙</mo></mrow><annotation encoding="application/x-tex">\odot</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6667em;vertical-align:-0.0833em;"></span><span class="mord">⊙</span></span></span></span>：逐元素乘法</li>
+</ul>
+<p><strong>优势</strong>：计算量减少 2.25 倍（理论上）。</p>
+<p><strong>限制</strong>：</p>
+<ul>
+<li>只适合小卷积核（3×3 最常用）</li>
+<li>数值稳定性问题</li>
+<li>实现复杂</li>
+</ul>
+<h3 id="fft-juan-ji" tabindex="-1" id="FFT-卷积">FFT 卷积</h3>
+<p><strong>核心思想</strong>：卷积定理——时域卷积 = 频域逐元素乘法。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">Output = IFFT(FFT(Input) ⊙ FFT(Kernel))</span><br></pre></td></tr></table></figure>
+<p><strong>复杂度</strong>：O(N² log N) vs 直接卷积的 O(N² K²)</p>
+<p><strong>适用场景</strong>：大卷积核（K &gt; 7）。深度学习中卷积核通常很小（1×1, 3×3），所以 FFT 卷积较少使用。</p>
+<h3 id="cu-dnn-ce-lue-xuan-ze" tabindex="-1" id="cuDNN-策略选择">cuDNN 策略选择</h3>
+<p>cuDNN 内置多种卷积算法，会根据问题规模自动选择：</p>
+<table>
+<thead>
+<tr>
+<th>算法</th>
+<th>适用场景</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>IMPLICIT_GEMM</td>
+<td>通用</td>
+</tr>
+<tr>
+<td>IMPLICIT_PRECOMP_GEMM</td>
+<td>大 Batch</td>
+</tr>
+<tr>
+<td>GEMM</td>
+<td>小卷积核</td>
+</tr>
+<tr>
+<td>WINOGRAD</td>
+<td>3×3 卷积</td>
+</tr>
+<tr>
+<td>FFT</td>
+<td>大卷积核</td>
+</tr>
+</tbody>
+</table>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">cudnnConvolutionFwdAlgoPerf_t perfResults[8];</span><br><span class="line">cudnnFindConvolutionForwardAlgorithm(</span><br><span class="line">    handle, inputDesc, filterDesc, convDesc, outputDesc,</span><br><span class="line">    8, &amp;returnedAlgoCount, perfResults);</span><br><span class="line"></span><br><span class="line">// 选择最快的算法</span><br><span class="line">cudnnConvolutionFwdAlgo_t algo = perfResults[0].algo;</span><br></pre></td></tr></table></figure>
+<h2 id="quan-lian-jie-ceng" tabindex="-1" id="全连接层">全连接层</h2>
+<h3 id="ben-zhi-ju-zhen-cheng-fa" tabindex="-1" id="本质：矩阵乘法">本质：矩阵乘法</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">y = W × x + b</span><br><span class="line">[out_features] = [out_features, in_features] × [in_features] + [out_features]</span><br></pre></td></tr></table></figure>
+<p>批量处理：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">Y = X × W^T + B</span><br><span class="line">[batch, out] = [batch, in] × [in, out] + [batch, out]</span><br></pre></td></tr></table></figure>
+<p>直接调用 cuBLAS GEMM 即可。</p>
+<h3 id="you-hua-tensor-core" tabindex="-1" id="优化：Tensor-Core">优化：Tensor Core</h3>
+<p>从 Volta 架构开始，GPU 有专门的 Tensor Core：</p>
+<table>
+<thead>
+<tr>
+<th>操作</th>
+<th>CUDA Core</th>
+<th>Tensor Core</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>4×4 矩阵乘加</td>
+<td>128 FLOPs</td>
+<td>1 周期</td>
+</tr>
+<tr>
+<td>精度</td>
+<td>FP32</td>
+<td>FP16/BF16</td>
+</tr>
+<tr>
+<td>峰值算力(A100)</td>
+<td>19 TFLOPS</td>
+<td>312 TFLOPS</td>
+</tr>
+</tbody>
+</table>
+<p>使用 Tensor Core 需要：</p>
+<ol>
+<li>数据类型为 FP16 或 BF16</li>
+<li>矩阵维度是 8 或 16 的倍数</li>
+<li>使用 cuBLAS 或 WMMA API</li>
+</ol>
+<h2 id="ji-huo-han-shu" tabindex="-1" id="激活函数">激活函数</h2>
+<h3 id="re-lu" tabindex="-1" id="ReLU">ReLU</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">__global__ void relu(float *x, int n) &#123;</span><br><span class="line">    int i = blockIdx.x * blockDim.x + threadIdx.x;</span><br><span class="line">    if (i &lt; n) &#123;</span><br><span class="line">        x[i] = max(x[i], 0.0f);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>计算简单，属于 <strong>Memory-Bound</strong>：访存时间远大于计算时间。</p>
+<p><strong>Fusion 优化</strong>：把 ReLU 融合到卷积 Kernel 中，避免额外的内存读写。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">// 卷积结果直接应用 ReLU</span><br><span class="line">output[idx] = max(conv_result, 0.0f);</span><br></pre></td></tr></table></figure>
+<h3 id="softmax" tabindex="-1" id="Softmax">Softmax</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">// 数值稳定版本</span><br><span class="line">__global__ void softmax(float *x, float *y, int n) &#123;</span><br><span class="line">    // 1. 找最大值（规约）</span><br><span class="line">    float max_val = reduce_max(x, n);</span><br><span class="line">    </span><br><span class="line">    // 2. exp(x - max) 并求和（规约）</span><br><span class="line">    float sum = 0;</span><br><span class="line">    for (int i = threadIdx.x; i &lt; n; i += blockDim.x) &#123;</span><br><span class="line">        sum += expf(x[i] - max_val);</span><br><span class="line">    &#125;</span><br><span class="line">    sum = reduce_sum(sum);</span><br><span class="line">    </span><br><span class="line">    // 3. 归一化</span><br><span class="line">    for (int i = threadIdx.x; i &lt; n; i += blockDim.x) &#123;</span><br><span class="line">        y[i] = expf(x[i] - max_val) / sum;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>需要两次归约，三次遍历数据。</p>
+<h2 id="pooling-ceng" tabindex="-1" id="Pooling-层">Pooling 层</h2>
+<h3 id="max-pooling" tabindex="-1" id="Max-Pooling">Max Pooling</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">__global__ void max_pool2d(float *input, float *output,</span><br><span class="line">                            int H, int W, int pool_size, int stride) &#123;</span><br><span class="line">    int h_out = blockIdx.y * blockDim.y + threadIdx.y;</span><br><span class="line">    int w_out = blockIdx.x * blockDim.x + threadIdx.x;</span><br><span class="line">    </span><br><span class="line">    float max_val = -FLT_MAX;</span><br><span class="line">    for (int ph = 0; ph &lt; pool_size; ph++) &#123;</span><br><span class="line">        for (int pw = 0; pw &lt; pool_size; pw++) &#123;</span><br><span class="line">            int h_in = h_out * stride + ph;</span><br><span class="line">            int w_in = w_out * stride + pw;</span><br><span class="line">            max_val = max(max_val, input[h_in * W + w_in]);</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    output[h_out * W_out + w_out] = max_val;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>类似于卷积，但用 max 替代加权和。</p>
+<h3 id="global-average-pooling" tabindex="-1" id="Global-Average-Pooling">Global Average Pooling</h3>
+<p>对整个特征图求平均：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">// 就是一个 2D 归约！</span><br><span class="line">float sum = reduce_2d(feature_map, H, W);</span><br><span class="line">output = sum / (H * W);</span><br></pre></td></tr></table></figure>
+<p>第十章的归约技术直接适用。</p>
+<h2 id="batch-normalization" tabindex="-1" id="Batch-Normalization">Batch Normalization</h2>
+<h3 id="ji-suan-guo-cheng" tabindex="-1" id="计算过程">计算过程</h3>
+<ol>
+<li><strong>计算均值</strong>：<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>μ</mi><mo>=</mo><mfrac><mn>1</mn><mi>m</mi></mfrac><mo>∑</mo><msub><mi>x</mi><mi>i</mi></msub></mrow><annotation encoding="application/x-tex">\mu = \frac{1}{m} \sum x_i</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.625em;vertical-align:-0.1944em;"></span><span class="mord mathnormal">μ</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1.1901em;vertical-align:-0.345em;"></span><span class="mord"><span class="mopen nulldelimiter"></span><span class="mfrac"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.8451em;"><span style="top:-2.655em;"><span class="pstrut" style="height:3em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight">m</span></span></span></span><span style="top:-3.23em;"><span class="pstrut" style="height:3em;"></span><span class="frac-line" style="border-bottom-width:0.04em;"></span></span><span style="top:-3.394em;"><span class="pstrut" style="height:3em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">1</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.345em;"><span></span></span></span></span></span><span class="mclose nulldelimiter"></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mop op-symbol small-op" style="position:relative;top:0em;">∑</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3117em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">i</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span>（归约）</li>
+<li><strong>计算方差</strong>：<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mi>σ</mi><mn>2</mn></msup><mo>=</mo><mfrac><mn>1</mn><mi>m</mi></mfrac><mo>∑</mo><mo stretchy="false">(</mo><msub><mi>x</mi><mi>i</mi></msub><mo>−</mo><mi>μ</mi><msup><mo stretchy="false">)</mo><mn>2</mn></msup></mrow><annotation encoding="application/x-tex">\sigma^2 = \frac{1}{m} \sum (x_i - \mu)^2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8141em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.03588em;">σ</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1.1901em;vertical-align:-0.345em;"></span><span class="mord"><span class="mopen nulldelimiter"></span><span class="mfrac"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.8451em;"><span style="top:-2.655em;"><span class="pstrut" style="height:3em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight">m</span></span></span></span><span style="top:-3.23em;"><span class="pstrut" style="height:3em;"></span><span class="frac-line" style="border-bottom-width:0.04em;"></span></span><span style="top:-3.394em;"><span class="pstrut" style="height:3em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">1</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.345em;"><span></span></span></span></span></span><span class="mclose nulldelimiter"></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mop op-symbol small-op" style="position:relative;top:0em;">∑</span><span class="mopen">(</span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3117em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">i</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">−</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1.0641em;vertical-align:-0.25em;"></span><span class="mord mathnormal">μ</span><span class="mclose"><span class="mclose">)</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8141em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span></span></span></span></span></span></span></span>（归约）</li>
+<li><strong>归一化</strong>：<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mover accent="true"><mi>x</mi><mo>^</mo></mover><mo>=</mo><mfrac><mrow><mi>x</mi><mo>−</mo><mi>μ</mi></mrow><msqrt><mrow><msup><mi>σ</mi><mn>2</mn></msup><mo>+</mo><mi>ϵ</mi></mrow></msqrt></mfrac></mrow><annotation encoding="application/x-tex">\hat{x} = \frac{x - \mu}{\sqrt{\sigma^2 + \epsilon}}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6944em;"></span><span class="mord accent"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.6944em;"><span style="top:-3em;"><span class="pstrut" style="height:3em;"></span><span class="mord mathnormal">x</span></span><span style="top:-3em;"><span class="pstrut" style="height:3em;"></span><span class="accent-body" style="left:-0.2222em;"><span class="mord">^</span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1.3924em;vertical-align:-0.538em;"></span><span class="mord"><span class="mopen nulldelimiter"></span><span class="mfrac"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.8544em;"><span style="top:-2.5445em;"><span class="pstrut" style="height:3em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord sqrt mtight"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.9221em;"><span class="svg-align" style="top:-3em;"><span class="pstrut" style="height:3em;"></span><span class="mord mtight" style="padding-left:0.833em;"><span class="mord mtight"><span class="mord mathnormal mtight" style="margin-right:0.03588em;">σ</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.7463em;"><span style="top:-2.786em;margin-right:0.0714em;"><span class="pstrut" style="height:2.5em;"></span><span class="sizing reset-size3 size1 mtight"><span class="mord mtight">2</span></span></span></span></span></span></span></span><span class="mbin mtight">+</span><span class="mord mathnormal mtight">ϵ</span></span></span><span style="top:-2.8821em;"><span class="pstrut" style="height:3em;"></span><span class="hide-tail mtight" style="min-width:0.853em;height:1.08em;"><svg xmlns="http://www.w3.org/2000/svg" width="400em" height="1.08em" viewBox="0 0 400000 1080" preserveAspectRatio="xMinYMin slice"><path d="M95,702
+c-2.7,0,-7.17,-2.7,-13.5,-8c-5.8,-5.3,-9.5,-10,-9.5,-14
+c0,-2,0.3,-3.3,1,-4c1.3,-2.7,23.83,-20.7,67.5,-54
+c44.2,-33.3,65.8,-50.3,66.5,-51c1.3,-1.3,3,-2,5,-2c4.7,0,8.7,3.3,12,10
+s173,378,173,378c0.7,0,35.3,-71,104,-213c68.7,-142,137.5,-285,206.5,-429
+c69,-144,104.5,-217.7,106.5,-221
+l0 -0
+c5.3,-9.3,12,-14,20,-14
+H400000v40H845.2724
+s-225.272,467,-225.272,467s-235,486,-235,486c-2.7,4.7,-9,7,-19,7
+c-6,0,-10,-1,-12,-3s-194,-422,-194,-422s-65,47,-65,47z
+M834 80h400000v40h-400000z"/></svg></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.1179em;"><span></span></span></span></span></span></span></span></span><span style="top:-3.23em;"><span class="pstrut" style="height:3em;"></span><span class="frac-line" style="border-bottom-width:0.04em;"></span></span><span style="top:-3.4461em;"><span class="pstrut" style="height:3em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight">x</span><span class="mbin mtight">−</span><span class="mord mathnormal mtight">μ</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.538em;"><span></span></span></span></span></span><span class="mclose nulldelimiter"></span></span></span></span></span>（逐元素）</li>
+<li><strong>缩放平移</strong>：<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>y</mi><mo>=</mo><mi>γ</mi><mover accent="true"><mi>x</mi><mo>^</mo></mover><mo>+</mo><mi>β</mi></mrow><annotation encoding="application/x-tex">y = \gamma \hat{x} + \beta</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.625em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.03588em;">y</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8889em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.05556em;">γ</span><span class="mord accent"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.6944em;"><span style="top:-3em;"><span class="pstrut" style="height:3em;"></span><span class="mord mathnormal">x</span></span><span style="top:-3em;"><span class="pstrut" style="height:3em;"></span><span class="accent-body" style="left:-0.2222em;"><span class="mord">^</span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.8889em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.05278em;">β</span></span></span></span>（逐元素）</li>
+</ol>
+<h3 id="gpu-shi-xian-yao-dian" tabindex="-1" id="GPU-实现要点">GPU 实现要点</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">__global__ void batch_norm(float *x, float *y, </span><br><span class="line">                           float *gamma, float *beta,</span><br><span class="line">                           int N, int C, int H, int W) &#123;</span><br><span class="line">    int c = blockIdx.x;  // 每个 Block 处理一个通道</span><br><span class="line">    </span><br><span class="line">    // 1. 计算该通道的均值和方差</span><br><span class="line">    float mean = compute_mean(x, c, N, H, W);</span><br><span class="line">    float var = compute_var(x, c, mean, N, H, W);</span><br><span class="line">    </span><br><span class="line">    __syncthreads();</span><br><span class="line">    </span><br><span class="line">    // 2. 归一化并缩放</span><br><span class="line">    for (int i = threadIdx.x; i &lt; N * H * W; i += blockDim.x) &#123;</span><br><span class="line">        float val = x[index(i, c)];</span><br><span class="line">        y[index(i, c)] = gamma[c] * (val - mean) / sqrtf(var + 1e-5f) + beta[c];</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>关键是<strong>按通道归约</strong>，每个通道独立处理。</p>
+<h2 id="fan-xiang-chuan-bo" tabindex="-1" id="反向传播">反向传播</h2>
+<h3 id="ji-suan-tu-yu-zi-dong-wei-fen" tabindex="-1" id="计算图与自动微分">计算图与自动微分</h3>
+<p>深度学习框架（PyTorch、TensorFlow）通过<strong>计算图</strong>追踪操作，自动计算梯度。</p>
+<p><strong>前向传播</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">x → Conv → ReLU → Pool → FC → Softmax → Loss</span><br></pre></td></tr></table></figure>
+<p><strong>反向传播</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">dLoss/dL ← dL/dFC ← dFC/dPool ← dPool/dReLU ← dReLU/dConv ← dConv/dx</span><br></pre></td></tr></table></figure>
+<p>每个操作都有对应的梯度计算 Kernel。</p>
+<h3 id="juan-ji-de-fan-xiang-chuan-bo" tabindex="-1" id="卷积的反向传播">卷积的反向传播</h3>
+<p>卷积的梯度计算也是卷积！</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"># 对输入的梯度</span><br><span class="line">dL/dInput = Convolution(dL/dOutput, Kernel^T)</span><br><span class="line"></span><br><span class="line"># 对权重的梯度</span><br><span class="line">dL/dKernel = Convolution(Input, dL/dOutput)</span><br></pre></td></tr></table></figure>
+<p>所以卷积的优化同样适用于反向传播。</p>
+<h2 id="cu-dnn-jie-kou" tabindex="-1" id="cuDNN-接口">cuDNN 接口</h2>
+<h3 id="ji-ben-shi-yong" tabindex="-1" id="基本使用">基本使用</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br></pre></td><td class="code"><pre><span class="line">#include &lt;cudnn.h&gt;</span><br><span class="line"></span><br><span class="line">// 1. 创建句柄</span><br><span class="line">cudnnHandle_t handle;</span><br><span class="line">cudnnCreate(&amp;handle);</span><br><span class="line"></span><br><span class="line">// 2. 创建张量描述符</span><br><span class="line">cudnnTensorDescriptor_t inputDesc, outputDesc;</span><br><span class="line">cudnnCreateTensorDescriptor(&amp;inputDesc);</span><br><span class="line">cudnnSetTensor4dDescriptor(inputDesc, CUDNN_TENSOR_NCHW, CUDNN_DATA_FLOAT,</span><br><span class="line">                           N, C, H, W);</span><br><span class="line"></span><br><span class="line">// 3. 创建卷积描述符</span><br><span class="line">cudnnConvolutionDescriptor_t convDesc;</span><br><span class="line">cudnnCreateConvolutionDescriptor(&amp;convDesc);</span><br><span class="line">cudnnSetConvolution2dDescriptor(convDesc, pad, pad, stride, stride, 1, 1,</span><br><span class="line">                                 CUDNN_CROSS_CORRELATION, CUDNN_DATA_FLOAT);</span><br><span class="line"></span><br><span class="line">// 4. 查询工作空间大小</span><br><span class="line">size_t workspaceSize;</span><br><span class="line">cudnnGetConvolutionForwardWorkspaceSize(handle, inputDesc, filterDesc,</span><br><span class="line">                                         convDesc, outputDesc, algo, &amp;workspaceSize);</span><br><span class="line"></span><br><span class="line">// 5. 分配工作空间并执行</span><br><span class="line">void *workspace;</span><br><span class="line">cudaMalloc(&amp;workspace, workspaceSize);</span><br><span class="line"></span><br><span class="line">float alpha = 1.0f, beta = 0.0f;</span><br><span class="line">cudnnConvolutionForward(handle, &amp;alpha, inputDesc, input,</span><br><span class="line">                        filterDesc, filter, convDesc, algo,</span><br><span class="line">                        workspace, workspaceSize,</span><br><span class="line">                        &amp;beta, outputDesc, output);</span><br></pre></td></tr></table></figure>
+<h3 id="chang-yong-cao-zuo" tabindex="-1" id="常用操作">常用操作</h3>
+<table>
+<thead>
+<tr>
+<th>操作</th>
+<th>函数</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>卷积前向</td>
+<td>cudnnConvolutionForward</td>
+</tr>
+<tr>
+<td>卷积反向（数据）</td>
+<td>cudnnConvolutionBackwardData</td>
+</tr>
+<tr>
+<td>卷积反向（权重）</td>
+<td>cudnnConvolutionBackwardFilter</td>
+</tr>
+<tr>
+<td>池化</td>
+<td>cudnnPoolingForward/Backward</td>
+</tr>
+<tr>
+<td>激活</td>
+<td>cudnnActivationForward/Backward</td>
+</tr>
+<tr>
+<td>BatchNorm</td>
+<td>cudnnBatchNormForward/Backward</td>
+</tr>
+<tr>
+<td>Softmax</td>
+<td>cudnnSoftmaxForward/Backward</td>
+</tr>
+</tbody>
+</table>
+<h2 id="hun-he-jing-du-xun-lian" tabindex="-1" id="混合精度训练">混合精度训练</h2>
+<h3 id="fp-16-de-you-shi" tabindex="-1" id="FP16-的优势">FP16 的优势</h3>
+<table>
+<thead>
+<tr>
+<th>精度</th>
+<th>存储</th>
+<th>带宽</th>
+<th>算力(A100)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>FP32</td>
+<td>4 字节</td>
+<td>1×</td>
+<td>19 TFLOPS</td>
+</tr>
+<tr>
+<td>FP16</td>
+<td>2 字节</td>
+<td>2×</td>
+<td>312 TFLOPS</td>
+</tr>
+</tbody>
+</table>
+<h3 id="zi-dong-hun-he-jing-du-amp" tabindex="-1" id="自动混合精度（AMP）">自动混合精度（AMP）</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># PyTorch 示例</span></span><br><span class="line"><span class="keyword">from</span> torch.cuda.amp <span class="keyword">import</span> autocast, GradScaler</span><br><span class="line"></span><br><span class="line">scaler = GradScaler()</span><br><span class="line"></span><br><span class="line"><span class="keyword">for</span> data, target <span class="keyword">in</span> dataloader:</span><br><span class="line">    optimizer.zero_grad()</span><br><span class="line">    </span><br><span class="line">    <span class="keyword">with</span> autocast():  <span class="comment"># 自动转换到 FP16</span></span><br><span class="line">        output = model(data)</span><br><span class="line">        loss = criterion(output, target)</span><br><span class="line">    </span><br><span class="line">    scaler.scale(loss).backward()  <span class="comment"># 梯度缩放</span></span><br><span class="line">    scaler.step(optimizer)</span><br><span class="line">    scaler.update()</span><br></pre></td></tr></table></figure>
+<p><strong>Loss Scaling</strong>：防止 FP16 梯度下溢，先放大 Loss，计算完梯度后缩小。</p>
+<h2 id="xiao-jie" tabindex="-1" id="小结">小结</h2>
+<p>第十六章展示了深度学习与 GPU 并行计算的紧密联系：</p>
+<p><strong>核心操作</strong>：深度学习的计算本质是矩阵乘法（GEMM）和卷积。这两个操作占据了 95% 以上的计算量。</p>
+<p><strong>卷积实现</strong>：直接卷积简单但低效；Im2col + GEMM 转化为矩阵乘法；Winograd 减少乘法次数；cuDNN 自动选择最优策略。</p>
+<p><strong>融合优化</strong>：把多个操作融合到一个 Kernel 中，减少内存访问。ReLU、BatchNorm 等常与卷积融合。</p>
+<p><strong>Tensor Core</strong>：专用硬件加速矩阵运算，FP16 峰值算力是 FP32 的 16 倍。混合精度训练已成为标准做法。</p>
+<p><strong>cuDNN</strong>：封装了所有优化，是深度学习框架的底层依赖。理解其原理有助于调优和调试。</p>
+<p>深度学习是 GPU 计算的&quot;杀手级应用&quot;，正是这一需求推动了 GPU 硬件和软件的飞速发展。掌握本章内容，你就能理解 PyTorch、TensorFlow 在底层是如何工作的。</p>
+<hr>
+<p><strong>参考资料：</strong></p>
+<ul>
+<li>Hwu, W., Kirk, D., &amp; El Hajj, I. (2022). <em>Programming Massively Parallel Processors: A Hands-on Approach</em> (4th Edition). Morgan Kaufmann.</li>
+<li><a target="_blank" rel="noopener" href="https://docs.nvidia.com/deeplearning/cudnn/developer-guide/">NVIDIA cuDNN Developer Guide</a></li>
+<li>Lavin, A., &amp; Gray, S. (2016). <em>Fast Algorithms for Convolutional Neural Networks</em>. CVPR.</li>
+</ul>
+<hr>
+<blockquote>
+<p><strong>本文 GitHub 仓库</strong>: <a target="_blank" rel="noopener" href="https://github.com/psmarter/PMPP-Learning">https://github.com/psmarter/PMPP-Learning</a></p>
+</blockquote>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/feaca34d/">https://smarter.xin/posts/feaca34d/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/deep-learning/">深度学习</a><a class="post-meta__tags" href="/tags/CUDA/">CUDA</a><a class="post-meta__tags" href="/tags/gpu-programming/">GPU编程</a><a class="post-meta__tags" href="/tags/parallel-computing/">并行计算</a><a class="post-meta__tags" href="/tags/PMPP/">PMPP</a><a class="post-meta__tags" href="/tags/convolutional-neural-network/">卷积神经网络</a><a class="post-meta__tags" href="/tags/cuDNN/">cuDNN</a></div><div class="post-share"><div class="social-share" data-image="/img/PMPP.jpg" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related full-width no-desc" href="/posts/70b05668/" title="PMPP-第十五章：图遍历"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">PMPP-第十五章：图遍历</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/10d278b0/" title="PMPP-第一章：引言"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-11</div><div class="info-item-2">PMPP-第一章：引言</div></div></div></a><a class="pagination-related no-desc" href="/posts/1c778456/" title="PMPP-第七章：卷积"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-16</div><div class="info-item-2">PMPP-第七章：卷积</div></div></div></a><a class="pagination-related no-desc" href="/posts/6b7045b6/" title="PMPP-第三章：多维网格和数据"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-12</div><div class="info-item-2">PMPP-第三章：多维网格和数据</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">75</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">117</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">12</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">Welcome to Smarter's blog</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#qian-yan"><span class="toc-text">前言</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shen-du-xue-xi-ji-chu"><span class="toc-text">深度学习基础</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#shen-jing-wang-luo-de-ji-suan-ben-zhi"><span class="toc-text">神经网络的计算本质</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#shen-du-xue-xi-wei-shi-yao-xu-yao-gpu"><span class="toc-text">深度学习为什么需要 GPU</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#juan-ji-ceng-de-gpu-shi-xian"><span class="toc-text">卷积层的 GPU 实现</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#juan-ji-de-ji-suan-fu-za-du"><span class="toc-text">卷积的计算复杂度</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#zhi-jie-juan-ji"><span class="toc-text">直接卷积</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#im-2-col-gemm"><span class="toc-text">Im2col + GEMM</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#winograd-juan-ji"><span class="toc-text">Winograd 卷积</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#fft-juan-ji"><span class="toc-text">FFT 卷积</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#cu-dnn-ce-lue-xuan-ze"><span class="toc-text">cuDNN 策略选择</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#quan-lian-jie-ceng"><span class="toc-text">全连接层</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#ben-zhi-ju-zhen-cheng-fa"><span class="toc-text">本质：矩阵乘法</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#you-hua-tensor-core"><span class="toc-text">优化：Tensor Core</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#ji-huo-han-shu"><span class="toc-text">激活函数</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#re-lu"><span class="toc-text">ReLU</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#softmax"><span class="toc-text">Softmax</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#pooling-ceng"><span class="toc-text">Pooling 层</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#max-pooling"><span class="toc-text">Max Pooling</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#global-average-pooling"><span class="toc-text">Global Average Pooling</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#batch-normalization"><span class="toc-text">Batch Normalization</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#ji-suan-guo-cheng"><span class="toc-text">计算过程</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#gpu-shi-xian-yao-dian"><span class="toc-text">GPU 实现要点</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#fan-xiang-chuan-bo"><span class="toc-text">反向传播</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#ji-suan-tu-yu-zi-dong-wei-fen"><span class="toc-text">计算图与自动微分</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#juan-ji-de-fan-xiang-chuan-bo"><span class="toc-text">卷积的反向传播</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#cu-dnn-jie-kou"><span class="toc-text">cuDNN 接口</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#ji-ben-shi-yong"><span class="toc-text">基本使用</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#chang-yong-cao-zuo"><span class="toc-text">常用操作</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#hun-he-jing-du-xun-lian"><span class="toc-text">混合精度训练</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#fp-16-de-you-shi"><span class="toc-text">FP16 的优势</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#zi-dong-hun-he-jing-du-amp"><span class="toc-text">自动混合精度（AMP）</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xiao-jie"><span class="toc-text">小结</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/feaca34d/" title="PMPP-第十六章：深度学习"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PMPP-第十六章：深度学习"/></a><div class="content"><a class="title" href="/posts/feaca34d/" title="PMPP-第十六章：深度学习">PMPP-第十六章：深度学习</a><time datetime="2026-01-19T15:07:59.000Z" title="发表于 2026-01-19 23:07:59">2026-01-19</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/70b05668/" title="PMPP-第十五章：图遍历"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PMPP-第十五章：图遍历"/></a><div class="content"><a class="title" href="/posts/70b05668/" title="PMPP-第十五章：图遍历">PMPP-第十五章：图遍历</a><time datetime="2026-01-19T08:12:39.000Z" title="发表于 2026-01-19 16:12:39">2026-01-19</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/7af84cf7/" title="PMPP-第十四章：稀疏矩阵计算"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PMPP-第十四章：稀疏矩阵计算"/></a><div class="content"><a class="title" href="/posts/7af84cf7/" title="PMPP-第十四章：稀疏矩阵计算">PMPP-第十四章：稀疏矩阵计算</a><time datetime="2026-01-19T02:49:30.000Z" title="发表于 2026-01-19 10:49:30">2026-01-19</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/b21cbc80/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-31</span><a class="blog-slider__title" href="posts/b21cbc80/" alt="">AI Infra学习之旅-第一个vLLM程序</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/b21cbc80/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>
