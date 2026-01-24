@@ -1,0 +1,958 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>PMPP-第二十二章：高级实践与未来演变 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="前言 第二十一章介绍了动态并行性。作为全书的最后一章，第二十二章总结了高级实践并展望了未来演变。这一章不再引入新的编程技术，而是讨论如何在实际项目中应用前面学到的知识，以及 GPU 计算领域的发展趋势。掌握这些内容，你将能够在快速变化的技术环境中持续成长。  📦 配套资源：本系列文章配有完整的 GitHub 仓库，包含每章的练习题解答、CUDA 代码实现和详细注释。所有代码都经过测试，可以直接运">
+<meta property="og:type" content="article">
+<meta property="og:title" content="PMPP-第二十二章：高级实践与未来演变">
+<meta property="og:url" content="https://smarter.xin/posts/a3a140de/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="前言 第二十一章介绍了动态并行性。作为全书的最后一章，第二十二章总结了高级实践并展望了未来演变。这一章不再引入新的编程技术，而是讨论如何在实际项目中应用前面学到的知识，以及 GPU 计算领域的发展趋势。掌握这些内容，你将能够在快速变化的技术环境中持续成长。  📦 配套资源：本系列文章配有完整的 GitHub 仓库，包含每章的练习题解答、CUDA 代码实现和详细注释。所有代码都经过测试，可以直接运">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/PMPP.jpg">
+<meta property="article:published_time" content="2026-01-24T08:56:01.000Z">
+<meta property="article:modified_time" content="2026-01-24T09:04:38.857Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="CUDA">
+<meta property="article:tag" content="GPU编程">
+<meta property="article:tag" content="并行计算">
+<meta property="article:tag" content="PMPP">
+<meta property="article:tag" content="性能优化">
+<meta property="article:tag" content="未来趋势">
+<meta property="article:tag" content="最佳实践">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/PMPP.jpg"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "PMPP-第二十二章：高级实践与未来演变",
+  "url": "https://smarter.xin/posts/a3a140de/",
+  "image": "https://smarter.xin/img/PMPP.jpg",
+  "datePublished": "2026-01-24T08:56:01.000Z",
+  "dateModified": "2026-01-24T09:04:38.857Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/a3a140de/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'PMPP-第二十二章：高级实践与未来演变',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">81</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">134</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">12</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/PMPP.jpg);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">PMPP-第二十二章：高级实践与未来演变</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">PMPP-第二十二章：高级实践与未来演变</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-01-24T08:56:01.000Z" title="发表于 2026-01-24 16:56:01">2026-01-24</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-01-24T09:04:38.857Z" title="更新于 2026-01-24 17:04:38">2026-01-24</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/knowledge-sharing/">知识分享</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">2.4k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>8分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h2 id="qian-yan" tabindex="-1" id="前言">前言</h2>
+<p>第二十一章介绍了动态并行性。作为全书的最后一章，第二十二章总结了<strong>高级实践</strong>并展望了<strong>未来演变</strong>。这一章不再引入新的编程技术，而是讨论如何在实际项目中应用前面学到的知识，以及 GPU 计算领域的发展趋势。掌握这些内容，你将能够在快速变化的技术环境中持续成长。</p>
+<blockquote>
+<p><strong>📦 配套资源</strong>：本系列文章配有完整的 <a target="_blank" rel="noopener" href="https://github.com/psmarter/PMPP-Learning">GitHub 仓库</a>，包含每章的练习题解答、CUDA 代码实现和详细注释。所有代码都经过测试，可以直接运行。</p>
+</blockquote>
+<h2 id="xing-neng-you-hua-fang-fa-lun" tabindex="-1" id="性能优化方法论">性能优化方法论</h2>
+<h3 id="xing-neng-fen-xi-qu-dong" tabindex="-1" id="性能分析驱动">性能分析驱动</h3>
+<p><strong>不要猜测，要测量</strong>。</p>
+<p>优化前必须先找到瓶颈：</p>
+<ol>
+<li>使用 Nsight Systems 分析整体流程</li>
+<li>使用 Nsight Compute 分析单个 kernel</li>
+<li>根据数据决定优化方向</li>
+</ol>
+<h3 id="roofline-mo-xing-hui-gu" tabindex="-1" id="Roofline-模型回顾">Roofline 模型回顾</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">性能上限 = min(峰值算力, 带宽 × 算术强度)</span><br></pre></td></tr></table></figure>
+<p><strong>算术强度</strong> = FLOP / Byte</p>
+<table>
+<thead>
+<tr>
+<th>算术强度</th>
+<th>瓶颈类型</th>
+<th>优化方向</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>&lt; 10</td>
+<td>内存受限</td>
+<td>提高数据复用、减少访存</td>
+</tr>
+<tr>
+<td>&gt; 10</td>
+<td>计算受限</td>
+<td>优化计算效率、减少指令数</td>
+</tr>
+</tbody>
+</table>
+<h3 id="you-hua-ceng-ci" tabindex="-1" id="优化层次">优化层次</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">┌─────────────────────────────────────────┐</span><br><span class="line">│ 第五层：算法选择                         │</span><br><span class="line">│   选择更高效的算法（收益最大）            │</span><br><span class="line">├─────────────────────────────────────────┤</span><br><span class="line">│ 第四层：数据布局                         │</span><br><span class="line">│   SoA vs AoS、对齐、Padding             │</span><br><span class="line">├─────────────────────────────────────────┤</span><br><span class="line">│ 第三层：并行策略                         │</span><br><span class="line">│   任务分解、负载均衡、线程映射            │</span><br><span class="line">├─────────────────────────────────────────┤</span><br><span class="line">│ 第二层：内存层次                         │</span><br><span class="line">│   共享内存、寄存器、缓存利用              │</span><br><span class="line">├─────────────────────────────────────────┤</span><br><span class="line">│ 第一层：指令级                           │</span><br><span class="line">│   循环展开、向量化、快速数学函数          │</span><br><span class="line">└─────────────────────────────────────────┘</span><br></pre></td></tr></table></figure>
+<p><strong>从上往下优化</strong>：高层优化的收益通常远大于低层。</p>
+<h2 id="chang-jian-you-hua-ji-zhu-zong-jie" tabindex="-1" id="常见优化技术总结">常见优化技术总结</h2>
+<h3 id="nei-cun-you-hua" tabindex="-1" id="内存优化">内存优化</h3>
+<table>
+<thead>
+<tr>
+<th>技术</th>
+<th>适用场景</th>
+<th>效果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>合并访问</td>
+<td>全局内存访问</td>
+<td>减少内存事务</td>
+</tr>
+<tr>
+<td>共享内存</td>
+<td>数据复用</td>
+<td>减少全局访问</td>
+</tr>
+<tr>
+<td>常量内存</td>
+<td>只读广播数据</td>
+<td>利用缓存</td>
+</tr>
+<tr>
+<td>纹理内存</td>
+<td>2D 局部性</td>
+<td>硬件插值</td>
+</tr>
+<tr>
+<td>寄存器 Tiling</td>
+<td>矩阵运算</td>
+<td>最大化复用</td>
+</tr>
+</tbody>
+</table>
+<h3 id="ji-suan-you-hua" tabindex="-1" id="计算优化">计算优化</h3>
+<table>
+<thead>
+<tr>
+<th>技术</th>
+<th>适用场景</th>
+<th>效果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>循环展开</td>
+<td>固定迭代循环</td>
+<td>减少指令开销</td>
+</tr>
+<tr>
+<td>线程粗化</td>
+<td>每线程工作太少</td>
+<td>减少调度开销</td>
+</tr>
+<tr>
+<td>快速数学</td>
+<td>精度要求不高</td>
+<td>减少时钟周期</td>
+</tr>
+<tr>
+<td>Warp Shuffle</td>
+<td>Warp 内通信</td>
+<td>避免共享内存</td>
+</tr>
+</tbody>
+</table>
+<h3 id="bing-xing-du-you-hua" tabindex="-1" id="并行度优化">并行度优化</h3>
+<table>
+<thead>
+<tr>
+<th>技术</th>
+<th>适用场景</th>
+<th>效果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>增加线程数</td>
+<td>隐藏延迟</td>
+<td>提高占用率</td>
+</tr>
+<tr>
+<td>动态并行</td>
+<td>递归/自适应</td>
+<td>减少 CPU 参与</td>
+</tr>
+<tr>
+<td>CUDA 流</td>
+<td>多任务重叠</td>
+<td>隐藏传输延迟</td>
+</tr>
+</tbody>
+</table>
+<h2 id="dai-ma-ke-yi-zhi-xing" tabindex="-1" id="代码可移植性">代码可移植性</h2>
+<h3 id="kua-gpu-jia-gou" tabindex="-1" id="跨-GPU-架构">跨 GPU 架构</h3>
+<p>不同 GPU 架构有不同特性：</p>
+<table>
+<thead>
+<tr>
+<th>架构</th>
+<th>特点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Kepler (sm_35)</td>
+<td>动态并行首次支持</td>
+</tr>
+<tr>
+<td>Maxwell (sm_50)</td>
+<td>改进的共享内存</td>
+</tr>
+<tr>
+<td>Pascal (sm_60)</td>
+<td>统一内存改进</td>
+</tr>
+<tr>
+<td>Volta (sm_70)</td>
+<td>Tensor Core、独立线程调度</td>
+</tr>
+<tr>
+<td>Ampere (sm_80)</td>
+<td>异步拷贝、更大 L2</td>
+</tr>
+<tr>
+<td>Hopper (sm_90)</td>
+<td>Transformer Engine</td>
+</tr>
+</tbody>
+</table>
+<h3 id="bian-xie-ke-yi-zhi-dai-ma" tabindex="-1" id="编写可移植代码">编写可移植代码</h3>
+<p><strong>参数化关键常量</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">#if __CUDA_ARCH__ &gt;= 800</span><br><span class="line">    #define SHARED_MEM_SIZE 164 * 1024  // Ampere: 164KB</span><br><span class="line">#elif __CUDA_ARCH__ &gt;= 700</span><br><span class="line">    #define SHARED_MEM_SIZE 96 * 1024   // Volta: 96KB</span><br><span class="line">#else</span><br><span class="line">    #define SHARED_MEM_SIZE 48 * 1024   // 默认: 48KB</span><br><span class="line">#endif</span><br></pre></td></tr></table></figure>
+<p><strong>运行时查询能力</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">cudaDeviceProp prop;</span><br><span class="line">cudaGetDeviceProperties(&amp;prop, 0);</span><br><span class="line"></span><br><span class="line">int blocks_per_sm = prop.maxBlocksPerMultiProcessor;</span><br><span class="line">int shared_mem = prop.sharedMemPerBlock;</span><br><span class="line">int max_threads = prop.maxThreadsPerBlock;</span><br></pre></td></tr></table></figure>
+<h3 id="kua-ping-tai-ji-zhu" tabindex="-1" id="跨平台技术">跨平台技术</h3>
+<table>
+<thead>
+<tr>
+<th>技术</th>
+<th>描述</th>
+<th>优势</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CUDA</td>
+<td>NVIDIA 专用</td>
+<td>性能最佳</td>
+</tr>
+<tr>
+<td>OpenCL</td>
+<td>跨厂商标准</td>
+<td>可移植性</td>
+</tr>
+<tr>
+<td>SYCL</td>
+<td>C++ 标准化</td>
+<td>现代 C++ 风格</td>
+</tr>
+<tr>
+<td>HIP</td>
+<td>AMD 兼容 CUDA</td>
+<td>易于迁移</td>
+</tr>
+<tr>
+<td>Kokkos</td>
+<td>抽象层</td>
+<td>多后端支持</td>
+</tr>
+</tbody>
+</table>
+<h2 id="diao-shi-yu-yan-zheng" tabindex="-1" id="调试与验证">调试与验证</h2>
+<h3 id="chang-jian-cuo-wu-lei-xing" tabindex="-1" id="常见错误类型">常见错误类型</h3>
+<ol>
+<li><strong>内存错误</strong>：越界访问、未初始化内存</li>
+<li><strong>竞态条件</strong>：同步不当导致数据竞争</li>
+<li><strong>数值误差</strong>：浮点精度、舍入误差</li>
+<li><strong>死锁</strong>：同步原语使用不当</li>
+</ol>
+<h3 id="diao-shi-gong-ju" tabindex="-1" id="调试工具">调试工具</h3>
+<table>
+<thead>
+<tr>
+<th>工具</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>cuda-memcheck</td>
+<td>内存错误检测</td>
+</tr>
+<tr>
+<td>compute-sanitizer</td>
+<td>新一代错误检测</td>
+</tr>
+<tr>
+<td>Nsight Eclipse</td>
+<td>IDE 集成调试</td>
+</tr>
+<tr>
+<td>Nsight Visual Studio</td>
+<td>Windows 调试</td>
+</tr>
+<tr>
+<td>printf</td>
+<td>简单调试（慎用）</td>
+</tr>
+</tbody>
+</table>
+<h3 id="yan-zheng-ce-lue" tabindex="-1" id="验证策略">验证策略</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line">// 1. 保留 CPU 参考实现</span><br><span class="line">void cpu_reference(float *output, float *input, int n);</span><br><span class="line"></span><br><span class="line">// 2. 对比 GPU 结果</span><br><span class="line">bool verify_result(float *gpu, float *cpu, int n, float epsilon) &#123;</span><br><span class="line">    for (int i = 0; i &lt; n; i++) &#123;</span><br><span class="line">        if (fabsf(gpu[i] - cpu[i]) &gt; epsilon) &#123;</span><br><span class="line">            printf(&quot;Mismatch at %d: GPU=%.6f, CPU=%.6f\n&quot;, </span><br><span class="line">                   i, gpu[i], cpu[i]);</span><br><span class="line">            return false;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    return true;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">// 3. 渐进式测试</span><br><span class="line">// 小规模 → 中规模 → 大规模</span><br><span class="line">// 1 Block → 多 Block → 多 SM</span><br></pre></td></tr></table></figure>
+<h2 id="sheng-chan-huan-jing-zui-jia-shi-jian" tabindex="-1" id="生产环境最佳实践">生产环境最佳实践</h2>
+<h3 id="cuo-wu-chu-li" tabindex="-1" id="错误处理">错误处理</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">#define CUDA_CHECK(call) \</span><br><span class="line">    do &#123; \</span><br><span class="line">        cudaError_t err = call; \</span><br><span class="line">        if (err != cudaSuccess) &#123; \</span><br><span class="line">            fprintf(stderr, &quot;CUDA error at %s:%d: %s\n&quot;, \</span><br><span class="line">                    __FILE__, __LINE__, cudaGetErrorString(err)); \</span><br><span class="line">            exit(EXIT_FAILURE); \</span><br><span class="line">        &#125; \</span><br><span class="line">    &#125; while(0)</span><br><span class="line"></span><br><span class="line">// 使用</span><br><span class="line">CUDA_CHECK(cudaMalloc(&amp;d_ptr, size));</span><br><span class="line">CUDA_CHECK(cudaMemcpy(d_ptr, h_ptr, size, cudaMemcpyHostToDevice));</span><br></pre></td></tr></table></figure>
+<h3 id="zi-yuan-guan-li" tabindex="-1" id="资源管理">资源管理</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">// RAII 风格管理 CUDA 资源</span><br><span class="line">class CudaBuffer &#123;</span><br><span class="line">    void *ptr;</span><br><span class="line">    size_t size;</span><br><span class="line">public:</span><br><span class="line">    CudaBuffer(size_t n) : size(n) &#123;</span><br><span class="line">        CUDA_CHECK(cudaMalloc(&amp;ptr, n));</span><br><span class="line">    &#125;</span><br><span class="line">    ~CudaBuffer() &#123;</span><br><span class="line">        cudaFree(ptr);</span><br><span class="line">    &#125;</span><br><span class="line">    void* get() &#123; return ptr; &#125;</span><br><span class="line">    // 禁止拷贝</span><br><span class="line">    CudaBuffer(const CudaBuffer&amp;) = delete;</span><br><span class="line">    CudaBuffer&amp; operator=(const CudaBuffer&amp;) = delete;</span><br><span class="line">&#125;;</span><br></pre></td></tr></table></figure>
+<h3 id="xing-neng-jian-kong" tabindex="-1" id="性能监控">性能监控</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">// 计时</span><br><span class="line">cudaEvent_t start, stop;</span><br><span class="line">cudaEventCreate(&amp;start);</span><br><span class="line">cudaEventCreate(&amp;stop);</span><br><span class="line"></span><br><span class="line">cudaEventRecord(start);</span><br><span class="line">my_kernel&lt;&lt;&lt;grid, block&gt;&gt;&gt;(args);</span><br><span class="line">cudaEventRecord(stop);</span><br><span class="line"></span><br><span class="line">cudaEventSynchronize(stop);</span><br><span class="line">float milliseconds = 0;</span><br><span class="line">cudaEventElapsedTime(&amp;milliseconds, start, stop);</span><br><span class="line"></span><br><span class="line">printf(&quot;Kernel time: %.3f ms\n&quot;, milliseconds);</span><br><span class="line"></span><br><span class="line">cudaEventDestroy(start);</span><br><span class="line">cudaEventDestroy(stop);</span><br></pre></td></tr></table></figure>
+<h2 id="gpu-ji-suan-sheng-tai-xi-tong" tabindex="-1" id="GPU-计算生态系统">GPU 计算生态系统</h2>
+<h3 id="cuda-ku" tabindex="-1" id="CUDA-库">CUDA 库</h3>
+<table>
+<thead>
+<tr>
+<th>库</th>
+<th>领域</th>
+<th>功能</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>cuBLAS</td>
+<td>线性代数</td>
+<td>矩阵运算</td>
+</tr>
+<tr>
+<td>cuFFT</td>
+<td>信号处理</td>
+<td>傅里叶变换</td>
+</tr>
+<tr>
+<td>cuDNN</td>
+<td>深度学习</td>
+<td>神经网络原语</td>
+</tr>
+<tr>
+<td>cuSPARSE</td>
+<td>稀疏矩阵</td>
+<td>稀疏运算</td>
+</tr>
+<tr>
+<td>cuRAND</td>
+<td>随机数</td>
+<td>伪随机生成</td>
+</tr>
+<tr>
+<td>Thrust</td>
+<td>通用</td>
+<td>STL 风格容器</td>
+</tr>
+<tr>
+<td>CUB</td>
+<td>底层</td>
+<td>原语库</td>
+</tr>
+</tbody>
+</table>
+<h3 id="shi-yong-ku-de-you-shi" tabindex="-1" id="使用库的优势">使用库的优势</h3>
+<ol>
+<li><strong>经过高度优化</strong>：专家团队持续调优</li>
+<li><strong>版本间改进</strong>：自动受益于新架构优化</li>
+<li><strong>减少开发时间</strong>：专注业务逻辑</li>
+<li><strong>减少错误</strong>：经过广泛测试</li>
+</ol>
+<h3 id="he-shi-zi-ji-shi-xian" tabindex="-1" id="何时自己实现">何时自己实现</h3>
+<ul>
+<li>特殊需求库不满足</li>
+<li>库的通用实现不够高效</li>
+<li>学习目的</li>
+</ul>
+<h2 id="wei-lai-qu-shi" tabindex="-1" id="未来趋势">未来趋势</h2>
+<h3 id="ying-jian-yan-jin" tabindex="-1" id="硬件演进">硬件演进</h3>
+<p><strong>更多核心</strong>：</p>
+<ul>
+<li>SM 数量持续增加</li>
+<li>更高的并行度</li>
+<li>对负载均衡要求更高</li>
+</ul>
+<p><strong>专用加速器</strong>：</p>
+<ul>
+<li>Tensor Core（矩阵运算）</li>
+<li>RT Core（光线追踪）</li>
+<li>Transformer Engine（AI）</li>
+</ul>
+<p><strong>内存技术</strong>：</p>
+<ul>
+<li>HBM 带宽持续增长</li>
+<li>更大的 L2 缓存</li>
+<li>统一内存性能改进</li>
+</ul>
+<h3 id="bian-cheng-mo-xing-yan-jin" tabindex="-1" id="编程模型演进">编程模型演进</h3>
+<p><strong>更高抽象</strong>：</p>
+<ul>
+<li>CUDA Graphs：静态任务图</li>
+<li>CUDA Cooperative Groups：灵活同步</li>
+<li>C++ 标准并行：std::execution</li>
+</ul>
+<p><strong>跨平台标准</strong>：</p>
+<ul>
+<li>SYCL 普及</li>
+<li>oneAPI 生态</li>
+<li>可移植性重要性增加</li>
+</ul>
+<h3 id="ying-yong-ling-yu-kuo-zhan" tabindex="-1" id="应用领域扩展">应用领域扩展</h3>
+<p><strong>传统 HPC</strong>：</p>
+<ul>
+<li>气象模拟</li>
+<li>分子动力学</li>
+<li>流体力学</li>
+</ul>
+<p><strong>AI/ML</strong>：</p>
+<ul>
+<li>大语言模型训练</li>
+<li>推理加速</li>
+<li>自动驾驶</li>
+</ul>
+<p><strong>新兴领域</strong>：</p>
+<ul>
+<li>量子计算模拟</li>
+<li>数字孪生</li>
+<li>元宇宙渲染</li>
+</ul>
+<h2 id="chi-xu-xue-xi-zi-yuan" tabindex="-1" id="持续学习资源">持续学习资源</h2>
+<h3 id="guan-fang-zi-yuan" tabindex="-1" id="官方资源">官方资源</h3>
+<ul>
+<li><strong>CUDA 文档</strong>：<a target="_blank" rel="noopener" href="https://docs.nvidia.com/cuda/">https://docs.nvidia.com/cuda/</a></li>
+<li><strong>NVIDIA Developer Blog</strong>：技术文章和最佳实践</li>
+<li><strong>GTC 大会</strong>：最新技术发布</li>
+<li><strong>CUDA Zone</strong>：示例代码和教程</li>
+</ul>
+<h3 id="xue-zhu-zi-yuan" tabindex="-1" id="学术资源">学术资源</h3>
+<ul>
+<li><strong>PMPP 教材</strong>：本书是经典参考</li>
+<li><strong>UIUC ECE 408</strong>：配套课程（Coursera 可看）</li>
+<li><strong>Stanford CS 149</strong>：并行计算基础</li>
+<li><strong>论文</strong>：GTC、SC、ICS 会议</li>
+</ul>
+<h3 id="she-qu" tabindex="-1" id="社区">社区</h3>
+<ul>
+<li><strong>Stack Overflow</strong>：cuda 标签</li>
+<li><strong>NVIDIA 开发者论坛</strong>：官方支持</li>
+<li><strong>GitHub</strong>：开源 CUDA 项目</li>
+<li><strong>Reddit r/CUDA</strong>：讨论社区</li>
+</ul>
+<h2 id="quan-shu-hui-gu" tabindex="-1" id="全书回顾">全书回顾</h2>
+<h3 id="ji-chu-pian-1-6-zhang" tabindex="-1" id="基础篇（1-6章）">基础篇（1-6章）</h3>
+<table>
+<thead>
+<tr>
+<th>章节</th>
+<th>主题</th>
+<th>核心概念</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>引言</td>
+<td>异构计算、CUDA 生态</td>
+</tr>
+<tr>
+<td>2</td>
+<td>数据并行</td>
+<td>Thread、Block、Grid</td>
+</tr>
+<tr>
+<td>3</td>
+<td>多维数据</td>
+<td>线程索引、边界检查</td>
+</tr>
+<tr>
+<td>4</td>
+<td>计算架构</td>
+<td>SM、Warp、调度</td>
+</tr>
+<tr>
+<td>5</td>
+<td>内存架构</td>
+<td>层次结构、Tiling</td>
+</tr>
+<tr>
+<td>6</td>
+<td>性能考虑</td>
+<td>合并访问、发散、资源</td>
+</tr>
+</tbody>
+</table>
+<h3 id="mo-shi-pian-7-15-zhang" tabindex="-1" id="模式篇（7-15章）">模式篇（7-15章）</h3>
+<table>
+<thead>
+<tr>
+<th>章节</th>
+<th>主题</th>
+<th>核心模式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>7</td>
+<td>卷积</td>
+<td>Tiling、Halo</td>
+</tr>
+<tr>
+<td>8</td>
+<td>模板</td>
+<td>缓存、Register Tiling</td>
+</tr>
+<tr>
+<td>9</td>
+<td>直方图</td>
+<td>原子操作、私有化</td>
+</tr>
+<tr>
+<td>10</td>
+<td>归约</td>
+<td>树形归约、Warp 原语</td>
+</tr>
+<tr>
+<td>11</td>
+<td>前缀和</td>
+<td>Scan、Work-Efficient</td>
+</tr>
+<tr>
+<td>12</td>
+<td>归并</td>
+<td>Co-Rank、循环展开</td>
+</tr>
+<tr>
+<td>13</td>
+<td>排序</td>
+<td>基数排序、并行归并</td>
+</tr>
+<tr>
+<td>14</td>
+<td>稀疏矩阵</td>
+<td>CSR/ELL/COO 格式</td>
+</tr>
+<tr>
+<td>15</td>
+<td>图算法</td>
+<td>BFS、边界推进</td>
+</tr>
+</tbody>
+</table>
+<h3 id="ying-yong-pian-16-18-zhang" tabindex="-1" id="应用篇（16-18章）">应用篇（16-18章）</h3>
+<table>
+<thead>
+<tr>
+<th>章节</th>
+<th>主题</th>
+<th>应用领域</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>16</td>
+<td>深度学习</td>
+<td>卷积、池化、全连接</td>
+</tr>
+<tr>
+<td>17</td>
+<td>MRI 重建</td>
+<td>NUFFT、共轭梯度</td>
+</tr>
+<tr>
+<td>18</td>
+<td>静电势能</td>
+<td>N-body、空间分区</td>
+</tr>
+</tbody>
+</table>
+<h3 id="gao-ji-pian-19-22-zhang" tabindex="-1" id="高级篇（19-22章）">高级篇（19-22章）</h3>
+<table>
+<thead>
+<tr>
+<th>章节</th>
+<th>主题</th>
+<th>核心内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>19</td>
+<td>计算思维</td>
+<td>方法论、设计原则</td>
+</tr>
+<tr>
+<td>20</td>
+<td>集群编程</td>
+<td>MPI+CUDA、Halo交换</td>
+</tr>
+<tr>
+<td>21</td>
+<td>动态并行</td>
+<td>设备端启动、递归</td>
+</tr>
+<tr>
+<td>22</td>
+<td>高级实践</td>
+<td>最佳实践、未来趋势</td>
+</tr>
+</tbody>
+</table>
+<h2 id="xie-zai-zui-hou" tabindex="-1" id="写在最后">写在最后</h2>
+<h3 id="bing-xing-bian-cheng-xin-fa-shi-tiao" tabindex="-1" id="并行编程心法十条">并行编程心法十条</h3>
+<ol>
+<li><strong>理解硬件</strong>：了解 GPU 架构，扬长避短</li>
+<li><strong>数据为王</strong>：性能通常受限于数据移动</li>
+<li><strong>最大化并行</strong>：暴露足够的并行性隐藏延迟</li>
+<li><strong>最小化同步</strong>：同步是性能杀手</li>
+<li><strong>合并访问</strong>：让内存访问连续</li>
+<li><strong>复用数据</strong>：共享内存是你最好的朋友</li>
+<li><strong>避免发散</strong>：让 Warp 内线程走相同路径</li>
+<li><strong>权衡取舍</strong>：没有银弹，只有适合的解</li>
+<li><strong>Profile 优先</strong>：数据驱动优化，不要猜测</li>
+<li><strong>渐进迭代</strong>：先正确，后优化，持续改进</li>
+</ol>
+<h3 id="cong-xue-xi-dao-shi-jian" tabindex="-1" id="从学习到实践">从学习到实践</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">阶段一：理解基础</span><br><span class="line">  ↓ 多写代码、多做练习</span><br><span class="line">阶段二：掌握模式</span><br><span class="line">  ↓ 在实际项目中应用</span><br><span class="line">阶段三：形成直觉</span><br><span class="line">  ↓ 阅读论文、参与开源</span><br><span class="line">阶段四：持续精进</span><br></pre></td></tr></table></figure>
+<h3 id="jie-yu" tabindex="-1" id="结语">结语</h3>
+<p>这本书带你从 CUDA 入门走到了高级实践。但学习永无止境——GPU 技术快速演进，新架构、新特性不断涌现。</p>
+<p><strong>核心能力</strong>胜过<strong>具体知识</strong>：</p>
+<ul>
+<li>理解并行计算原理 &gt; 记住 API 细节</li>
+<li>掌握优化方法论 &gt; 背诵优化技巧</li>
+<li>培养计算思维 &gt; 复制代码模板</li>
+</ul>
+<p>希望这本书和这个系列博客能帮助你建立扎实的并行计算基础。接下来，不断实践、持续学习，在 GPU 计算的世界里探索更多可能！</p>
+<hr>
+<p><strong>参考资料：</strong></p>
+<ul>
+<li>Hwu, W., Kirk, D., &amp; El Hajj, I. (2022). <em>Programming Massively Parallel Processors: A Hands-on Approach</em> (4th Edition). Morgan Kaufmann.</li>
+<li>NVIDIA. <em>CUDA C++ Programming Guide</em>. <a target="_blank" rel="noopener" href="https://docs.nvidia.com/cuda/cuda-c-programming-guide/">https://docs.nvidia.com/cuda/cuda-c-programming-guide/</a></li>
+<li>NVIDIA. <em>CUDA C++ Best Practices Guide</em>. <a target="_blank" rel="noopener" href="https://docs.nvidia.com/cuda/cuda-c-best-practices-guide/">https://docs.nvidia.com/cuda/cuda-c-best-practices-guide/</a></li>
+</ul>
+<hr>
+<blockquote>
+<p><strong>本文 GitHub 仓库</strong>: <a target="_blank" rel="noopener" href="https://github.com/psmarter/PMPP-Learning">https://github.com/psmarter/PMPP-Learning</a></p>
+<p><strong>系列完结</strong>：感谢阅读 PMPP 全书 22 章博客系列！</p>
+</blockquote>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/a3a140de/">https://smarter.xin/posts/a3a140de/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/CUDA/">CUDA</a><a class="post-meta__tags" href="/tags/gpu-programming/">GPU编程</a><a class="post-meta__tags" href="/tags/parallel-computing/">并行计算</a><a class="post-meta__tags" href="/tags/PMPP/">PMPP</a><a class="post-meta__tags" href="/tags/performance-optimization/">性能优化</a><a class="post-meta__tags" href="/tags/future-trends/">未来趋势</a><a class="post-meta__tags" href="/tags/best-practices/">最佳实践</a></div><div class="post-share"><div class="social-share" data-image="/img/PMPP.jpg" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related full-width no-desc" href="/posts/e519c4bc/" title="PMPP-第二十一章：CUDA动态并行性"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">PMPP-第二十一章：CUDA动态并行性</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/220818c3/" title="PMPP-第六章：性能方面的考虑"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-16</div><div class="info-item-2">PMPP-第六章：性能方面的考虑</div></div></div></a><a class="pagination-related no-desc" href="/posts/46b3d994/" title="PMPP-第十九章：并行编程与计算思维"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-24</div><div class="info-item-2">PMPP-第十九章：并行编程与计算思维</div></div></div></a><a class="pagination-related no-desc" href="/posts/10d278b0/" title="PMPP-第一章：引言"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-11</div><div class="info-item-2">PMPP-第一章：引言</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">81</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">134</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">12</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#qian-yan"><span class="toc-text">前言</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xing-neng-you-hua-fang-fa-lun"><span class="toc-text">性能优化方法论</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#xing-neng-fen-xi-qu-dong"><span class="toc-text">性能分析驱动</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#roofline-mo-xing-hui-gu"><span class="toc-text">Roofline 模型回顾</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#you-hua-ceng-ci"><span class="toc-text">优化层次</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#chang-jian-you-hua-ji-zhu-zong-jie"><span class="toc-text">常见优化技术总结</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#nei-cun-you-hua"><span class="toc-text">内存优化</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#ji-suan-you-hua"><span class="toc-text">计算优化</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#bing-xing-du-you-hua"><span class="toc-text">并行度优化</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#dai-ma-ke-yi-zhi-xing"><span class="toc-text">代码可移植性</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#kua-gpu-jia-gou"><span class="toc-text">跨 GPU 架构</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#bian-xie-ke-yi-zhi-dai-ma"><span class="toc-text">编写可移植代码</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#kua-ping-tai-ji-zhu"><span class="toc-text">跨平台技术</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#diao-shi-yu-yan-zheng"><span class="toc-text">调试与验证</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#chang-jian-cuo-wu-lei-xing"><span class="toc-text">常见错误类型</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#diao-shi-gong-ju"><span class="toc-text">调试工具</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#yan-zheng-ce-lue"><span class="toc-text">验证策略</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#sheng-chan-huan-jing-zui-jia-shi-jian"><span class="toc-text">生产环境最佳实践</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#cuo-wu-chu-li"><span class="toc-text">错误处理</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#zi-yuan-guan-li"><span class="toc-text">资源管理</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#xing-neng-jian-kong"><span class="toc-text">性能监控</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#gpu-ji-suan-sheng-tai-xi-tong"><span class="toc-text">GPU 计算生态系统</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#cuda-ku"><span class="toc-text">CUDA 库</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#shi-yong-ku-de-you-shi"><span class="toc-text">使用库的优势</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#he-shi-zi-ji-shi-xian"><span class="toc-text">何时自己实现</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#wei-lai-qu-shi"><span class="toc-text">未来趋势</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#ying-jian-yan-jin"><span class="toc-text">硬件演进</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#bian-cheng-mo-xing-yan-jin"><span class="toc-text">编程模型演进</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#ying-yong-ling-yu-kuo-zhan"><span class="toc-text">应用领域扩展</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#chi-xu-xue-xi-zi-yuan"><span class="toc-text">持续学习资源</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#guan-fang-zi-yuan"><span class="toc-text">官方资源</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#xue-zhu-zi-yuan"><span class="toc-text">学术资源</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#she-qu"><span class="toc-text">社区</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#quan-shu-hui-gu"><span class="toc-text">全书回顾</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#ji-chu-pian-1-6-zhang"><span class="toc-text">基础篇（1-6章）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#mo-shi-pian-7-15-zhang"><span class="toc-text">模式篇（7-15章）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#ying-yong-pian-16-18-zhang"><span class="toc-text">应用篇（16-18章）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#gao-ji-pian-19-22-zhang"><span class="toc-text">高级篇（19-22章）</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xie-zai-zui-hou"><span class="toc-text">写在最后</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#bing-xing-bian-cheng-xin-fa-shi-tiao"><span class="toc-text">并行编程心法十条</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#cong-xue-xi-dao-shi-jian"><span class="toc-text">从学习到实践</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#jie-yu"><span class="toc-text">结语</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/a3a140de/" title="PMPP-第二十二章：高级实践与未来演变"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PMPP-第二十二章：高级实践与未来演变"/></a><div class="content"><a class="title" href="/posts/a3a140de/" title="PMPP-第二十二章：高级实践与未来演变">PMPP-第二十二章：高级实践与未来演变</a><time datetime="2026-01-24T08:56:01.000Z" title="发表于 2026-01-24 16:56:01">2026-01-24</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/e519c4bc/" title="PMPP-第二十一章：CUDA动态并行性"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PMPP-第二十一章：CUDA动态并行性"/></a><div class="content"><a class="title" href="/posts/e519c4bc/" title="PMPP-第二十一章：CUDA动态并行性">PMPP-第二十一章：CUDA动态并行性</a><time datetime="2026-01-24T08:20:44.000Z" title="发表于 2026-01-24 16:20:44">2026-01-24</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/9506dbb9/" title="PMPP-第二十章：异构计算集群编程"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PMPP-第二十章：异构计算集群编程"/></a><div class="content"><a class="title" href="/posts/9506dbb9/" title="PMPP-第二十章：异构计算集群编程">PMPP-第二十章：异构计算集群编程</a><time datetime="2026-01-24T07:26:44.000Z" title="发表于 2026-01-24 15:26:44">2026-01-24</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/10d278b0/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-11</span><a class="blog-slider__title" href="posts/10d278b0/" alt="">PMPP-第一章：引言</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/10d278b0/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>
