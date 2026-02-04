@@ -1,0 +1,609 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>常见数据结构-图 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="图详解：节点与边的连接艺术  图是描述&quot;关系&quot;的终极数据结构——社交网络、地图导航、依赖管理都离不开它   图在算法题中出现的频率很高，但很多人觉得它比树难理解。其实图可以看作是树的&quot;升级版&quot;——树是没有环的图，图则更加灵活，节点之间可以任意连接。 掌握图的关键是：理解存储方式 + 熟练运用 DFS&#x2F;BFS。这两个遍历算法是解决几乎所有图问题的基础。  什么">
+<meta property="og:type" content="article">
+<meta property="og:title" content="常见数据结构-图">
+<meta property="og:url" content="https://smarter.xin/posts/74667ea3/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="图详解：节点与边的连接艺术  图是描述&quot;关系&quot;的终极数据结构——社交网络、地图导航、依赖管理都离不开它   图在算法题中出现的频率很高，但很多人觉得它比树难理解。其实图可以看作是树的&quot;升级版&quot;——树是没有环的图，图则更加灵活，节点之间可以任意连接。 掌握图的关键是：理解存储方式 + 熟练运用 DFS&#x2F;BFS。这两个遍历算法是解决几乎所有图问题的基础。  什么">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/Algorithm.svg">
+<meta property="article:published_time" content="2026-02-04T08:46:49.000Z">
+<meta property="article:modified_time" content="2026-02-04T10:47:40.604Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="C++">
+<meta property="article:tag" content="LeetCode">
+<meta property="article:tag" content="BFS">
+<meta property="article:tag" content="DFS">
+<meta property="article:tag" content="图">
+<meta property="article:tag" content="拓扑排序">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/Algorithm.svg"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "常见数据结构-图",
+  "url": "https://smarter.xin/posts/74667ea3/",
+  "image": "https://smarter.xin/img/Algorithm.svg",
+  "datePublished": "2026-02-04T08:46:49.000Z",
+  "dateModified": "2026-02-04T10:47:40.604Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/74667ea3/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: '常见数据结构-图',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">86</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">145</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">13</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/Algorithm.svg);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">常见数据结构-图</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">常见数据结构-图</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-02-04T08:46:49.000Z" title="发表于 2026-02-04 16:46:49">2026-02-04</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-02-04T10:47:40.604Z" title="更新于 2026-02-04 18:47:40">2026-02-04</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/data-structure/">数据结构</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">2.5k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>11分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="tu-xiang-jie-jie-dian-yu-bian-de-lian-jie-yi-zhu" tabindex="-1">图详解：节点与边的连接艺术</h1>
+<blockquote>
+<p>图是描述&quot;关系&quot;的终极数据结构——社交网络、地图导航、依赖管理都离不开它</p>
+</blockquote>
+<hr>
+<p>图在算法题中出现的频率很高，但很多人觉得它比树难理解。其实图可以看作是树的&quot;升级版&quot;——树是没有环的图，图则更加灵活，节点之间可以任意连接。</p>
+<p>掌握图的关键是：<strong>理解存储方式 + 熟练运用 DFS/BFS</strong>。这两个遍历算法是解决几乎所有图问题的基础。</p>
+<hr>
+<h2 id="shi-yao-shi-tu" tabindex="-1" id="什么是图">什么是图</h2>
+<p>图由<strong>节点（顶点）<strong>和</strong>边</strong>组成。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">    0 ---- 1</span><br><span class="line">    |      |</span><br><span class="line">    |      |</span><br><span class="line">    3 ---- 2</span><br><span class="line"></span><br><span class="line">节点：0, 1, 2, 3</span><br><span class="line">边：(0,1), (1,2), (2,3), (0,3)</span><br></pre></td></tr></table></figure>
+<h3 id="tu-de-fen-lei" tabindex="-1" id="图的分类">图的分类</h3>
+<table>
+<thead>
+<tr>
+<th>类型</th>
+<th>特点</th>
+<th>例子</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>无向图</td>
+<td>边没有方向</td>
+<td>社交网络的好友关系</td>
+</tr>
+<tr>
+<td>有向图</td>
+<td>边有方向</td>
+<td>微博的关注关系</td>
+</tr>
+<tr>
+<td>加权图</td>
+<td>边有权重</td>
+<td>地图上的距离</td>
+</tr>
+<tr>
+<td>无环图(DAG)</td>
+<td>有向图且没有环</td>
+<td>课程依赖关系</td>
+</tr>
+</tbody>
+</table>
+<pre><code class="highlight mermaid">graph LR
+    subgraph 无向图
+    A((0)) --- B((1))
+    A --- C((2))
+    B --- C
+    end
+    
+    subgraph 有向图
+    D((0)) --&gt; E((1))
+    E --&gt; F((2))
+    F --&gt; D
+    end
+    
+    style A fill:#FFE4B5
+    style D fill:#87CEEB</code></pre>
+<hr>
+<h2 id="tu-de-cun-chu-fang-shi" tabindex="-1" id="图的存储方式">图的存储方式</h2>
+<h3 id="lin-jie-ju-zhen" tabindex="-1" id="邻接矩阵">邻接矩阵</h3>
+<p>用二维数组表示，<code>matrix[i][j] = 1</code> 表示 i 和 j 之间有边。</p>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// n个节点的图</span></span><br><span class="line">vector&lt;vector&lt;<span class="type">int</span>&gt;&gt; <span class="built_in">matrix</span>(n, <span class="built_in">vector</span>&lt;<span class="type">int</span>&gt;(n, <span class="number">0</span>));</span><br><span class="line"></span><br><span class="line"><span class="comment">// 添加边 (无向图)</span></span><br><span class="line">matrix[<span class="number">0</span>][<span class="number">1</span>] = <span class="number">1</span>;</span><br><span class="line">matrix[<span class="number">1</span>][<span class="number">0</span>] = <span class="number">1</span>;</span><br></pre></td></tr></table></figure>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">    0  1  2  3</span><br><span class="line">0 [ 0  1  0  1 ]</span><br><span class="line">1 [ 1  0  1  0 ]</span><br><span class="line">2 [ 0  1  0  1 ]</span><br><span class="line">3 [ 1  0  1  0 ]</span><br></pre></td></tr></table></figure>
+<p><strong>优点</strong>：查询两点是否相连 O(1)<br>
+<strong>缺点</strong>：空间 O(n²)，稀疏图浪费空间</p>
+<h3 id="lin-jie-biao" tabindex="-1" id="邻接表">邻接表</h3>
+<p>每个节点存储它的邻居列表。</p>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// n个节点的图</span></span><br><span class="line">vector&lt;vector&lt;<span class="type">int</span>&gt;&gt; <span class="built_in">adj</span>(n);</span><br><span class="line"></span><br><span class="line"><span class="comment">// 添加边 (无向图)</span></span><br><span class="line">adj[<span class="number">0</span>].<span class="built_in">push_back</span>(<span class="number">1</span>);</span><br><span class="line">adj[<span class="number">1</span>].<span class="built_in">push_back</span>(<span class="number">0</span>);</span><br></pre></td></tr></table></figure>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">0 -&gt; [1, 3]</span><br><span class="line">1 -&gt; [0, 2]</span><br><span class="line">2 -&gt; [1, 3]</span><br><span class="line">3 -&gt; [0, 2]</span><br></pre></td></tr></table></figure>
+<p><strong>优点</strong>：空间 O(V + E)，适合稀疏图<br>
+<strong>缺点</strong>：查询两点是否相连需要遍历</p>
+<h3 id="ru-he-xuan-ze" tabindex="-1" id="如何选择？">如何选择？</h3>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>推荐方式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>稀疏图（边少）</td>
+<td>邻接表</td>
+</tr>
+<tr>
+<td>稠密图（边多）</td>
+<td>邻接矩阵</td>
+</tr>
+<tr>
+<td>需要快速判断连通</td>
+<td>邻接矩阵</td>
+</tr>
+<tr>
+<td>LeetCode 刷题</td>
+<td>邻接表</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="tu-de-bian-li-dfs" tabindex="-1" id="图的遍历：DFS">图的遍历：DFS</h2>
+<p>深度优先搜索：一条路走到黑，走不通再回头。</p>
+<h3 id="ji-ben-mo-ban" tabindex="-1" id="基本模板">基本模板</h3>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">vector&lt;<span class="type">bool</span>&gt; visited;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="type">void</span> <span class="title">dfs</span><span class="params">(vector&lt;vector&lt;<span class="type">int</span>&gt;&gt;&amp; adj, <span class="type">int</span> node)</span> </span>&#123;</span><br><span class="line">    visited[node] = <span class="literal">true</span>;</span><br><span class="line">    </span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> neighbor : adj[node]) &#123;</span><br><span class="line">        <span class="keyword">if</span> (!visited[neighbor]) &#123;</span><br><span class="line">            <span class="built_in">dfs</span>(adj, neighbor);</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<h3 id="zhi-xing-guo-cheng" tabindex="-1" id="执行过程">执行过程</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br></pre></td><td class="code"><pre><span class="line">图：</span><br><span class="line">0 -- 1</span><br><span class="line">|    |</span><br><span class="line">3 -- 2</span><br><span class="line"></span><br><span class="line">邻接表：</span><br><span class="line">0 -&gt; [1, 3]</span><br><span class="line">1 -&gt; [0, 2]</span><br><span class="line">2 -&gt; [1, 3]</span><br><span class="line">3 -&gt; [0, 2]</span><br><span class="line"></span><br><span class="line">从节点0开始 DFS：</span><br><span class="line"></span><br><span class="line">dfs(0)</span><br><span class="line">├── visited[0] = true</span><br><span class="line">├── 邻居1未访问 -&gt; dfs(1)</span><br><span class="line">│   ├── visited[1] = true</span><br><span class="line">│   ├── 邻居0已访问，跳过</span><br><span class="line">│   ├── 邻居2未访问 -&gt; dfs(2)</span><br><span class="line">│   │   ├── visited[2] = true</span><br><span class="line">│   │   ├── 邻居1已访问，跳过</span><br><span class="line">│   │   ├── 邻居3未访问 -&gt; dfs(3)</span><br><span class="line">│   │   │   ├── visited[3] = true</span><br><span class="line">│   │   │   ├── 所有邻居已访问</span><br><span class="line">│   │   │   └── 返回</span><br><span class="line">│   │   └── 返回</span><br><span class="line">│   └── 返回</span><br><span class="line">├── 邻居3已访问，跳过</span><br><span class="line">└── 返回</span><br><span class="line"></span><br><span class="line">遍历顺序：0 -&gt; 1 -&gt; 2 -&gt; 3</span><br></pre></td></tr></table></figure>
+<hr>
+<h2 id="tu-de-bian-li-bfs" tabindex="-1" id="图的遍历：BFS">图的遍历：BFS</h2>
+<p>广度优先搜索：一层一层往外扩展，像水波一样。</p>
+<h3 id="ji-ben-mo-ban-1" tabindex="-1" id="基本模板-2">基本模板</h3>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="type">void</span> <span class="title">bfs</span><span class="params">(vector&lt;vector&lt;<span class="type">int</span>&gt;&gt;&amp; adj, <span class="type">int</span> start)</span> </span>&#123;</span><br><span class="line">    <span class="function">vector&lt;<span class="type">bool</span>&gt; <span class="title">visited</span><span class="params">(adj.size(), <span class="literal">false</span>)</span></span>;</span><br><span class="line">    queue&lt;<span class="type">int</span>&gt; q;</span><br><span class="line">    </span><br><span class="line">    q.<span class="built_in">push</span>(start);</span><br><span class="line">    visited[start] = <span class="literal">true</span>;</span><br><span class="line">    </span><br><span class="line">    <span class="keyword">while</span> (!q.<span class="built_in">empty</span>()) &#123;</span><br><span class="line">        <span class="type">int</span> node = q.<span class="built_in">front</span>();</span><br><span class="line">        q.<span class="built_in">pop</span>();</span><br><span class="line">        </span><br><span class="line">        <span class="keyword">for</span> (<span class="type">int</span> neighbor : adj[node]) &#123;</span><br><span class="line">            <span class="keyword">if</span> (!visited[neighbor]) &#123;</span><br><span class="line">                visited[neighbor] = <span class="literal">true</span>;</span><br><span class="line">                q.<span class="built_in">push</span>(neighbor);</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<h3 id="zhi-xing-guo-cheng-1" tabindex="-1" id="执行过程-2">执行过程</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">同样的图，从节点0开始 BFS：</span><br><span class="line"></span><br><span class="line">初始：queue = [0], visited = &#123;0&#125;</span><br><span class="line"></span><br><span class="line">Step 1: 取出0，加入邻居1, 3</span><br><span class="line">        queue = [1, 3], visited = &#123;0, 1, 3&#125;</span><br><span class="line"></span><br><span class="line">Step 2: 取出1，加入邻居2（0已访问）</span><br><span class="line">        queue = [3, 2], visited = &#123;0, 1, 3, 2&#125;</span><br><span class="line"></span><br><span class="line">Step 3: 取出3，邻居都已访问</span><br><span class="line">        queue = [2]</span><br><span class="line"></span><br><span class="line">Step 4: 取出2，邻居都已访问</span><br><span class="line">        queue = []</span><br><span class="line"></span><br><span class="line">遍历顺序：0 -&gt; 1 -&gt; 3 -&gt; 2</span><br></pre></td></tr></table></figure>
+<h3 id="dfs-vs-bfs" tabindex="-1" id="DFS-vs-BFS">DFS vs BFS</h3>
+<table>
+<thead>
+<tr>
+<th>特点</th>
+<th>DFS</th>
+<th>BFS</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>数据结构</td>
+<td>栈（递归/显式栈）</td>
+<td>队列</td>
+</tr>
+<tr>
+<td>空间复杂度</td>
+<td>O(h) 递归深度</td>
+<td>O(w) 最大宽度</td>
+</tr>
+<tr>
+<td>适用场景</td>
+<td>路径问题、连通性</td>
+<td>最短路径、层级遍历</td>
+</tr>
+<tr>
+<td>实现难度</td>
+<td>递归简单</td>
+<td>迭代简单</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="jing-dian-wen-ti-dao-yu-shu-liang" tabindex="-1" id="经典问题：岛屿数量">经典问题：岛屿数量</h2>
+<blockquote>
+<p><strong>LeetCode 200</strong>: 给你一个由 ‘1’（陆地）和 ‘0’（水）组成的二维网格，请计算网格中岛屿的数量。</p>
+</blockquote>
+<h3 id="si-lu" tabindex="-1" id="思路">思路</h3>
+<p>遇到一个 ‘1’，就用 DFS/BFS 把整个岛屿标记掉，然后计数 +1。</p>
+<h3 id="dfs-jie-fa" tabindex="-1" id="DFS-解法">DFS 解法</h3>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="type">int</span> <span class="title">numIslands</span><span class="params">(vector&lt;vector&lt;<span class="type">char</span>&gt;&gt;&amp; grid)</span> </span>&#123;</span><br><span class="line">    <span class="type">int</span> m = grid.<span class="built_in">size</span>(), n = grid[<span class="number">0</span>].<span class="built_in">size</span>();</span><br><span class="line">    <span class="type">int</span> count = <span class="number">0</span>;</span><br><span class="line">    </span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> i = <span class="number">0</span>; i &lt; m; ++i) &#123;</span><br><span class="line">        <span class="keyword">for</span> (<span class="type">int</span> j = <span class="number">0</span>; j &lt; n; ++j) &#123;</span><br><span class="line">            <span class="keyword">if</span> (grid[i][j] == <span class="string">&#x27;1&#x27;</span>) &#123;</span><br><span class="line">                <span class="built_in">dfs</span>(grid, i, j);</span><br><span class="line">                count++;</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    </span><br><span class="line">    <span class="keyword">return</span> count;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="type">void</span> <span class="title">dfs</span><span class="params">(vector&lt;vector&lt;<span class="type">char</span>&gt;&gt;&amp; grid, <span class="type">int</span> i, <span class="type">int</span> j)</span> </span>&#123;</span><br><span class="line">    <span class="type">int</span> m = grid.<span class="built_in">size</span>(), n = grid[<span class="number">0</span>].<span class="built_in">size</span>();</span><br><span class="line">    </span><br><span class="line">    <span class="comment">// 边界检查 + 是否是陆地</span></span><br><span class="line">    <span class="keyword">if</span> (i &lt; <span class="number">0</span> || i &gt;= m || j &lt; <span class="number">0</span> || j &gt;= n || grid[i][j] != <span class="string">&#x27;1&#x27;</span>) &#123;</span><br><span class="line">        <span class="keyword">return</span>;</span><br><span class="line">    &#125;</span><br><span class="line">    </span><br><span class="line">    grid[i][j] = <span class="string">&#x27;0&#x27;</span>;  <span class="comment">// 标记为已访问</span></span><br><span class="line">    </span><br><span class="line">    <span class="comment">// 四个方向</span></span><br><span class="line">    <span class="built_in">dfs</span>(grid, i + <span class="number">1</span>, j);</span><br><span class="line">    <span class="built_in">dfs</span>(grid, i - <span class="number">1</span>, j);</span><br><span class="line">    <span class="built_in">dfs</span>(grid, i, j + <span class="number">1</span>);</span><br><span class="line">    <span class="built_in">dfs</span>(grid, i, j - <span class="number">1</span>);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<h3 id="zhi-xing-guo-cheng-2" tabindex="-1" id="执行过程-3">执行过程</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br></pre></td><td class="code"><pre><span class="line">grid:</span><br><span class="line">1 1 0 0 0</span><br><span class="line">1 1 0 0 0</span><br><span class="line">0 0 1 0 0</span><br><span class="line">0 0 0 1 1</span><br><span class="line"></span><br><span class="line">遍历过程：</span><br><span class="line"></span><br><span class="line">(0,0)=&#x27;1&#x27; -&gt; DFS淹没整个岛屿 -&gt; count=1</span><br><span class="line">grid:</span><br><span class="line">0 0 0 0 0</span><br><span class="line">0 0 0 0 0</span><br><span class="line">0 0 1 0 0</span><br><span class="line">0 0 0 1 1</span><br><span class="line"></span><br><span class="line">(2,2)=&#x27;1&#x27; -&gt; DFS淹没 -&gt; count=2</span><br><span class="line">grid:</span><br><span class="line">0 0 0 0 0</span><br><span class="line">0 0 0 0 0</span><br><span class="line">0 0 0 0 0</span><br><span class="line">0 0 0 1 1</span><br><span class="line"></span><br><span class="line">(3,3)=&#x27;1&#x27; -&gt; DFS淹没整个岛屿 -&gt; count=3</span><br><span class="line">grid:</span><br><span class="line">0 0 0 0 0</span><br><span class="line">0 0 0 0 0</span><br><span class="line">0 0 0 0 0</span><br><span class="line">0 0 0 0 0</span><br><span class="line"></span><br><span class="line">答案：3</span><br></pre></td></tr></table></figure>
+<p><strong>时间复杂度</strong>：O(m × n)<br>
+<strong>空间复杂度</strong>：O(m × n) 最坏情况递归深度</p>
+<hr>
+<h2 id="jing-dian-wen-ti-ke-cheng-biao-tuo-bu-pai-xu" tabindex="-1" id="经典问题：课程表（拓扑排序）">经典问题：课程表（拓扑排序）</h2>
+<blockquote>
+<p><strong>LeetCode 207</strong>: 给定课程总数和先修关系，判断是否可能完成所有课程。</p>
+</blockquote>
+<h3 id="si-lu-1" tabindex="-1" id="思路-2">思路</h3>
+<p>这是一个<strong>检测有向图是否有环</strong>的问题。如果有环，说明存在循环依赖，无法完成。</p>
+<p>可以用 <strong>DFS 检测环</strong> 或 <strong>BFS 拓扑排序（Kahn算法）</strong>。</p>
+<h3 id="bfs-tuo-bu-pai-xu" tabindex="-1" id="BFS-拓扑排序">BFS 拓扑排序</h3>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="type">bool</span> <span class="title">canFinish</span><span class="params">(<span class="type">int</span> numCourses, vector&lt;vector&lt;<span class="type">int</span>&gt;&gt;&amp; prerequisites)</span> </span>&#123;</span><br><span class="line">    <span class="function">vector&lt;<span class="type">int</span>&gt; <span class="title">indegree</span><span class="params">(numCourses, <span class="number">0</span>)</span></span>;</span><br><span class="line">    vector&lt;vector&lt;<span class="type">int</span>&gt;&gt; <span class="built_in">adj</span>(numCourses);</span><br><span class="line">    </span><br><span class="line">    <span class="comment">// 建图 + 计算入度</span></span><br><span class="line">    <span class="keyword">for</span> (<span class="keyword">auto</span>&amp; p : prerequisites) &#123;</span><br><span class="line">        adj[p[<span class="number">1</span>]].<span class="built_in">push_back</span>(p[<span class="number">0</span>]);</span><br><span class="line">        indegree[p[<span class="number">0</span>]]++;</span><br><span class="line">    &#125;</span><br><span class="line">    </span><br><span class="line">    <span class="comment">// 入度为0的节点入队</span></span><br><span class="line">    queue&lt;<span class="type">int</span>&gt; q;</span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> i = <span class="number">0</span>; i &lt; numCourses; ++i) &#123;</span><br><span class="line">        <span class="keyword">if</span> (indegree[i] == <span class="number">0</span>) &#123;</span><br><span class="line">            q.<span class="built_in">push</span>(i);</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    </span><br><span class="line">    <span class="type">int</span> count = <span class="number">0</span>;</span><br><span class="line">    <span class="keyword">while</span> (!q.<span class="built_in">empty</span>()) &#123;</span><br><span class="line">        <span class="type">int</span> course = q.<span class="built_in">front</span>();</span><br><span class="line">        q.<span class="built_in">pop</span>();</span><br><span class="line">        count++;</span><br><span class="line">        </span><br><span class="line">        <span class="comment">// 删除这个节点的出边</span></span><br><span class="line">        <span class="keyword">for</span> (<span class="type">int</span> next : adj[course]) &#123;</span><br><span class="line">            <span class="keyword">if</span> (--indegree[next] == <span class="number">0</span>) &#123;</span><br><span class="line">                q.<span class="built_in">push</span>(next);</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    </span><br><span class="line">    <span class="keyword">return</span> count == numCourses;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<h3 id="zhi-xing-guo-cheng-3" tabindex="-1" id="执行过程-4">执行过程</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br></pre></td><td class="code"><pre><span class="line">numCourses = 4</span><br><span class="line">prerequisites = [[1,0], [2,0], [3,1], [3,2]]</span><br><span class="line"></span><br><span class="line">含义：</span><br><span class="line">0 -&gt; 1 -&gt; 3</span><br><span class="line">0 -&gt; 2 -&gt; 3</span><br><span class="line"></span><br><span class="line">建图后：</span><br><span class="line">adj[0] = [1, 2]</span><br><span class="line">adj[1] = [3]</span><br><span class="line">adj[2] = [3]</span><br><span class="line">adj[3] = []</span><br><span class="line"></span><br><span class="line">入度：[0, 1, 1, 2]</span><br><span class="line"></span><br><span class="line">初始队列：[0]（入度为0）</span><br><span class="line"></span><br><span class="line">Step 1: 取出0，count=1</span><br><span class="line">        删除0的出边，更新入度</span><br><span class="line">        入度变为 [0, 0, 0, 2]</span><br><span class="line">        节点1, 2入队</span><br><span class="line">        queue = [1, 2]</span><br><span class="line"></span><br><span class="line">Step 2: 取出1，count=2</span><br><span class="line">        入度变为 [0, 0, 0, 1]</span><br><span class="line">        queue = [2]</span><br><span class="line"></span><br><span class="line">Step 3: 取出2，count=3</span><br><span class="line">        入度变为 [0, 0, 0, 0]</span><br><span class="line">        节点3入队</span><br><span class="line">        queue = [3]</span><br><span class="line"></span><br><span class="line">Step 4: 取出3，count=4</span><br><span class="line">        queue = []</span><br><span class="line"></span><br><span class="line">count(4) == numCourses(4) -&gt; true，可以完成！</span><br></pre></td></tr></table></figure>
+<hr>
+<h2 id="jing-dian-wen-ti-ke-long-tu" tabindex="-1" id="经典问题：克隆图">经典问题：克隆图</h2>
+<blockquote>
+<p><strong>LeetCode 133</strong>: 深拷贝一个无向图。</p>
+</blockquote>
+<h3 id="si-lu-2" tabindex="-1" id="思路-3">思路</h3>
+<p>用 HashMap 记录&quot;旧节点 -&gt; 新节点&quot;的映射，DFS 遍历时创建新节点。</p>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title class_">Node</span> &#123;</span><br><span class="line"><span class="keyword">public</span>:</span><br><span class="line">    <span class="type">int</span> val;</span><br><span class="line">    vector&lt;Node*&gt; neighbors;</span><br><span class="line">&#125;;</span><br><span class="line"></span><br><span class="line">unordered_map&lt;Node*, Node*&gt; visited;</span><br><span class="line"></span><br><span class="line"><span class="function">Node* <span class="title">cloneGraph</span><span class="params">(Node* node)</span> </span>&#123;</span><br><span class="line">    <span class="keyword">if</span> (!node) <span class="keyword">return</span> <span class="literal">nullptr</span>;</span><br><span class="line">    </span><br><span class="line">    <span class="comment">// 如果已经克隆过，直接返回</span></span><br><span class="line">    <span class="keyword">if</span> (visited.<span class="built_in">count</span>(node)) &#123;</span><br><span class="line">        <span class="keyword">return</span> visited[node];</span><br><span class="line">    &#125;</span><br><span class="line">    </span><br><span class="line">    <span class="comment">// 创建新节点</span></span><br><span class="line">    Node* clone = <span class="keyword">new</span> <span class="built_in">Node</span>(node-&gt;val);</span><br><span class="line">    visited[node] = clone;</span><br><span class="line">    </span><br><span class="line">    <span class="comment">// 递归克隆邻居</span></span><br><span class="line">    <span class="keyword">for</span> (Node* neighbor : node-&gt;neighbors) &#123;</span><br><span class="line">        clone-&gt;neighbors.<span class="built_in">push_back</span>(<span class="built_in">cloneGraph</span>(neighbor));</span><br><span class="line">    &#125;</span><br><span class="line">    </span><br><span class="line">    <span class="keyword">return</span> clone;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<hr>
+<h2 id="jing-dian-wen-ti-zui-duan-lu-jing" tabindex="-1" id="经典问题：最短路径">经典问题：最短路径</h2>
+<blockquote>
+<p><strong>LeetCode 1091</strong>: 在 n×n 的网格中，找从左上角到右下角的最短路径（可以走8个方向）。</p>
+</blockquote>
+<h3 id="si-lu-3" tabindex="-1" id="思路-4">思路</h3>
+<p>BFS 天然适合求无权图的最短路径——第一次到达终点时的步数就是最短距离。</p>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br></pre></td><td class="code"><pre><span class="line"><span class="function"><span class="type">int</span> <span class="title">shortestPathBinaryMatrix</span><span class="params">(vector&lt;vector&lt;<span class="type">int</span>&gt;&gt;&amp; grid)</span> </span>&#123;</span><br><span class="line">    <span class="type">int</span> n = grid.<span class="built_in">size</span>();</span><br><span class="line">    <span class="keyword">if</span> (grid[<span class="number">0</span>][<span class="number">0</span>] == <span class="number">1</span> || grid[n<span class="number">-1</span>][n<span class="number">-1</span>] == <span class="number">1</span>) <span class="keyword">return</span> <span class="number">-1</span>;</span><br><span class="line">    </span><br><span class="line">    vector&lt;pair&lt;<span class="type">int</span>,<span class="type">int</span>&gt;&gt; dirs = &#123;</span><br><span class="line">        &#123;<span class="number">-1</span>,<span class="number">-1</span>&#125;, &#123;<span class="number">-1</span>,<span class="number">0</span>&#125;, &#123;<span class="number">-1</span>,<span class="number">1</span>&#125;,</span><br><span class="line">        &#123;<span class="number">0</span>,<span class="number">-1</span>&#125;,          &#123;<span class="number">0</span>,<span class="number">1</span>&#125;,</span><br><span class="line">        &#123;<span class="number">1</span>,<span class="number">-1</span>&#125;,  &#123;<span class="number">1</span>,<span class="number">0</span>&#125;,  &#123;<span class="number">1</span>,<span class="number">1</span>&#125;</span><br><span class="line">    &#125;;</span><br><span class="line">    </span><br><span class="line">    queue&lt;pair&lt;<span class="type">int</span>,<span class="type">int</span>&gt;&gt; q;</span><br><span class="line">    q.<span class="built_in">push</span>(&#123;<span class="number">0</span>, <span class="number">0</span>&#125;);</span><br><span class="line">    grid[<span class="number">0</span>][<span class="number">0</span>] = <span class="number">1</span>;  <span class="comment">// 标记距离（同时起到visited作用）</span></span><br><span class="line">    </span><br><span class="line">    <span class="keyword">while</span> (!q.<span class="built_in">empty</span>()) &#123;</span><br><span class="line">        <span class="keyword">auto</span> [x, y] = q.<span class="built_in">front</span>();</span><br><span class="line">        q.<span class="built_in">pop</span>();</span><br><span class="line">        </span><br><span class="line">        <span class="keyword">if</span> (x == n<span class="number">-1</span> &amp;&amp; y == n<span class="number">-1</span>) &#123;</span><br><span class="line">            <span class="keyword">return</span> grid[x][y];</span><br><span class="line">        &#125;</span><br><span class="line">        </span><br><span class="line">        <span class="keyword">for</span> (<span class="keyword">auto</span> [dx, dy] : dirs) &#123;</span><br><span class="line">            <span class="type">int</span> nx = x + dx, ny = y + dy;</span><br><span class="line">            <span class="keyword">if</span> (nx &gt;= <span class="number">0</span> &amp;&amp; nx &lt; n &amp;&amp; ny &gt;= <span class="number">0</span> &amp;&amp; ny &lt; n &amp;&amp; grid[nx][ny] == <span class="number">0</span>) &#123;</span><br><span class="line">                grid[nx][ny] = grid[x][y] + <span class="number">1</span>;</span><br><span class="line">                q.<span class="built_in">push</span>(&#123;nx, ny&#125;);</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    </span><br><span class="line">    <span class="keyword">return</span> <span class="number">-1</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<hr>
+<h2 id="chang-jian-ji-qiao-zong-jie" tabindex="-1" id="常见技巧总结">常见技巧总结</h2>
+<h3 id="1-fang-xiang-shu-zu" tabindex="-1" id="1-方向数组">1. 方向数组</h3>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 四方向</span></span><br><span class="line"><span class="type">int</span> dx[] = &#123;<span class="number">0</span>, <span class="number">0</span>, <span class="number">1</span>, <span class="number">-1</span>&#125;;</span><br><span class="line"><span class="type">int</span> dy[] = &#123;<span class="number">1</span>, <span class="number">-1</span>, <span class="number">0</span>, <span class="number">0</span>&#125;;</span><br><span class="line"></span><br><span class="line"><span class="comment">// 八方向</span></span><br><span class="line">vector&lt;pair&lt;<span class="type">int</span>,<span class="type">int</span>&gt;&gt; dirs = &#123;</span><br><span class="line">    &#123;<span class="number">-1</span>,<span class="number">-1</span>&#125;, &#123;<span class="number">-1</span>,<span class="number">0</span>&#125;, &#123;<span class="number">-1</span>,<span class="number">1</span>&#125;,</span><br><span class="line">    &#123;<span class="number">0</span>,<span class="number">-1</span>&#125;,          &#123;<span class="number">0</span>,<span class="number">1</span>&#125;,</span><br><span class="line">    &#123;<span class="number">1</span>,<span class="number">-1</span>&#125;,  &#123;<span class="number">1</span>,<span class="number">0</span>&#125;,  &#123;<span class="number">1</span>,<span class="number">1</span>&#125;</span><br><span class="line">&#125;;</span><br></pre></td></tr></table></figure>
+<h3 id="2-jian-tu-ji-qiao" tabindex="-1" id="2-建图技巧">2. 建图技巧</h3>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 边列表 -&gt; 邻接表</span></span><br><span class="line">vector&lt;vector&lt;<span class="type">int</span>&gt;&gt; <span class="built_in">adj</span>(n);</span><br><span class="line"><span class="keyword">for</span> (<span class="keyword">auto</span>&amp; edge : edges) &#123;</span><br><span class="line">    adj[edge[<span class="number">0</span>]].<span class="built_in">push_back</span>(edge[<span class="number">1</span>]);</span><br><span class="line">    adj[edge[<span class="number">1</span>]].<span class="built_in">push_back</span>(edge[<span class="number">0</span>]);  <span class="comment">// 无向图</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<h3 id="3-bi-mian-zhong-fu-fang-wen" tabindex="-1" id="3-避免重复访问">3. 避免重复访问</h3>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 方法1：visited 数组</span></span><br><span class="line"><span class="function">vector&lt;<span class="type">bool</span>&gt; <span class="title">visited</span><span class="params">(n, <span class="literal">false</span>)</span></span>;</span><br><span class="line"></span><br><span class="line"><span class="comment">// 方法2：直接修改原数组（适用于网格）</span></span><br><span class="line">grid[i][j] = <span class="string">&#x27;#&#x27;</span>;  <span class="comment">// 标记为已访问</span></span><br></pre></td></tr></table></figure>
+<hr>
+<h2 id="si-wei-dao-tu" tabindex="-1" id="思维导图">思维导图</h2>
+<pre><code class="highlight mermaid">graph TD
+    A[图] --&gt; B[存储方式]
+    A --&gt; C[遍历算法]
+    A --&gt; D[经典问题]
+    
+    B --&gt; B1[邻接矩阵]
+    B --&gt; B2[邻接表]
+    
+    C --&gt; C1[DFS 深度优先]
+    C --&gt; C2[BFS 广度优先]
+    
+    D --&gt; D1[岛屿问题]
+    D --&gt; D2[拓扑排序]
+    D --&gt; D3[最短路径]
+    D --&gt; D4[连通分量]
+    
+    style A fill:#FFE4B5
+    style C fill:#90EE90
+    style D fill:#87CEEB</code></pre>
+<hr>
+<h2 id="zong-jie" tabindex="-1" id="总结">总结</h2>
+<h3 id="he-xin-yao-dian" tabindex="-1" id="核心要点">核心要点</h3>
+<ol>
+<li><strong>邻接表是刷题首选</strong>：空间效率高，适合大多数场景</li>
+<li><strong>DFS 用于路径/连通性问题</strong>：递归实现简洁</li>
+<li><strong>BFS 用于最短路径问题</strong>：层序遍历的天然优势</li>
+<li><strong>拓扑排序检测环</strong>：入度为 0 的节点逐个删除</li>
+</ol>
+<h3 id="leet-code-tui-jian-ti-dan" tabindex="-1" id="LeetCode-推荐题单">LeetCode 推荐题单</h3>
+<p><strong>入门</strong>：</p>
+<ul>
+<li>200 岛屿数量</li>
+<li>733 图像渲染</li>
+<li>547 省份数量</li>
+</ul>
+<p><strong>进阶</strong>：</p>
+<ul>
+<li>207 / 210 课程表</li>
+<li>133 克隆图</li>
+<li>1091 二进制矩阵最短路径</li>
+</ul>
+<p><strong>挑战</strong>：</p>
+<ul>
+<li>743 网络延迟时间（Dijkstra）</li>
+<li>787 K站中转最便宜航班</li>
+<li>127 单词接龙</li>
+</ul>
+<p><strong>推荐阅读</strong>：</p>
+<ul>
+<li><a href="/%E5%B8%B8%E8%A7%81%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84-%E4%BA%8C%E5%8F%89%E6%A0%91/">常见数据结构-二叉树</a> - 树是无环连通图的特例</li>
+<li><a target="_blank" rel="noopener" href="https://leetcode.cn/tag/graph/">LeetCode 图专题</a></li>
+</ul>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/74667ea3/">https://smarter.xin/posts/74667ea3/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/C/">C++</a><a class="post-meta__tags" href="/tags/LeetCode/">LeetCode</a><a class="post-meta__tags" href="/tags/BFS/">BFS</a><a class="post-meta__tags" href="/tags/DFS/">DFS</a><a class="post-meta__tags" href="/tags/%E5%9B%BE/">图</a><a class="post-meta__tags" href="/tags/topological-sort/">拓扑排序</a></div><div class="post-share"><div class="social-share" data-image="/img/Algorithm.svg" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related full-width no-desc" href="/posts/1f06d3bd/" title="UESTC校园网自动连接方案"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/UESTC.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">UESTC校园网自动连接方案</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/5948d104/" title="常见数据结构-二叉树"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Algorithm.svg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-02-02</div><div class="info-item-2">常见数据结构-二叉树</div></div></div></a><a class="pagination-related no-desc" href="/posts/97ccf2e3/" title="常见算法-回溯"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Algorithm.svg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2025-12-31</div><div class="info-item-2">常见算法-回溯</div></div></div></a><a class="pagination-related no-desc" href="/posts/8c812416/" title="LeetCode热题100(25.09.29)"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/LeetCode.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2025-09-29</div><div class="info-item-2">LeetCode热题100(25.09.29)</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">86</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">145</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">13</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#tu-xiang-jie-jie-dian-yu-bian-de-lian-jie-yi-zhu"><span class="toc-text">图详解：节点与边的连接艺术</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-yao-shi-tu"><span class="toc-text">什么是图</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#tu-de-fen-lei"><span class="toc-text">图的分类</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#tu-de-cun-chu-fang-shi"><span class="toc-text">图的存储方式</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#lin-jie-ju-zhen"><span class="toc-text">邻接矩阵</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#lin-jie-biao"><span class="toc-text">邻接表</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#ru-he-xuan-ze"><span class="toc-text">如何选择？</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#tu-de-bian-li-dfs"><span class="toc-text">图的遍历：DFS</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#ji-ben-mo-ban"><span class="toc-text">基本模板</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#zhi-xing-guo-cheng"><span class="toc-text">执行过程</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#tu-de-bian-li-bfs"><span class="toc-text">图的遍历：BFS</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#ji-ben-mo-ban-1"><span class="toc-text">基本模板</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#zhi-xing-guo-cheng-1"><span class="toc-text">执行过程</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#dfs-vs-bfs"><span class="toc-text">DFS vs BFS</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#jing-dian-wen-ti-dao-yu-shu-liang"><span class="toc-text">经典问题：岛屿数量</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#si-lu"><span class="toc-text">思路</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#dfs-jie-fa"><span class="toc-text">DFS 解法</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#zhi-xing-guo-cheng-2"><span class="toc-text">执行过程</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#jing-dian-wen-ti-ke-cheng-biao-tuo-bu-pai-xu"><span class="toc-text">经典问题：课程表（拓扑排序）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#si-lu-1"><span class="toc-text">思路</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#bfs-tuo-bu-pai-xu"><span class="toc-text">BFS 拓扑排序</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#zhi-xing-guo-cheng-3"><span class="toc-text">执行过程</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#jing-dian-wen-ti-ke-long-tu"><span class="toc-text">经典问题：克隆图</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#si-lu-2"><span class="toc-text">思路</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#jing-dian-wen-ti-zui-duan-lu-jing"><span class="toc-text">经典问题：最短路径</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#si-lu-3"><span class="toc-text">思路</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#chang-jian-ji-qiao-zong-jie"><span class="toc-text">常见技巧总结</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-fang-xiang-shu-zu"><span class="toc-text">1. 方向数组</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-jian-tu-ji-qiao"><span class="toc-text">2. 建图技巧</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-bi-mian-zhong-fu-fang-wen"><span class="toc-text">3. 避免重复访问</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#si-wei-dao-tu"><span class="toc-text">思维导图</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#zong-jie"><span class="toc-text">总结</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#he-xin-yao-dian"><span class="toc-text">核心要点</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#leet-code-tui-jian-ti-dan"><span class="toc-text">LeetCode 推荐题单</span></a></li></ol></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/74667ea3/" title="常见数据结构-图"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Algorithm.svg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="常见数据结构-图"/></a><div class="content"><a class="title" href="/posts/74667ea3/" title="常见数据结构-图">常见数据结构-图</a><time datetime="2026-02-04T08:46:49.000Z" title="发表于 2026-02-04 16:46:49">2026-02-04</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/1f06d3bd/" title="UESTC校园网自动连接方案"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/UESTC.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="UESTC校园网自动连接方案"/></a><div class="content"><a class="title" href="/posts/1f06d3bd/" title="UESTC校园网自动连接方案">UESTC校园网自动连接方案</a><time datetime="2026-02-02T15:21:53.000Z" title="发表于 2026-02-02 23:21:53">2026-02-02</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/be40069a/" title="常见数据结构-链表"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Algorithm.svg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="常见数据结构-链表"/></a><div class="content"><a class="title" href="/posts/be40069a/" title="常见数据结构-链表">常见数据结构-链表</a><time datetime="2026-02-02T09:23:33.000Z" title="发表于 2026-02-02 17:23:33">2026-02-02</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>
