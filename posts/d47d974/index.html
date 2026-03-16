@@ -1,0 +1,820 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>CUDA C编程权威指南-第六章：流和并发 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="CUDA C编程权威指南-第六章：流和并发 系列导航：导读 | 上一篇：第5章 共享内存和常量内存 | 下一篇：第7章 调整指令级原语  系列第 6 篇。前面几章主要围绕单次内核、单次传输；这一章讲流（Stream）与并发：用 CUDA 流把主机与设备、传输与计算、多内核并发组织起来，用事件做同步和精确计时，顺带提一下流回调、流优先级和可视化分析。   前言：从内核级并发到网格级并发 到目前为止，">
+<meta property="og:type" content="article">
+<meta property="og:title" content="CUDA C编程权威指南-第六章：流和并发">
+<meta property="og:url" content="https://smarter.xin/posts/d47d974/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="CUDA C编程权威指南-第六章：流和并发 系列导航：导读 | 上一篇：第5章 共享内存和常量内存 | 下一篇：第7章 调整指令级原语  系列第 6 篇。前面几章主要围绕单次内核、单次传输；这一章讲流（Stream）与并发：用 CUDA 流把主机与设备、传输与计算、多内核并发组织起来，用事件做同步和精确计时，顺带提一下流回调、流优先级和可视化分析。   前言：从内核级并发到网格级并发 到目前为止，">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/Nvidia_CUDA_Logo.jpg">
+<meta property="article:published_time" content="2026-02-02T01:45:00.000Z">
+<meta property="article:modified_time" content="2026-03-16T03:38:42.113Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="学习路线">
+<meta property="article:tag" content="CUDA">
+<meta property="article:tag" content="GPU编程">
+<meta property="article:tag" content="读书笔记">
+<meta property="article:tag" content="CUDA入门">
+<meta property="article:tag" content="并行计算">
+<meta property="article:tag" content="CUDA流">
+<meta property="article:tag" content="事件">
+<meta property="article:tag" content="并发">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/Nvidia_CUDA_Logo.jpg"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "CUDA C编程权威指南-第六章：流和并发",
+  "url": "https://smarter.xin/posts/d47d974/",
+  "image": "https://smarter.xin/img/Nvidia_CUDA_Logo.jpg",
+  "datePublished": "2026-02-02T01:45:00.000Z",
+  "dateModified": "2026-03-16T03:38:42.113Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/d47d974/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'CUDA C编程权威指南-第六章：流和并发',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">97</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">171</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">20</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/Nvidia_CUDA_Logo.jpg);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">CUDA C编程权威指南-第六章：流和并发</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">CUDA C编程权威指南-第六章：流和并发</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-02-02T01:45:00.000Z" title="发表于 2026-02-02 09:45:00">2026-02-02</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-03-16T03:38:42.113Z" title="更新于 2026-03-16 11:38:42">2026-03-16</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/knowledge-sharing/">知识分享</a><i class="fas fa-angle-right post-meta-separator"></i><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/knowledge-sharing/cuda-c-programming-guide/">CUDA C编程权威指南</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">9k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>31分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="cuda-c-bian-cheng-quan-wei-zhi-nan-di-liu-zhang-liu-he-bing-fa" tabindex="-1">CUDA C编程权威指南-第六章：流和并发</h1>
+<p><strong>系列导航</strong>：<a href="%E5%AF%BC%E8%AF%BB.md">导读</a> | 上一篇：<a href="%E7%AC%AC5%E7%AB%A0_%E5%85%B1%E4%BA%AB%E5%86%85%E5%AD%98%E5%92%8C%E5%B8%B8%E9%87%8F%E5%86%85%E5%AD%98.md">第5章 共享内存和常量内存</a> | 下一篇：<a href="%E7%AC%AC7%E7%AB%A0_%E8%B0%83%E6%95%B4%E6%8C%87%E4%BB%A4%E7%BA%A7%E5%8E%9F%E8%AF%AD.md">第7章 调整指令级原语</a></p>
+<blockquote>
+<p>系列第 6 篇。前面几章主要围绕单次内核、单次传输；这一章讲<strong>流（Stream）与并发</strong>：用 CUDA 流把主机与设备、传输与计算、多内核并发组织起来，用事件做同步和精确计时，顺带提一下流回调、流优先级和可视化分析。</p>
+</blockquote>
+<hr>
+<h2 id="qian-yan-cong-nei-he-ji-bing-fa-dao-wang-ge-ji-bing-fa" tabindex="-1" id="前言：从内核级并发到网格级并发">前言：从内核级并发到网格级并发</h2>
+<p>到目前为止，我们关注的一直是<strong>内核级并发</strong>：一个核函数由大量线程在 GPU 上并行执行，并从编程模型、执行模型和内存模型多个角度做了优化。这一章会讲到：除了这种「单任务、多线程」的并发，CUDA 还支持<strong>网格级并发</strong>——在单个设备上<strong>同时执行多个核函数启动</strong>，从而进一步提高设备利用率。</p>
+<p>本章将系统学习如何用 <strong>CUDA 流</strong> 表达和实现网格级并发，并解决以下问题：</p>
+<ul>
+<li><strong>流与事件的本质</strong>：什么是流、默认流与阻塞行为，以及事件在流中的作用。</li>
+<li><strong>重叠执行</strong>：主机与设备并发、数据传输与核函数执行的重叠，以及多流并发。</li>
+<li><strong>同步机制</strong>：流同步、事件同步、避免不必要的同步，以及用事件精确计时。</li>
+<li><strong>流回调与流优先级</strong>：在流中注册主机端回调、调整流优先级（书中若涉及）。</li>
+<li><strong>可视化与多 GPU</strong>：用 NVIDIA Visual Profiler 查看执行时间线，以及多 GPU 编程入门（书中若涉及）。</li>
+</ul>
+<p>第 2 章曾提到：若<strong>计算时间大于数据传输时间</strong>，可通过流来重叠计算与通信，隐藏传输延迟。本章将把这一思想具象化为可用的 API 与完整示例。</p>
+<hr>
+<h2 id="yi-ben-zhang-zai-quan-shu-zhong-de-wei-zhi-yu-xue-xi-mu-biao" tabindex="-1" id="一、本章在全书中的位置与学习目标">一、本章在全书中的位置与学习目标</h2>
+<h3 id="1-1-wei-shi-yao-yao-xue-liu-he-bing-fa" tabindex="-1" id="1-1-为什么要学「流和并发」">1.1 为什么要学「流和并发」</h3>
+<p>前几章我们一直在做<strong>内核级并发</strong>：单次核函数内大量线程在 GPU 上并行，并从编程模型、执行模型和内存模型做了优化。这里区分指出：除了这种「单任务、多线程」的并发，CUDA 还支持<strong>网格级并发</strong>——在单个设备上<strong>同时执行多个核函数启动</strong>，从而进一步提高设备利用率。<strong>使用 CUDA 流是实现网格级并发的主要手段</strong>。此外，通过流可以<strong>重叠</strong>：(1) 主机与设备的执行；(2) 数据传输（H2D/D2H）与核函数执行。当计算时间足以掩盖部分传输时间时（第 2 章已提及），重叠能显著缩短端到端时间、提高有效带宽。因此，理解流的本质、默认流的阻塞行为、事件在同步与计时中的作用，以及如何用多流实现「传输与计算」的流水线，是写出高性能、高吞吐 CUDA 程序的关键一步；本章与第 2 章（性能模型）、第 4 章（带宽）紧密衔接。</p>
+<h3 id="1-2-xue-wan-ben-zhang-ni-ying-gai-neng-hui-da" tabindex="-1" id="1-2-学完本章，你应该能回答">1.2 学完本章，你应该能回答</h3>
+<table>
+<thead>
+<tr>
+<th>学习目标</th>
+<th>检验方式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>理解<strong>两种并发级别</strong>（内核级 vs 网格级）及流在网格级并发中的作用</td>
+<td>能说明「单核多线程」与「多核/多传输同时或交错执行」的区别</td>
+</tr>
+<tr>
+<td>理解<strong>流与事件的本质</strong>：流是顺序操作队列，事件是流内标记点</td>
+<td>能解释流内顺序执行、流间可并发的含义；事件的同步与计时用途</td>
+</tr>
+<tr>
+<td>掌握<strong>流的创建与销毁</strong>、<strong>默认流与阻塞流</strong>的语义</td>
+<td>能写出 <code>cudaStreamCreate</code>/<code>Destroy</code>；说明为何混用默认流会破坏多流并发</td>
+</tr>
+<tr>
+<td>掌握在流中<strong>启动核函数</strong>与 <strong>cudaMemcpyAsync</strong>，以及<strong>固定内存</strong>的必要性</td>
+<td>能写出 <code>kernel&lt;&lt;&lt;..., stream&gt;&gt;&gt;</code> 与 <code>cudaMemcpyAsync(..., stream)</code>；说明为何 H2D/D2H 需 pinned memory</td>
+</tr>
+<tr>
+<td>理解<strong>重叠执行</strong>的三种形式：主机/设备、传输/计算、多流</td>
+<td>能描述双流「H2D→kernel→D2H」流水线如何重叠</td>
+</tr>
+<tr>
+<td>掌握<strong>流同步</strong>与 <strong>CUDA 事件</strong>：Synchronize、Record、ElapsedTime、StreamWaitEvent</td>
+<td>能正确使用事件做跨流依赖与核函数计时；避免不必要的同步</td>
+</tr>
+<tr>
+<td>了解<strong>流回调</strong>与<strong>流优先级</strong>（书中对应节）</td>
+<td>能说出回调的限制（回调内不可调用 CUDA API）；优先级为提示性</td>
+</tr>
+<tr>
+<td>会用 <strong>Visual Profiler</strong> 查看执行时间线以验证重叠</td>
+<td>能根据时间线判断是否实现预期重叠、是否存在隐式同步</td>
+</tr>
+</tbody>
+</table>
+<h3 id="1-3-bo-ke-yue-du-dao-tu-ben-zhang-jia-gou" tabindex="-1" id="1-3-博客阅读导图（本章架构）">1.3 博客阅读导图（本章架构）</h3>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br></pre></td><td class="code"><pre><span class="line">第 6 章  流和并发</span><br><span class="line">│</span><br><span class="line">├── 二、流与事件的本质（书 6.1 节）</span><br><span class="line">│   ├── 内核级并发与网格级并发</span><br><span class="line">│   ├── 流与事件的本质、异步执行与同步</span><br><span class="line">│   └── 隐式同步与默认流的影响</span><br><span class="line">│</span><br><span class="line">├── 三、CUDA 流（书 6.2 节）</span><br><span class="line">│   ├── 流的创建与销毁</span><br><span class="line">│   ├── 默认流与阻塞行为 ★ 易错点</span><br><span class="line">│   └── 在流中启动核函数与异步传输（固定内存）</span><br><span class="line">│</span><br><span class="line">├── 四、流的并发执行（书 6.3 节）★ 重难点</span><br><span class="line">│   ├── 主机与设备并发</span><br><span class="line">│   ├── 传输与计算的重叠</span><br><span class="line">│   └── 多流并发与流水线模式</span><br><span class="line">│</span><br><span class="line">├── 五、流同步与 CUDA 事件（书 6.4～6.5 节）</span><br><span class="line">│   ├── 流同步、避免不必要的同步</span><br><span class="line">│   ├── CUDA 事件 API 与跨流依赖</span><br><span class="line">│   └── 用事件精确计时</span><br><span class="line">│</span><br><span class="line">├── 六、流回调与流优先级（书对应节）</span><br><span class="line">│   ├── 注册设备回调函数（cudaLaunchHostFunc）</span><br><span class="line">│   └── 调整流优先级</span><br><span class="line">│</span><br><span class="line">├── 七、可视化与多 GPU 入门</span><br><span class="line">│   ├── NVIDIA Visual Profiler 执行时间线</span><br><span class="line">│   └── 多 GPU 与本章的衔接（简述）</span><br><span class="line">│</span><br><span class="line">└── 八、本章小结与重难点回顾</span><br></pre></td></tr></table></figure>
+<hr>
+<h2 id="er-liu-yu-shi-jian-de-ben-zhi-shu-6-1-jie" tabindex="-1" id="二、流与事件的本质（书-6-1-节）">二、流与事件的本质（书 6.1 节）</h2>
+<p>本节对应书中「Understanding the nature of streams and events」，为全章奠定概念基础。</p>
+<h3 id="2-1-nei-he-ji-bing-fa-yu-wang-ge-ji-bing-fa" tabindex="-1" id="2-1-内核级并发与网格级并发">2.1 内核级并发与网格级并发</h3>
+<p>这里区分区分了 CUDA C 编程中的两个并发级别：</p>
+<table>
+<thead>
+<tr>
+<th>并发级别</th>
+<th>含义</th>
+<th>此前章节侧重</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>内核级并发</strong></td>
+<td>单个核函数由大量线程在 GPU 上并行执行（网格 → 块 → 线程）</td>
+<td>第 2～5 章</td>
+</tr>
+<tr>
+<td><strong>网格级并发</strong></td>
+<td>多个核函数启动（或多个传输任务）在同一个设备上同时或交错执行</td>
+<td>本章</td>
+</tr>
+</tbody>
+</table>
+<p>在网格级并发中，<strong>多个内核</strong>（或内核与内存传输）可以同时占用设备资源。例如：当一个内核在部分 SM 上执行时，其他 SM 可以执行另一个内核；或者，当 DMA 引擎在执行主机到设备的数据传输时，已就绪的核函数可以在设备上执行。这一章会讲到：<strong>使用 CUDA 流是实现网格级并发的主要手段</strong>。</p>
+<h3 id="2-2-liu-yu-shi-jian-de-ben-zhi" tabindex="-1" id="2-2-流与事件的本质">2.2 流与事件的本质</h3>
+<p><strong>CUDA 流</strong>可以理解为一个<strong>按顺序执行的操作队列</strong>。程序把一系列操作（如内存拷贝、核函数启动）按顺序加入某个流，流中的操作将<strong>按入队顺序</strong>依次执行。不同流之间的操作则可以由运行时<strong>交错或并发</strong>执行（取决于硬件与驱动），从而实现主机与设备、传输与计算、多内核之间的重叠。</p>
+<p><strong>CUDA 事件</strong>是插入到流中的<strong>标记点</strong>，用于标记流中某一时刻的「完成」状态。事件可用来：(1) <strong>同步</strong>：让某个流等待另一流中的事件再继续；(2) <strong>计时</strong>：记录两个事件之间的时间差，从而精确测量某段核函数或传输的耗时。需要留意的是：理解流与事件的本质，是正确使用异步 API 和避免隐蔽同步的前提。</p>
+<p>多流重叠执行时，传输与核函数可交错进行，典型时序如下（流 A 与流 B 并发，H2D 表示主机到设备传输，Kernel 表示核函数，D2H 表示设备到主机传输）：</p>
+<pre><code class="highlight mermaid">sequenceDiagram
+    participant Host
+    participant StreamA as 流 A
+    participant StreamB as 流 B
+    participant GPU as 设备
+    Note over StreamA,StreamB: 流内顺序执行，流间可重叠
+    StreamA-&gt;&gt;GPU: H2D A
+    StreamB-&gt;&gt;GPU: H2D B
+    StreamA-&gt;&gt;GPU: Kernel A
+    StreamB-&gt;&gt;GPU: Kernel B
+    StreamA-&gt;&gt;Host: D2H A
+    StreamB-&gt;&gt;Host: D2H B</code></pre>
+<h3 id="2-3-yi-bu-zhi-xing-yu-tong-bu" tabindex="-1" id="2-3-异步执行与同步">2.3 异步执行与同步</h3>
+<p>CUDA 的许多 API 是<strong>异步</strong>的：调用返回时，操作可能尚未开始或尚未完成。例如：</p>
+<ul>
+<li><strong>核函数启动</strong>：<code>kernel&lt;&lt;&lt;grid, block&gt;&gt;&gt;(...)</code> 会立即返回，内核在设备上异步执行。</li>
+<li><strong>异步内存拷贝</strong>：<code>cudaMemcpyAsync()</code> 在指定流中排队传输，调用立即返回。</li>
+</ul>
+<p>若要安全地使用尚未完成的操作的结果（例如读回设备数据），必须进行<strong>显式同步</strong>，例如 <code>cudaDeviceSynchronize()</code>、<code>cudaStreamSynchronize(stream)</code> 或等待某个事件。这一章会讲到：<strong>隐式同步</strong>（如调用同步版 <code>cudaMemcpy()</code>）会阻塞所有流的进展，在追求重叠执行时应尽量避免。</p>
+<blockquote>
+<p><strong>理解与体会</strong>：异步是「发起即返回」，同步是「等到完成再用结果」。流和事件把「谁在等谁」表达清楚：流内顺序由入队顺序保证，流间依赖可用事件（<code>cudaStreamWaitEvent</code>）表达；滥用全局同步或默认流会破坏这种表达，把本可重叠的执行串行化。<strong>隐式同步</strong>是本章最容易踩的坑——一旦在多个流之间插入了默认流上的操作或同步版 <code>cudaMemcpy</code>，所有流都会与该操作「对齐」，失去并发；后面「默认流与阻塞」「避免不必要的同步」会反复呼应这一点。</p>
+</blockquote>
+<hr>
+<h2 id="san-cuda-liu-shu-6-2-jie" tabindex="-1" id="三、CUDA-流（书-6-2-节）">三、CUDA 流（书 6.2 节）</h2>
+<p>本节对应书中对流的创建与销毁、默认流、以及在流中启动核函数与异步传输的讲解。</p>
+<h3 id="3-1-liu-de-chuang-jian-yu-xiao-hui" tabindex="-1" id="3-1-流的创建与销毁">3.1 流的创建与销毁</h3>
+<p>流由类型为 <strong><code>cudaStream_t</code></strong> 的句柄表示。创建与销毁流的 API 如下（与书中及 CUDA 编程指南一致）：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 创建流</span></span><br><span class="line">cudaError_t <span class="title function_">cudaStreamCreate</span><span class="params">(cudaStream_t *pStream)</span>;</span><br><span class="line"></span><br><span class="line"><span class="comment">// 销毁流（若流中仍有未完成的工作，会等待其完成后再销毁）</span></span><br><span class="line">cudaError_t <span class="title function_">cudaStreamDestroy</span><span class="params">(cudaStream_t stream)</span>;</span><br></pre></td></tr></table></figure>
+<p>典型用法示例（书中风格）：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">cudaStream_t stream;</span><br><span class="line">CHECK(cudaStreamCreate(&amp;stream));</span><br><span class="line"></span><br><span class="line"><span class="comment">// 在该流中发起核函数、cudaMemcpyAsync 等操作</span></span><br><span class="line"><span class="comment">// ...</span></span><br><span class="line"></span><br><span class="line">CHECK(cudaStreamDestroy(stream));</span><br></pre></td></tr></table></figure>
+<p><strong>注意</strong>：若在调用 <code>cudaStreamDestroy(stream)</code> 时设备仍在该流中执行任务，销毁会阻塞直到该流中所有工作完成。因此，若希望尽早释放资源，应在不再向该流提交新任务后、在适当时机再调用 <code>cudaStreamDestroy</code>。</p>
+<h3 id="3-2-mo-ren-liu-yu-zu-sai-xing-wei-yi-cuo-dian" tabindex="-1" id="3-2-默认流与阻塞行为-★-易错点">3.2 默认流与阻塞行为 ★ 易错点</h3>
+<p>当<strong>不指定流</strong>时，核函数启动和<strong>同步版</strong>内存拷贝（如 <code>cudaMemcpy</code>）会使用 <strong>默认流</strong>（也称 NULL 流或 stream 0）。书中及 CUDA 编程指南指出：默认流具有<strong>阻塞</strong>语义——</p>
+<ul>
+<li>在默认流中排入一个操作时，它会<strong>等待所有其他（阻塞）流中已排入的操作完成</strong>后才开始执行。</li>
+<li>默认流中的一个操作<strong>未完成</strong>时，其他流中的操作<strong>不能开始</strong>。</li>
+</ul>
+<p>因此，若混用默认流和自定义流，且自定义流是用 <code>cudaStreamCreate()</code> 创建的<strong>阻塞流</strong>，则默认流会与这些流相互「卡住」，无法实现多流并发。若要让自定义流与默认流并发，可以：(1) 使用 <strong>非阻塞流</strong>（<code>cudaStreamCreateWithFlags(&amp;stream, cudaStreamNonBlocking)</code>）；或 (2) 在 CUDA 7 及以后，使用<strong>每线程默认流</strong>（编译选项 <code>--default-stream per-thread</code> 或宏 <code>CUDA_API_PER_THREAD_DEFAULT_STREAM</code>），使每个主机线程拥有独立的默认流。</p>
+<p>下表归纳书中及官方文档中关于流的类型与默认流行为（便于对照原书）：</p>
+<table>
+<thead>
+<tr>
+<th>流类型</th>
+<th>创建方式</th>
+<th>与默认流的关系</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>默认流 (NULL)</strong></td>
+<td>不指定流即使用</td>
+<td>与所有阻塞流互相同步，不利于多流并发</td>
+</tr>
+<tr>
+<td><strong>阻塞流</strong></td>
+<td><code>cudaStreamCreate(&amp;stream)</code></td>
+<td>与默认流互相同步</td>
+</tr>
+<tr>
+<td><strong>非阻塞流</strong></td>
+<td><code>cudaStreamCreateWithFlags(&amp;s, cudaStreamNonBlocking)</code></td>
+<td>与默认流可并发</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>易错点</strong>：<strong>混用默认流与自定义流</strong>是失去多流并发的常见原因。若代码中既有 <code>kernel&lt;&lt;&lt;grid, block&gt;&gt;&gt;(...)</code>（默认流）又有 <code>kernel&lt;&lt;&lt;grid, block, 0, myStream&gt;&gt;&gt;(...)</code>，默认流会与所有阻塞流互相同步，时间线上会出现「所有流等默认流、默认流再等所有流」的串行化。对策：要么全部使用非默认流（并显式指定流），要么使用每线程默认流（<code>--default-stream per-thread</code>），避免在重叠路径上使用默认流或同步拷贝。</p>
+</blockquote>
+<h3 id="3-3-zai-liu-zhong-qi-dong-he-han-shu-yu-yi-bu-chuan-shu" tabindex="-1" id="3-3-在流中启动核函数与异步传输">3.3 在流中启动核函数与异步传输</h3>
+<p><strong>在指定流中启动核函数</strong>：在执行配置中增加流参数，即第四个参数（第三参数可为共享内存大小或 0）：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">kernel_name&lt;&lt;&lt;gridDim, blockDim, <span class="number">0</span>, stream&gt;&gt;&gt;(argument <span class="built_in">list</span>);</span><br></pre></td></tr></table></figure>
+<p>例如：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">dim3 <span class="title function_">block</span><span class="params">(<span class="number">256</span>)</span>;</span><br><span class="line">dim3 <span class="title function_">grid</span><span class="params">((n + block.x - <span class="number">1</span>) / block.x)</span>;</span><br><span class="line">myKernel&lt;&lt;&lt;grid, block, <span class="number">0</span>, stream&gt;&gt;&gt;(d_A, d_B, d_C, n);</span><br></pre></td></tr></table></figure>
+<p><strong>在流中发起异步内存传输</strong>：使用 <code>cudaMemcpyAsync</code>，并传入目标流：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">cudaError_t <span class="title function_">cudaMemcpyAsync</span><span class="params">(<span class="type">void</span> *dst, <span class="type">const</span> <span class="type">void</span> *src, <span class="type">size_t</span> count,</span></span><br><span class="line"><span class="params">                            cudaMemcpyKind kind, cudaStream_t stream)</span>;</span><br></pre></td></tr></table></figure>
+<p>需要留意的是：要使<strong>主机与设备之间的</strong> <code>cudaMemcpyAsync</code> 真正异步并与其他操作重叠，<strong>主机端缓冲区必须是固定内存（Pinned Memory）</strong>。否则，运行时可能退化为同步传输，无法重叠。固定内存通常通过 <code>cudaMallocHost()</code> 分配（或 <code>cudaHostAlloc()</code>），并在用完后用 <code>cudaFreeHost()</code> 释放。</p>
+<p>下面给出一个<strong>完整示例</strong>：在单个流中完成「主机→设备」拷贝、核函数执行、「设备→主机」拷贝（与书中「基于流的向量加法」风格一致，便于对照书中代码清单 6-x）：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;stdio.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;stdlib.h&gt;</span></span></span><br><span class="line"></span><br><span class="line"><span class="meta">#<span class="keyword">define</span> CHECK(call)                                                                 \</span></span><br><span class="line"><span class="meta">    do &#123;                                                                           \</span></span><br><span class="line"><span class="meta">        cudaError_t err = (call);                                                   \</span></span><br><span class="line"><span class="meta">        <span class="keyword">if</span> (err != cudaSuccess) &#123;                                                  \</span></span><br><span class="line"><span class="meta">            printf(<span class="string">&quot;Error: %s:%d, code: %d, reason: %s\n&quot;</span>, __FILE__, __LINE__, err,\</span></span><br><span class="line"><span class="meta">                   cudaGetErrorString(err));                                        \</span></span><br><span class="line"><span class="meta">            exit(1);                                                                \</span></span><br><span class="line"><span class="meta">        &#125;                                                                          \</span></span><br><span class="line"><span class="meta">    &#125; while (0)</span></span><br><span class="line"></span><br><span class="line">__global__ <span class="type">void</span> <span class="title function_">vecAdd</span><span class="params">(<span class="type">float</span> *A, <span class="type">float</span> *B, <span class="type">float</span> *C, <span class="type">int</span> n)</span> &#123;</span><br><span class="line">    <span class="type">int</span> i = blockIdx.x * blockDim.x + threadIdx.x;</span><br><span class="line">    <span class="keyword">if</span> (i &lt; n) C[i] = A[i] + B[i];</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="type">int</span> <span class="title function_">main</span><span class="params">(<span class="type">int</span> argc, <span class="type">char</span> **argv)</span> &#123;</span><br><span class="line">    <span class="type">int</span> n = <span class="number">1</span> &lt;&lt; <span class="number">20</span>;</span><br><span class="line">    <span class="type">size_t</span> nBytes = n * <span class="keyword">sizeof</span>(<span class="type">float</span>);</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 使用固定内存以便 cudaMemcpyAsync 真正异步</span></span><br><span class="line">    <span class="type">float</span> *h_A, *h_B, *h_C;</span><br><span class="line">    CHECK(cudaMallocHost((<span class="type">void</span> **)&amp;h_A, nBytes));</span><br><span class="line">    CHECK(cudaMallocHost((<span class="type">void</span> **)&amp;h_B, nBytes));</span><br><span class="line">    CHECK(cudaMallocHost((<span class="type">void</span> **)&amp;h_C, nBytes));</span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> i = <span class="number">0</span>; i &lt; n; i++) &#123;</span><br><span class="line">        h_A[i] = <span class="number">1.0f</span>; h_B[i] = <span class="number">2.0f</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="type">float</span> *d_A, *d_B, *d_C;</span><br><span class="line">    CHECK(cudaMalloc((<span class="type">void</span> **)&amp;d_A, nBytes));</span><br><span class="line">    CHECK(cudaMalloc((<span class="type">void</span> **)&amp;d_B, nBytes));</span><br><span class="line">    CHECK(cudaMalloc((<span class="type">void</span> **)&amp;d_C, nBytes));</span><br><span class="line"></span><br><span class="line">    cudaStream_t stream;</span><br><span class="line">    CHECK(cudaStreamCreate(&amp;stream));</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 流中顺序：H2D -&gt; kernel -&gt; D2H</span></span><br><span class="line">    CHECK(cudaMemcpyAsync(d_A, h_A, nBytes, cudaMemcpyHostToDevice, stream));</span><br><span class="line">    CHECK(cudaMemcpyAsync(d_B, h_B, nBytes, cudaMemcpyHostToDevice, stream));</span><br><span class="line"></span><br><span class="line">    dim3 <span class="title function_">block</span><span class="params">(<span class="number">256</span>)</span>;</span><br><span class="line">    dim3 <span class="title function_">grid</span><span class="params">((n + block.x - <span class="number">1</span>) / block.x)</span>;</span><br><span class="line">    vecAdd&lt;&lt;&lt;grid, block, <span class="number">0</span>, stream&gt;&gt;&gt;(d_A, d_B, d_C, n);</span><br><span class="line"></span><br><span class="line">    CHECK(cudaMemcpyAsync(h_C, d_C, nBytes, cudaMemcpyDeviceToHost, stream));</span><br><span class="line"></span><br><span class="line">    CHECK(cudaStreamSynchronize(stream));</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 简单验证</span></span><br><span class="line">    <span class="type">float</span> maxError = <span class="number">0.0f</span>;</span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> i = <span class="number">0</span>; i &lt; n; i++) &#123;</span><br><span class="line">        <span class="type">float</span> e = fabsf(h_C[i] - <span class="number">3.0f</span>);</span><br><span class="line">        <span class="keyword">if</span> (e &gt; maxError) maxError = e;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="built_in">printf</span>(<span class="string">&quot;max error = %f\n&quot;</span>, maxError);</span><br><span class="line"></span><br><span class="line">    CHECK(cudaStreamDestroy(stream));</span><br><span class="line">    CHECK(cudaFree(d_A)); CHECK(cudaFree(d_B)); CHECK(cudaFree(d_C));</span><br><span class="line">    CHECK(cudaFreeHost(h_A)); CHECK(cudaFreeHost(h_B)); CHECK(cudaFreeHost(h_C));</span><br><span class="line">    cudaDeviceReset();</span><br><span class="line">    <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>编译时可使用：<code>nvcc -o stream_vecadd stream_vecadd.cu</code>。本例中虽然只使用了一个流，但展示了<strong>固定内存 + 异步传输 + 流内顺序</strong>的完整写法，为下一节多流重叠打下基础。</p>
+<hr>
+<h2 id="si-liu-de-bing-fa-zhi-xing-shu-6-3-jie-zhong-nan-dian" tabindex="-1" id="四、流的并发执行（书-6-3-节）★-重难点">四、流的并发执行（书 6.3 节）★ 重难点</h2>
+<p>本节对应书中「Overlapping CPU and GPU execution」「Overlapping kernel execution and data transfer」以及「Exploiting grid-level concurrency」，是本章提升性能的核心。</p>
+<h3 id="4-1-zhu-ji-yu-she-bei-bing-fa" tabindex="-1" id="4-1-主机与设备并发">4.1 主机与设备并发</h3>
+<p>由于核函数启动和 <code>cudaMemcpyAsync</code> 是异步的，<strong>主机线程在发起这些操作后可以立即继续执行</strong>，不必等待设备完成。因此，可以在同一段代码中交错执行「主机上的计算」与「设备上的计算或传输」，实现<strong>主机与设备并发</strong>。这一章会讲到：当设备在运行内核或进行 DMA 传输时，CPU 可以同时处理其他任务（如准备下一批数据、做 I/O 或后处理），从而提高整体吞吐。</p>
+<p>实现要点：(1) 使用<strong>非默认流</strong>（或每线程默认流）和 <strong><code>cudaMemcpyAsync</code></strong>，避免在关键路径上使用会阻塞的 <code>cudaMemcpy</code>；(2) 仅在需要结果时再调用 <code>cudaStreamSynchronize(stream)</code> 或 <code>cudaDeviceSynchronize()</code>。</p>
+<h3 id="4-2-chuan-shu-yu-ji-suan-de-zhong-die" tabindex="-1" id="4-2-传输与计算的重叠">4.2 传输与计算的重叠</h3>
+<p>在支持<strong>并发拷贝与执行</strong>的 GPU 上（Fermi 及以后通常支持），可以在一段数据从主机传到设备的同时，对<strong>已经传好的另一段数据</strong>在设备上执行核函数；同理，可以在核函数写回的结果正在 D2H 传输的同时，对下一批数据执行 H2D 或另一内核。书中用「双缓冲」或「多流流水线」描述这类模式：把数据和任务分块，流 1 执行「块 1 的 H2D → 块 1 的 kernel → 块 1 的 D2H」，流 2 执行「块 2 的 H2D → 块 2 的 kernel → 块 2 的 D2H」，两个流交错执行，从而<strong>重叠传输与计算</strong>。</p>
+<p>重叠效果受硬件限制：例如，同一时刻通常只能有一个「主机→设备」和一个「设备→主机」的传输在进行（双向拷贝可并发）；内核与传输能否并发取决于设备与驱动。这一章会讲到：<strong>通信计算比</strong>若满足「计算时间足以掩盖部分传输时间」，重叠能显著减少端到端时间（与第 2 章「若计算时间 &gt; 数据传输时间，可通过流重叠计算与通信」一致）。有效带宽公式（书中第 2、4 章已出现）可写为：</p>
+<p>[<br>
+\text{有效带宽} = \frac{(\text{读字节数} + \text{写字节数}) \times 10^{-9}}{\text{总时间（秒）}} \ \text{GB/s}<br>
+]</p>
+<p>在重叠场景下，「总时间」为从第一批传输开始到最后一批结果取回的时间，通常小于「所有传输时间 + 所有计算时间」的简单相加，从而有效带宽会提高。</p>
+<blockquote>
+<p><strong>重难点理解</strong>：重叠能否带来收益取决于<strong>计算与通信的比值</strong>。若每块数据的计算时间远小于传输时间，则重叠后总时间仍由传输主导，收益有限；若计算时间足以「盖住」一部分传输（例如流 1 的 kernel 执行时，流 2 的 H2D 在进行），则总时间会明显缩短。书中与第 2 章一致：当计算时间大于或接近传输时间时，流重叠最有价值。实践中可通过 Visual Profiler 时间线观察是否真的重叠。</p>
+</blockquote>
+<h3 id="4-3-duo-liu-bing-fa" tabindex="-1" id="4-3-多流并发">4.3 多流并发</h3>
+<p><strong>多流并发</strong>即同时使用多个流，让多个「传输 + 内核」任务在不同流中排队，由运行时在设备上交错或并发执行。需要留意的是：要实现多流之间的真正并发，必须<strong>避免在中间插入默认流上的操作</strong>（如无参的 <code>cudaMemcpy</code> 或 <code>kernel&lt;&lt;&lt;grid, block&gt;&gt;&gt;()</code> 未指定流），否则会引发隐式同步，导致所有流等待默认流、默认流再等待所有流，失去并发性。</p>
+<p>下面给出一个<strong>双流重叠传输与计算</strong>的完整示例（对应书中多流、分块处理的典型模式）。将向量加法按块划分到两个流中，每个流执行：H2D → kernel → D2H；两流交错提交，以实现传输与计算的重叠。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;stdio.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;stdlib.h&gt;</span></span></span><br><span class="line"></span><br><span class="line"><span class="meta">#<span class="keyword">define</span> CHECK(call)                                                                 \</span></span><br><span class="line"><span class="meta">    do &#123;                                                                           \</span></span><br><span class="line"><span class="meta">        cudaError_t err = (call);                                                   \</span></span><br><span class="line"><span class="meta">        <span class="keyword">if</span> (err != cudaSuccess) &#123;                                                  \</span></span><br><span class="line"><span class="meta">            printf(<span class="string">&quot;Error: %s:%d, code: %d, reason: %s\n&quot;</span>, __FILE__, __LINE__, err,\</span></span><br><span class="line"><span class="meta">                   cudaGetErrorString(err));                                        \</span></span><br><span class="line"><span class="meta">            exit(1);                                                                \</span></span><br><span class="line"><span class="meta">        &#125;                                                                          \</span></span><br><span class="line"><span class="meta">    &#125; while (0)</span></span><br><span class="line"></span><br><span class="line">__global__ <span class="type">void</span> <span class="title function_">vecAdd</span><span class="params">(<span class="type">float</span> *A, <span class="type">float</span> *B, <span class="type">float</span> *C, <span class="type">int</span> n)</span> &#123;</span><br><span class="line">    <span class="type">int</span> i = blockIdx.x * blockDim.x + threadIdx.x;</span><br><span class="line">    <span class="keyword">if</span> (i &lt; n) C[i] = A[i] + B[i];</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="type">int</span> <span class="title function_">main</span><span class="params">(<span class="type">int</span> argc, <span class="type">char</span> **argv)</span> &#123;</span><br><span class="line">    <span class="type">int</span> n = <span class="number">1</span> &lt;&lt; <span class="number">20</span>;</span><br><span class="line">    <span class="type">size_t</span> nBytes = n * <span class="keyword">sizeof</span>(<span class="type">float</span>);</span><br><span class="line">    <span class="type">const</span> <span class="type">int</span> nStreams = <span class="number">2</span>;</span><br><span class="line">    <span class="type">int</span> segment = n / nStreams;</span><br><span class="line">    <span class="type">size_t</span> segBytes = segment * <span class="keyword">sizeof</span>(<span class="type">float</span>);</span><br><span class="line"></span><br><span class="line">    <span class="type">float</span> *h_A, *h_B, *h_C;</span><br><span class="line">    CHECK(cudaMallocHost((<span class="type">void</span> **)&amp;h_A, nBytes));</span><br><span class="line">    CHECK(cudaMallocHost((<span class="type">void</span> **)&amp;h_B, nBytes));</span><br><span class="line">    CHECK(cudaMallocHost((<span class="type">void</span> **)&amp;h_C, nBytes));</span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> i = <span class="number">0</span>; i &lt; n; i++) &#123;</span><br><span class="line">        h_A[i] = <span class="number">1.0f</span>; h_B[i] = <span class="number">2.0f</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="type">float</span> *d_A, *d_B, *d_C;</span><br><span class="line">    CHECK(cudaMalloc((<span class="type">void</span> **)&amp;d_A, nBytes));</span><br><span class="line">    CHECK(cudaMalloc((<span class="type">void</span> **)&amp;d_B, nBytes));</span><br><span class="line">    CHECK(cudaMalloc((<span class="type">void</span> **)&amp;d_C, nBytes));</span><br><span class="line"></span><br><span class="line">    cudaStream_t stream[nStreams];</span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> i = <span class="number">0</span>; i &lt; nStreams; i++)</span><br><span class="line">        CHECK(cudaStreamCreate(&amp;stream[i]));</span><br><span class="line"></span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> i = <span class="number">0</span>; i &lt; nStreams; i++) &#123;</span><br><span class="line">        <span class="type">int</span> offset = i * segment;</span><br><span class="line">        CHECK(cudaMemcpyAsync(d_A + offset, h_A + offset, segBytes,</span><br><span class="line">                              cudaMemcpyHostToDevice, stream[i]));</span><br><span class="line">        CHECK(cudaMemcpyAsync(d_B + offset, h_B + offset, segBytes,</span><br><span class="line">                              cudaMemcpyHostToDevice, stream[i]));</span><br><span class="line"></span><br><span class="line">        dim3 <span class="title function_">block</span><span class="params">(<span class="number">256</span>)</span>;</span><br><span class="line">        dim3 <span class="title function_">grid</span><span class="params">((segment + block.x - <span class="number">1</span>) / block.x)</span>;</span><br><span class="line">        vecAdd&lt;&lt;&lt;grid, block, <span class="number">0</span>, stream[i]&gt;&gt;&gt;(d_A + offset, d_B + offset,</span><br><span class="line">                                              d_C + offset, segment);</span><br><span class="line"></span><br><span class="line">        CHECK(cudaMemcpyAsync(h_C + offset, d_C + offset, segBytes,</span><br><span class="line">                              cudaMemcpyDeviceToHost, stream[i]));</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> i = <span class="number">0</span>; i &lt; nStreams; i++)</span><br><span class="line">        CHECK(cudaStreamSynchronize(stream[i]));</span><br><span class="line"></span><br><span class="line">    <span class="type">float</span> maxError = <span class="number">0.0f</span>;</span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> i = <span class="number">0</span>; i &lt; n; i++) &#123;</span><br><span class="line">        <span class="type">float</span> e = fabsf(h_C[i] - <span class="number">3.0f</span>);</span><br><span class="line">        <span class="keyword">if</span> (e &gt; maxError) maxError = e;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="built_in">printf</span>(<span class="string">&quot;max error = %f\n&quot;</span>, maxError);</span><br><span class="line"></span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> i = <span class="number">0</span>; i &lt; nStreams; i++)</span><br><span class="line">        CHECK(cudaStreamDestroy(stream[i]));</span><br><span class="line">    CHECK(cudaFree(d_A)); CHECK(cudaFree(d_B)); CHECK(cudaFree(d_C));</span><br><span class="line">    CHECK(cudaFreeHost(h_A)); CHECK(cudaFreeHost(h_B)); CHECK(cudaFreeHost(h_C));</span><br><span class="line">    cudaDeviceReset();</span><br><span class="line">    <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>书中通常会对比「单流顺序执行」与「多流重叠」的 nvprof 或 Visual Profiler 时间线：多流下 H2D、kernel、D2H 在时间轴上会出现重叠，总耗时往往明显缩短。</p>
+<blockquote>
+<p><strong>学习体会</strong>：多流流水线的典型模式是「按数据分块、每块绑定一个流、每流内顺序为 H2D → kernel → D2H」。流数量并非越多越好：过多流会增加调度与内存占用（每流可能需独立缓冲区或分段），书中会建议根据设备与问题规模选择（如 2～8 个流）。固定内存是前提，否则 <code>cudaMemcpyAsync</code> 可能退化为同步，重叠失效。</p>
+</blockquote>
+<p>下表归纳本节涉及的三种并发模式（与书中描述一致）：</p>
+<table>
+<thead>
+<tr>
+<th>并发模式</th>
+<th>做法简述</th>
+<th>注意点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>主机与设备</strong></td>
+<td>主机在发起 kernel/Async 拷贝后继续做 CPU 工作</td>
+<td>避免在关键路径用同步 API</td>
+</tr>
+<tr>
+<td><strong>传输与计算</strong></td>
+<td>多流或双缓冲，使 H2D/D2H 与 kernel 在时间上重叠</td>
+<td>主机缓冲需固定内存；设备需支持</td>
+</tr>
+<tr>
+<td><strong>多流网格级</strong></td>
+<td>多流中各提交独立的内核或「传输+内核」序列</td>
+<td>避免默认流插入导致隐式同步</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="wu-liu-tong-bu-yu-cuda-shi-jian-shu-6-4-6-5-jie" tabindex="-1" id="五、流同步与-CUDA-事件（书-6-4～6-5-节）">五、流同步与 CUDA 事件（书 6.4～6.5 节）</h2>
+<p>本节对应书中「Understanding synchronization mechanisms」「Avoiding unwanted synchronization」、CUDA 事件的使用以及用事件计时的内容。</p>
+<h3 id="5-1-liu-tong-bu-yu-bi-mian-bu-bi-yao-de-tong-bu" tabindex="-1" id="5-1-流同步与避免不必要的同步">5.1 流同步与避免不必要的同步</h3>
+<p>与流相关的常用同步方式包括：</p>
+<ul>
+<li><strong><code>cudaDeviceSynchronize()</code></strong>：阻塞主机，直到<strong>所有流</strong>中此前排入的所有工作完成。这一章会讲到：这是最「重」的同步，会等待整个设备空闲，在需要最大并发时应避免在中间频繁调用。</li>
+<li><strong><code>cudaStreamSynchronize(stream)</code></strong>：阻塞主机，直到<strong>指定流</strong>中此前排入的所有工作完成。其他流可继续执行，因此比 <code>cudaDeviceSynchronize()</code> 更细粒度。</li>
+<li><strong><code>cudaStreamQuery(stream)</code></strong>：非阻塞地查询流是否已空（所有排入的操作已完成），返回 <code>cudaSuccess</code> 表示已空，<code>cudaErrorNotReady</code> 表示未空。可用于轮询或条件触发后续逻辑。</li>
+</ul>
+<p>需要留意的是：<strong>避免不必要的同步</strong>（Avoiding unwanted synchronization）。例如，若在多个流之间没有数据依赖，就不要在每启动一个流后就调用 <code>cudaStreamSynchronize</code> 或 <code>cudaDeviceSynchronize</code>，否则会人为串行化本可并发的执行。应只在必须使用某流的结果时再同步该流（或等待相应事件）。<strong>原则</strong>：同步粒度越细、同步点越少，越有利于重叠；<code>cudaStreamSynchronize(stream)</code> 只等该流，优于 <code>cudaDeviceSynchronize()</code> 等全设备。</p>
+<h3 id="5-2-cuda-shi-jian" tabindex="-1" id="5-2-CUDA-事件">5.2 CUDA 事件</h3>
+<p><strong>CUDA 事件</strong>是流中的逻辑标记点，类型为 <code>cudaEvent_t</code>。常用 API 如下（与书中及编程指南一致）：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">cudaEventCreate(cudaEvent_t *event);</span><br><span class="line">cudaEventDestroy(cudaEvent_t event);</span><br><span class="line">cudaEventRecord(cudaEvent_t event, cudaStream_t stream);  <span class="comment">// 将事件插入流</span></span><br><span class="line">cudaEventSynchronize(cudaEvent_t event);                    <span class="comment">// 阻塞直到事件完成</span></span><br><span class="line">cudaEventQuery(cudaEvent_t event);                          <span class="comment">// 非阻塞查询事件是否完成</span></span><br><span class="line">cudaEventElapsedTime(<span class="type">float</span> *ms, cudaEvent_t start, cudaEvent_t stop);  <span class="comment">// 两事件间耗时(ms)</span></span><br></pre></td></tr></table></figure>
+<p><strong><code>cudaEventRecord(event, stream)</code></strong> 把事件插入到 <code>stream</code> 的当前末尾；当流执行到该点时，事件被「完成」。<strong><code>cudaEventSynchronize(event)</code></strong> 会阻塞主机直到该事件完成，因此可用来「等到流执行到某一位置」再继续，而不必等整个流结束。<strong><code>cudaStreamWaitEvent(stream, event, 0)</code></strong> 则让另一流在该事件完成之前不执行其后排入的操作，从而建立<strong>流与流之间的依赖</strong>。</p>
+<h3 id="5-3-yong-shi-jian-ji-shi" tabindex="-1" id="5-3-用事件计时">5.3 用事件计时</h3>
+<p>这一章会讲到：用 <strong>CPU 计时器</strong> 给核函数计时时，必须配合 <code>cudaDeviceSynchronize()</code> 或 <code>cudaStreamSynchronize()</code>，否则测到的只是「启动开销」。<strong>CUDA 事件</strong>可以在设备上精确记录时间戳，适合对<strong>单个流内</strong>的核函数或传输做计时，且不需要阻塞所有流。</p>
+<p>典型模式：在流中在核函数前后各插入一个事件，然后同步流（或至少同步「停止」事件），再用 <code>cudaEventElapsedTime</code> 得到两次记录之间的毫秒数。公式上，若记 ( t_{\mathrm{start}} )、( t_{\mathrm{stop}} ) 为两事件对应的 GPU 时间戳，则：</p>
+<p>[<br>
+\text{耗时（ms）} = t_{\mathrm{stop}} - t_{\mathrm{start}}<br>
+]</p>
+<p><code>cudaEventElapsedTime</code> 返回的即为该差值（单位：毫秒）。注意：两个事件必须在<strong>同一流</strong>中，且 <code>start</code> 必须在 <code>stop</code> 之前被记录，否则行为未定义。</p>
+<p>下面给出<strong>用事件对指定流中的核函数计时</strong>的完整示例（与书中「用事件计时」代码风格一致）：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;stdio.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;stdlib.h&gt;</span></span></span><br><span class="line"></span><br><span class="line"><span class="meta">#<span class="keyword">define</span> CHECK(call)                                                                 \</span></span><br><span class="line"><span class="meta">    do &#123;                                                                           \</span></span><br><span class="line"><span class="meta">        cudaError_t err = (call);                                                   \</span></span><br><span class="line"><span class="meta">        <span class="keyword">if</span> (err != cudaSuccess) &#123;                                                  \</span></span><br><span class="line"><span class="meta">            printf(<span class="string">&quot;Error: %s:%d, code: %d, reason: %s\n&quot;</span>, __FILE__, __LINE__, err,\</span></span><br><span class="line"><span class="meta">                   cudaGetErrorString(err));                                        \</span></span><br><span class="line"><span class="meta">            exit(1);                                                                \</span></span><br><span class="line"><span class="meta">        &#125;                                                                          \</span></span><br><span class="line"><span class="meta">    &#125; while (0)</span></span><br><span class="line"></span><br><span class="line">__global__ <span class="type">void</span> <span class="title function_">vecAdd</span><span class="params">(<span class="type">float</span> *A, <span class="type">float</span> *B, <span class="type">float</span> *C, <span class="type">int</span> n)</span> &#123;</span><br><span class="line">    <span class="type">int</span> i = blockIdx.x * blockDim.x + threadIdx.x;</span><br><span class="line">    <span class="keyword">if</span> (i &lt; n) C[i] = A[i] + B[i];</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="type">int</span> <span class="title function_">main</span><span class="params">(<span class="type">int</span> argc, <span class="type">char</span> **argv)</span> &#123;</span><br><span class="line">    <span class="type">int</span> n = <span class="number">1</span> &lt;&lt; <span class="number">20</span>;</span><br><span class="line">    <span class="type">size_t</span> nBytes = n * <span class="keyword">sizeof</span>(<span class="type">float</span>);</span><br><span class="line"></span><br><span class="line">    <span class="type">float</span> *d_A, *d_B, *d_C;</span><br><span class="line">    CHECK(cudaMalloc((<span class="type">void</span> **)&amp;d_A, nBytes));</span><br><span class="line">    CHECK(cudaMalloc((<span class="type">void</span> **)&amp;d_B, nBytes));</span><br><span class="line">    CHECK(cudaMalloc((<span class="type">void</span> **)&amp;d_C, nBytes));</span><br><span class="line"></span><br><span class="line">    cudaStream_t stream;</span><br><span class="line">    cudaEvent_t start, stop;</span><br><span class="line">    CHECK(cudaStreamCreate(&amp;stream));</span><br><span class="line">    CHECK(cudaEventCreate(&amp;start));</span><br><span class="line">    CHECK(cudaEventCreate(&amp;stop));</span><br><span class="line"></span><br><span class="line">    dim3 <span class="title function_">block</span><span class="params">(<span class="number">256</span>)</span>;</span><br><span class="line">    dim3 <span class="title function_">grid</span><span class="params">((n + block.x - <span class="number">1</span>) / block.x)</span>;</span><br><span class="line"></span><br><span class="line">    CHECK(cudaEventRecord(start, stream));</span><br><span class="line">    vecAdd&lt;&lt;&lt;grid, block, <span class="number">0</span>, stream&gt;&gt;&gt;(d_A, d_B, d_C, n);</span><br><span class="line">    CHECK(cudaEventRecord(stop, stream));</span><br><span class="line"></span><br><span class="line">    CHECK(cudaStreamSynchronize(stream));</span><br><span class="line"></span><br><span class="line">    <span class="type">float</span> elapsedMs = <span class="number">0.0f</span>;</span><br><span class="line">    CHECK(cudaEventElapsedTime(&amp;elapsedMs, start, stop));</span><br><span class="line">    <span class="built_in">printf</span>(<span class="string">&quot;Kernel elapsed time = %.3f ms\n&quot;</span>, elapsedMs);</span><br><span class="line"></span><br><span class="line">    CHECK(cudaEventDestroy(start));</span><br><span class="line">    CHECK(cudaEventDestroy(stop));</span><br><span class="line">    CHECK(cudaStreamDestroy(stream));</span><br><span class="line">    CHECK(cudaFree(d_A)); CHECK(cudaFree(d_B)); CHECK(cudaFree(d_C));</span><br><span class="line">    cudaDeviceReset();</span><br><span class="line">    <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>下表归纳本节涉及的同步与事件 API（便于与书中表 6-x 对照）：</p>
+<table>
+<thead>
+<tr>
+<th>API / 行为</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>cudaDeviceSynchronize()</code></td>
+<td>等待所有流上此前的工作完成</td>
+</tr>
+<tr>
+<td><code>cudaStreamSynchronize(s)</code></td>
+<td>等待指定流此前的工作完成</td>
+</tr>
+<tr>
+<td><code>cudaStreamQuery(s)</code></td>
+<td>非阻塞查询流是否已空</td>
+</tr>
+<tr>
+<td><code>cudaEventRecord(e,s)</code></td>
+<td>在流 s 中插入事件 e</td>
+</tr>
+<tr>
+<td><code>cudaEventSynchronize(e)</code></td>
+<td>阻塞直到事件 e 完成</td>
+</tr>
+<tr>
+<td><code>cudaStreamWaitEvent(s,e,0)</code></td>
+<td>流 s 在 e 完成前不执行其后操作</td>
+</tr>
+<tr>
+<td><code>cudaEventElapsedTime(&amp;t, e0, e1)</code></td>
+<td>得到两事件间耗时（ms）</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="liu-liu-hui-diao-yu-liu-you-xian-ji-shu-dui-ying-jie" tabindex="-1" id="六、流回调与流优先级（书对应节）">六、流回调与流优先级（书对应节）</h2>
+<p>本节对应书中「Registering device callback functions」与「Adjusting stream priorities」的内容。</p>
+<h3 id="6-1-liu-hui-diao" tabindex="-1" id="6-1-流回调">6.1 流回调</h3>
+<p>CUDA 允许在流中插入<strong>主机端回调</strong>：当流执行到该点时，在主机上执行一个指定的函数。可用于在「某段设备工作完成后」自动触发主机逻辑（如解压下一批数据、更新 UI），而无需轮询或单独开线程。书中在「注册设备回调函数」一节中，若使用旧版 API 会提到 <strong><code>cudaStreamAddCallback</code></strong>；当前 CUDA 编程指南推荐使用 <strong><code>cudaLaunchHostFunc</code></strong>（<code>cudaStreamAddCallback</code> 已标记为弃用）：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">cudaError_t <span class="title function_">cudaLaunchHostFunc</span><span class="params">(cudaStream_t stream, <span class="type">void</span> (*fn)(<span class="type">void</span> *), <span class="type">void</span> *userData)</span>;</span><br></pre></td></tr></table></figure>
+<p>回调函数签名为 <code>void hostFn(void *userData)</code>。<strong>限制</strong>：回调函数内<strong>不得调用任何 CUDA API</strong>，否则可能死锁或未定义行为。需要留意的是：回调在主机线程上执行，流在该回调执行期间被视为「空闲」，可安全访问与该流关联的、已完成的设备结果。典型用法是：在某个流中排入「核函数 → 主机回调」，主机端无需轮询即可在该流中核函数完成后执行后续逻辑（如准备下一批数据或写回文件）。</p>
+<h3 id="6-2-liu-you-xian-ji" tabindex="-1" id="6-2-流优先级">6.2 流优先级</h3>
+<p>在支持流优先级的设备上（如 Pascal 及更新架构），可以用 <strong><code>cudaStreamCreateWithPriority</code></strong> 创建带优先级的流，运行时在调度时会优先执行高优先级流中的工作（作为提示，不保证严格顺序）。书中若涉及，会给出类似下面的用法：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">int</span> leastPriority, greatestPriority;</span><br><span class="line">cudaDeviceGetStreamPriorityRange(&amp;leastPriority, &amp;greatestPriority);</span><br><span class="line"><span class="comment">// greatestPriority 为高优先级（数值上可能更小，依实现而定）</span></span><br><span class="line">cudaStream_t streamHigh;</span><br><span class="line">cudaStreamCreateWithPriority(&amp;streamHigh, cudaStreamNonBlocking, greatestPriority);</span><br></pre></td></tr></table></figure>
+<p>流优先级适合将「延迟敏感」的内核与「吞吐型」的内核分开到不同流并赋予不同优先级，以在共享设备上获得更可预测的延迟（书中表 6-x 若有优先级范围说明，可在此引用）。书中「调整流优先级」一节会说明：并非所有设备都支持流优先级，可通过 <code>cudaDeviceGetStreamPriorityRange</code> 查询；若设备不支持，创建带优先级的流可能回退为普通非阻塞流。</p>
+<hr>
+<h2 id="qi-ke-shi-hua-yu-duo-gpu-ru-men-shu-dui-ying-jie" tabindex="-1" id="七、可视化与多-GPU-入门（书对应节）">七、可视化与多 GPU 入门（书对应节）</h2>
+<p>本节对应书中「Displaying application execution timelines with the NVIDIA Visual Profiler」；多 GPU 深入内容在原书中为后续章节（如第 9 章），此处仅作与本章知识的衔接简述。</p>
+<h3 id="7-1-shi-yong-visual-profiler-cha-kan-zhi-xing-shi-jian-xian" tabindex="-1" id="7-1-使用-Visual-Profiler-查看执行时间线">7.1 使用 Visual Profiler 查看执行时间线</h3>
+<p>可使用 <strong>NVIDIA Visual Profiler</strong>（或 Nsight Systems）查看应用程序的<strong>执行时间线</strong>。在时间线视图中，可以直观看到不同流上的 H2D、D2H、核函数在时间轴上的排列与重叠情况，从而判断是否实现了预期的传输与计算重叠、是否存在不必要的同步或默认流阻塞。通过时间线可以快速定位「本可并发的流被默认流或同步调用串行化」的问题。建议在运行示例时使用 <code>nvprof</code> 或 <code>nsys profile</code> 采集时间线，再用 Visual Profiler 打开分析。</p>
+<blockquote>
+<p><strong>实践建议</strong>：优化流与并发时，先用 profiler 看时间线——若看到各流的 H2D/kernel/D2H 几乎完全错开、没有重叠，多半是默认流或某处同步导致；若重叠明显，再结合有效带宽公式评估是否达到预期。</p>
+</blockquote>
+<h3 id="7-2-duo-gpu-yu-ben-zhang-de-xian-jie-jian-shu" tabindex="-1" id="7-2-多-GPU-与本章的衔接（简述）">7.2 多 GPU 与本章的衔接（简述）</h3>
+<p>原书多 GPU 编程在后续章节（如第 9 章）展开。与本章直接相关的是：<strong>每个设备有各自的默认流和显式创建的流</strong>；在多设备程序中，分配与启动前需通过 <code>cudaSetDevice(deviceId)</code> 指定当前设备，流和事件都是「每设备」的。理解「单设备上的多流」后，多 GPU 时即为「每设备一套流」，再叠加设备间数据传输与 P2P 等主题。</p>
+<p>下表归纳本章涉及的<strong>主要 API 与概念</strong>（与书中描述一致，便于自检）：</p>
+<table>
+<thead>
+<tr>
+<th>类别</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>流</strong></td>
+<td><code>cudaStreamCreate</code> / <code>cudaStreamDestroy</code>；默认流、阻塞流、非阻塞流；<code>kernel&lt;&lt;&lt;..., stream&gt;&gt;&gt;</code>；<code>cudaMemcpyAsync(..., stream)</code></td>
+</tr>
+<tr>
+<td><strong>同步</strong></td>
+<td><code>cudaDeviceSynchronize</code>；<code>cudaStreamSynchronize</code>；<code>cudaStreamQuery</code>；隐式同步（慎用默认流与同步拷贝）</td>
+</tr>
+<tr>
+<td><strong>事件</strong></td>
+<td><code>cudaEventCreate</code> / <code>cudaEventDestroy</code>；<code>cudaEventRecord</code>；<code>cudaEventSynchronize</code> / <code>cudaEventQuery</code>；<code>cudaEventElapsedTime</code>；<code>cudaStreamWaitEvent</code></td>
+</tr>
+<tr>
+<td><strong>主机</strong></td>
+<td>固定内存 <code>cudaMallocHost</code> / <code>cudaFreeHost</code>；流回调 <code>cudaLaunchHostFunc</code>；流优先级 <code>cudaStreamCreateWithPriority</code></td>
+</tr>
+<tr>
+<td><strong>并发</strong></td>
+<td>主机与设备重叠；传输与计算重叠；多流网格级并发；避免不必要的同步</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="ba-ben-zhang-xiao-jie-yu-zhong-nan-dian-hui-gu" tabindex="-1" id="八、本章小结与重难点回顾">八、本章小结与重难点回顾</h2>
+<h3 id="8-1-zhi-shi-xiao-jie-yu-shu-zhong-dui-ying" tabindex="-1" id="8-1-知识小结（与书中对应）">8.1 知识小结（与书中对应）</h3>
+<ul>
+<li><strong>两种并发级别</strong>：内核级并发（单核函数多线程）与网格级并发（多核函数/多传输同时或交错执行）；本章重点为网格级并发，通过 <strong>CUDA 流</strong> 实现。</li>
+<li><strong>流的本质</strong>：流是按顺序执行的操作队列；不同流间可并发。默认流会与阻塞流互相同步，要实现多流并发需使用非阻塞流或每线程默认流，并避免在中间插入默认流操作。</li>
+<li><strong>异步 API</strong>：核函数启动、<code>cudaMemcpyAsync</code> 为异步；主机端参与 H2D/D2H 的缓冲区需<strong>固定内存</strong>（<code>cudaMallocHost</code>），否则异步传输可能退化为同步。</li>
+<li><strong>重叠执行</strong>：主机与设备可并发；传输与计算可在多流中重叠；多流提交「H2D → kernel → D2H」的流水线可提高有效带宽、缩短总时间。</li>
+<li><strong>同步</strong>：<code>cudaStreamSynchronize(stream)</code> 比 <code>cudaDeviceSynchronize()</code> 粒度更细；应<strong>避免不必要的同步</strong>以保留并发性。</li>
+<li><strong>事件</strong>：用于在流内打点、跨流依赖（<code>cudaStreamWaitEvent</code>）以及<strong>精确计时</strong>（<code>cudaEventRecord</code> + <code>cudaEventElapsedTime</code>）。</li>
+<li><strong>流回调与流优先级</strong>：书中「Registering device callback functions」对应 <code>cudaStreamAddCallback</code> / <code>cudaLaunchHostFunc</code>（回调内不可调用 CUDA API）；「Adjusting stream priorities」对应 <code>cudaStreamCreateWithPriority</code>（设备支持时）。</li>
+<li><strong>可视化</strong>：用 NVIDIA Visual Profiler 查看执行时间线以验证重叠、定位隐式同步。多 GPU 时每设备独立流与 <code>cudaSetDevice</code> 是基础（深入见原书后续章节）。</li>
+</ul>
+<h3 id="8-2-zhong-nan-dian-su-cha" tabindex="-1" id="8-2-重难点速查">8.2 重难点速查</h3>
+<table>
+<thead>
+<tr>
+<th>重难点</th>
+<th>要点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>默认流与阻塞</strong></td>
+<td>默认流与所有阻塞流互相同步；混用默认流会串行化多流。对策：非默认流 + 非阻塞流，或 per-thread 默认流。</td>
+</tr>
+<tr>
+<td><strong>固定内存与异步传输</strong></td>
+<td><code>cudaMemcpyAsync</code> 要真正异步、参与重叠，主机缓冲区必须是 <strong>pinned</strong>（<code>cudaMallocHost</code>）；否则可能退化为同步拷贝。</td>
+</tr>
+<tr>
+<td><strong>隐式同步</strong></td>
+<td>同步版 <code>cudaMemcpy</code>、默认流上的操作会触发隐式同步，阻塞所有流。追求重叠时避免在关键路径使用。</td>
+</tr>
+<tr>
+<td><strong>传输与计算重叠</strong></td>
+<td>多流流水线：每流 H2D → kernel → D2H；重叠效果取决于计算/通信比与设备能力；流数量需权衡（如 2～8）。</td>
+</tr>
+<tr>
+<td><strong>事件的两大用途</strong></td>
+<td>(1) 同步：<code>cudaEventSynchronize</code>、<code>cudaStreamWaitEvent</code> 建立流间依赖；(2) 计时：同流内两事件 + <code>cudaEventElapsedTime</code> 得 GPU 侧耗时。</td>
+</tr>
+<tr>
+<td><strong>避免不必要的同步</strong></td>
+<td>只在必须使用某流结果时再同步该流；细粒度同步优于全设备同步。</td>
+</tr>
+</tbody>
+</table>
+<h3 id="8-3-xue-xi-si-kao" tabindex="-1" id="8-3-学习思考">8.3 学习思考</h3>
+<ul>
+<li><strong>与第 2 章的衔接</strong>：第 2 章提到「若计算时间大于数据传输时间，可通过流重叠计算与通信」；本章把这一思想落实为流、固定内存、异步拷贝与多流流水线，并用有效带宽公式衡量。理解「计算/通信比」有助于判断何时值得上多流、何时收益有限。</li>
+<li><strong>与第 4 章的关系</strong>：第 4 章关注单次内核的全局内存带宽与合并访问；本章关注「多次传输与多次内核」在时间轴上的重叠，从而从系统层面提高有效带宽。两者结合：单内核访存优化 + 流级重叠，才能把设备吞吐榨干。</li>
+<li><strong>实践建议</strong>：写多流代码时，(1) 先保证单流逻辑正确（固定内存 + 异步 API + 指定流）；(2) 再扩展到多流，注意不要插入默认流或同步拷贝；(3) 用 Visual Profiler 看时间线确认重叠；(4) 事件计时优先于 CPU 计时，且两事件须在同一流内。</li>
+</ul>
+<p>下表归纳本章涉及的<strong>主要 API 与概念</strong>（与书中描述一致，便于自检）：</p>
+<table>
+<thead>
+<tr>
+<th>类别</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>流</strong></td>
+<td><code>cudaStreamCreate</code> / <code>cudaStreamDestroy</code>；默认流、阻塞流、非阻塞流；<code>kernel&lt;&lt;&lt;..., stream&gt;&gt;&gt;</code>；<code>cudaMemcpyAsync(..., stream)</code></td>
+</tr>
+<tr>
+<td><strong>同步</strong></td>
+<td><code>cudaDeviceSynchronize</code>；<code>cudaStreamSynchronize</code>；<code>cudaStreamQuery</code>；隐式同步（慎用默认流与同步拷贝）</td>
+</tr>
+<tr>
+<td><strong>事件</strong></td>
+<td><code>cudaEventCreate</code> / <code>cudaEventDestroy</code>；<code>cudaEventRecord</code>；<code>cudaEventSynchronize</code> / <code>cudaEventQuery</code>；<code>cudaEventElapsedTime</code>；<code>cudaStreamWaitEvent</code></td>
+</tr>
+<tr>
+<td><strong>主机</strong></td>
+<td>固定内存 <code>cudaMallocHost</code> / <code>cudaFreeHost</code>；流回调 <code>cudaLaunchHostFunc</code>；流优先级 <code>cudaStreamCreateWithPriority</code></td>
+</tr>
+<tr>
+<td><strong>并发</strong></td>
+<td>主机与设备重叠；传输与计算重叠；多流网格级并发；避免不必要的同步</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="xia-yi-zhang-yu-gao" tabindex="-1" id="下一章预告">下一章预告</h2>
+<p>在下一篇博客中，我们将进入<strong>第 7 章：调整指令级原语</strong>：</p>
+<ul>
+<li><strong>线程束洗牌再探</strong>：在第 5 章入门基础上，深入 <code>__shfl_*_sync</code> 的各类变体与掩码语义</li>
+<li><strong>线程束表决函数</strong>：<code>__ballot_sync</code>、<code>__all_sync</code>、<code>__any_sync</code></li>
+<li><strong>活跃掩码与 warp 同步</strong>：<code>__activemask()</code>、<code>__syncwarp()</code></li>
+<li><strong>循环展开</strong>与<strong>快速数学</strong>：指令级优化与精度取舍</li>
+</ul>
+<p>从「流与并发」到「单次内核内部的指令级调优」，是进一步榨取 GPU 性能的必经之路。</p>
+<hr>
+<h2 id="ben-zhang-zi-ce" tabindex="-1" id="本章自测">本章自测</h2>
+<ol>
+<li><strong>内核级并发与网格级并发的区别是什么？流主要实现哪一种？</strong></li>
+<li><strong>为何多流重叠执行时不能使用同步版 <code>cudaMemcpy()</code>？应改用何 API？</strong></li>
+<li><strong>用事件做核函数计时的典型步骤是什么（Record → ? → ElapsedTime）？</strong></li>
+</ol>
+<p><strong>答案与解析</strong></p>
+<ol>
+<li>内核级并发指单次核函数内大量线程并行；网格级并发指多次核函数启动或传输在设备上同时/交错执行。流主要实现网格级并发（多流内操作可重叠）。</li>
+<li>同步版 <code>cudaMemcpy()</code> 会阻塞主机直到传输完成，且会与所有流同步，导致多流无法重叠。应使用 <code>cudaMemcpyAsync(..., stream)</code> 并在流中排队，且主机端需使用锁页内存。</li>
+<li>在核函数前 <code>cudaEventRecord(start, stream)</code>，核函数后 <code>cudaEventRecord(stop, stream)</code>，然后 <code>cudaEventSynchronize(stop)</code>，最后 <code>cudaEventElapsedTime(&amp;ms, start, stop)</code> 得到毫秒数。</li>
+</ol>
+<hr>
+<p><strong>系列导航</strong>：<a href="%E5%AF%BC%E8%AF%BB.md">导读</a> | 上一篇：<a href="%E7%AC%AC5%E7%AB%A0_%E5%85%B1%E4%BA%AB%E5%86%85%E5%AD%98%E5%92%8C%E5%B8%B8%E9%87%8F%E5%86%85%E5%AD%98.md">第5章 共享内存和常量内存</a> | 下一篇：<a href="%E7%AC%AC7%E7%AB%A0_%E8%B0%83%E6%95%B4%E6%8C%87%E4%BB%A4%E7%BA%A7%E5%8E%9F%E8%AF%AD.md">第7章 调整指令级原语</a></p>
+<hr>
+<blockquote>
+<p><strong>本文为「CUDA C编程权威指南」系列博客第 6 篇，共 10 章。基于《Professional CUDA C Programming》by John Cheng, Max Grossman, Ty McKercher。</strong></p>
+</blockquote>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/d47d974/">https://smarter.xin/posts/d47d974/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/learning-path/">学习路线</a><a class="post-meta__tags" href="/tags/cuda/">CUDA</a><a class="post-meta__tags" href="/tags/gpu-programming/">GPU编程</a><a class="post-meta__tags" href="/tags/reading-notes/">读书笔记</a><a class="post-meta__tags" href="/tags/cuda-basics/">CUDA入门</a><a class="post-meta__tags" href="/tags/parallel-computing/">并行计算</a><a class="post-meta__tags" href="/tags/cuda-stream/">CUDA流</a><a class="post-meta__tags" href="/tags/event/">事件</a><a class="post-meta__tags" href="/tags/concurrency/">并发</a></div><div class="post-share"><div class="social-share" data-image="/img/Nvidia_CUDA_Logo.jpg" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/5948d104/" title="常见数据结构-二叉树"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Algorithm.svg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">常见数据结构-二叉树</div></div></div></a><a class="pagination-related  no-desc" href="/posts/e1d6d733/" title="CUDA C编程权威指南-第五章：共享内存和常量内存"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">CUDA C编程权威指南-第五章：共享内存和常量内存</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/98c27a24/" title="CUDA C编程权威指南-第十章：程序实现的注意事项"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-02-10</div><div class="info-item-2">CUDA C编程权威指南-第十章：程序实现的注意事项</div></div></div></a><a class="pagination-related no-desc" href="/posts/2b2e171a/" title="CUDA C编程权威指南-第一章：基于CUDA的异构并行计算"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-23</div><div class="info-item-2">CUDA C编程权威指南-第一章：基于CUDA的异构并行计算</div></div></div></a><a class="pagination-related no-desc" href="/posts/bdd22b42/" title="CUDA C编程权威指南-第二章：CUDA编程模型"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-25</div><div class="info-item-2">CUDA C编程权威指南-第二章：CUDA编程模型</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">97</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">171</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">20</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#cuda-c-bian-cheng-quan-wei-zhi-nan-di-liu-zhang-liu-he-bing-fa"><span class="toc-text">CUDA C编程权威指南-第六章：流和并发</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#qian-yan-cong-nei-he-ji-bing-fa-dao-wang-ge-ji-bing-fa"><span class="toc-text">前言：从内核级并发到网格级并发</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#yi-ben-zhang-zai-quan-shu-zhong-de-wei-zhi-yu-xue-xi-mu-biao"><span class="toc-text">一、本章在全书中的位置与学习目标</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-1-wei-shi-yao-yao-xue-liu-he-bing-fa"><span class="toc-text">1.1 为什么要学「流和并发」</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#1-2-xue-wan-ben-zhang-ni-ying-gai-neng-hui-da"><span class="toc-text">1.2 学完本章，你应该能回答</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#1-3-bo-ke-yue-du-dao-tu-ben-zhang-jia-gou"><span class="toc-text">1.3 博客阅读导图（本章架构）</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#er-liu-yu-shi-jian-de-ben-zhi-shu-6-1-jie"><span class="toc-text">二、流与事件的本质（书 6.1 节）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#2-1-nei-he-ji-bing-fa-yu-wang-ge-ji-bing-fa"><span class="toc-text">2.1 内核级并发与网格级并发</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-2-liu-yu-shi-jian-de-ben-zhi"><span class="toc-text">2.2 流与事件的本质</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-3-yi-bu-zhi-xing-yu-tong-bu"><span class="toc-text">2.3 异步执行与同步</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#san-cuda-liu-shu-6-2-jie"><span class="toc-text">三、CUDA 流（书 6.2 节）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#3-1-liu-de-chuang-jian-yu-xiao-hui"><span class="toc-text">3.1 流的创建与销毁</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-2-mo-ren-liu-yu-zu-sai-xing-wei-yi-cuo-dian"><span class="toc-text">3.2 默认流与阻塞行为 ★ 易错点</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-3-zai-liu-zhong-qi-dong-he-han-shu-yu-yi-bu-chuan-shu"><span class="toc-text">3.3 在流中启动核函数与异步传输</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#si-liu-de-bing-fa-zhi-xing-shu-6-3-jie-zhong-nan-dian"><span class="toc-text">四、流的并发执行（书 6.3 节）★ 重难点</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#4-1-zhu-ji-yu-she-bei-bing-fa"><span class="toc-text">4.1 主机与设备并发</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-2-chuan-shu-yu-ji-suan-de-zhong-die"><span class="toc-text">4.2 传输与计算的重叠</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-3-duo-liu-bing-fa"><span class="toc-text">4.3 多流并发</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#wu-liu-tong-bu-yu-cuda-shi-jian-shu-6-4-6-5-jie"><span class="toc-text">五、流同步与 CUDA 事件（书 6.4～6.5 节）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#5-1-liu-tong-bu-yu-bi-mian-bu-bi-yao-de-tong-bu"><span class="toc-text">5.1 流同步与避免不必要的同步</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-2-cuda-shi-jian"><span class="toc-text">5.2 CUDA 事件</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-3-yong-shi-jian-ji-shi"><span class="toc-text">5.3 用事件计时</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#liu-liu-hui-diao-yu-liu-you-xian-ji-shu-dui-ying-jie"><span class="toc-text">六、流回调与流优先级（书对应节）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#6-1-liu-hui-diao"><span class="toc-text">6.1 流回调</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-2-liu-you-xian-ji"><span class="toc-text">6.2 流优先级</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#qi-ke-shi-hua-yu-duo-gpu-ru-men-shu-dui-ying-jie"><span class="toc-text">七、可视化与多 GPU 入门（书对应节）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#7-1-shi-yong-visual-profiler-cha-kan-zhi-xing-shi-jian-xian"><span class="toc-text">7.1 使用 Visual Profiler 查看执行时间线</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#7-2-duo-gpu-yu-ben-zhang-de-xian-jie-jian-shu"><span class="toc-text">7.2 多 GPU 与本章的衔接（简述）</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#ba-ben-zhang-xiao-jie-yu-zhong-nan-dian-hui-gu"><span class="toc-text">八、本章小结与重难点回顾</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#8-1-zhi-shi-xiao-jie-yu-shu-zhong-dui-ying"><span class="toc-text">8.1 知识小结（与书中对应）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#8-2-zhong-nan-dian-su-cha"><span class="toc-text">8.2 重难点速查</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#8-3-xue-xi-si-kao"><span class="toc-text">8.3 学习思考</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xia-yi-zhang-yu-gao"><span class="toc-text">下一章预告</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#ben-zhang-zi-ce"><span class="toc-text">本章自测</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/98c27a24/" title="CUDA C编程权威指南-第十章：程序实现的注意事项"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA C编程权威指南-第十章：程序实现的注意事项"/></a><div class="content"><a class="title" href="/posts/98c27a24/" title="CUDA C编程权威指南-第十章：程序实现的注意事项">CUDA C编程权威指南-第十章：程序实现的注意事项</a><time datetime="2026-02-10T09:00:00.000Z" title="发表于 2026-02-10 17:00:00">2026-02-10</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/844cd057/" title="CUDA C编程权威指南-第九章：多GPU编程"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA C编程权威指南-第九章：多GPU编程"/></a><div class="content"><a class="title" href="/posts/844cd057/" title="CUDA C编程权威指南-第九章：多GPU编程">CUDA C编程权威指南-第九章：多GPU编程</a><time datetime="2026-02-08T02:30:00.000Z" title="发表于 2026-02-08 10:30:00">2026-02-08</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/e466b0a5/" title="CUDA C编程权威指南-第八章：GPU加速库和OpenACC"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA C编程权威指南-第八章：GPU加速库和OpenACC"/></a><div class="content"><a class="title" href="/posts/e466b0a5/" title="CUDA C编程权威指南-第八章：GPU加速库和OpenACC">CUDA C编程权威指南-第八章：GPU加速库和OpenACC</a><time datetime="2026-02-06T05:10:00.000Z" title="发表于 2026-02-06 13:10:00">2026-02-06</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>

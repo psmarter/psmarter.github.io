@@ -1,0 +1,876 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>CUDA C编程权威指南-第八章：GPU加速库和OpenACC | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="CUDA C编程权威指南-第八章：GPU加速库和OpenACC 系列导航：导读 | 上一篇：第7章 调整指令级原语 | 下一篇：第9章 多GPU编程  系列第 8 篇。前面一直在手写核函数；这一章换条路——用现成 GPU 加速库和指令式并行：cuBLAS、cuFFT、cuSPARSE、cuRAND 等，以及 CUDA 6 的库特性与 OpenACC，少写甚至不写核函数也能拿到 GPU 加速。">
+<meta property="og:type" content="article">
+<meta property="og:title" content="CUDA C编程权威指南-第八章：GPU加速库和OpenACC">
+<meta property="og:url" content="https://smarter.xin/posts/e466b0a5/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="CUDA C编程权威指南-第八章：GPU加速库和OpenACC 系列导航：导读 | 上一篇：第7章 调整指令级原语 | 下一篇：第9章 多GPU编程  系列第 8 篇。前面一直在手写核函数；这一章换条路——用现成 GPU 加速库和指令式并行：cuBLAS、cuFFT、cuSPARSE、cuRAND 等，以及 CUDA 6 的库特性与 OpenACC，少写甚至不写核函数也能拿到 GPU 加速。">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/Nvidia_CUDA_Logo.jpg">
+<meta property="article:published_time" content="2026-02-06T05:10:00.000Z">
+<meta property="article:modified_time" content="2026-03-16T03:38:42.113Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="学习路线">
+<meta property="article:tag" content="CUDA">
+<meta property="article:tag" content="GPU编程">
+<meta property="article:tag" content="读书笔记">
+<meta property="article:tag" content="CUDA入门">
+<meta property="article:tag" content="并行计算">
+<meta property="article:tag" content="cuBLAS">
+<meta property="article:tag" content="cuFFT">
+<meta property="article:tag" content="OpenACC">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/Nvidia_CUDA_Logo.jpg"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "CUDA C编程权威指南-第八章：GPU加速库和OpenACC",
+  "url": "https://smarter.xin/posts/e466b0a5/",
+  "image": "https://smarter.xin/img/Nvidia_CUDA_Logo.jpg",
+  "datePublished": "2026-02-06T05:10:00.000Z",
+  "dateModified": "2026-03-16T03:38:42.113Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/e466b0a5/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'CUDA C编程权威指南-第八章：GPU加速库和OpenACC',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">97</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">171</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">20</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/Nvidia_CUDA_Logo.jpg);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">CUDA C编程权威指南-第八章：GPU加速库和OpenACC</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">CUDA C编程权威指南-第八章：GPU加速库和OpenACC</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-02-06T05:10:00.000Z" title="发表于 2026-02-06 13:10:00">2026-02-06</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-03-16T03:38:42.113Z" title="更新于 2026-03-16 11:38:42">2026-03-16</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/knowledge-sharing/">知识分享</a><i class="fas fa-angle-right post-meta-separator"></i><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/knowledge-sharing/cuda-c-programming-guide/">CUDA C编程权威指南</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">8.6k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>31分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="cuda-c-bian-cheng-quan-wei-zhi-nan-di-ba-zhang-gpu-jia-su-ku-he-open-acc" tabindex="-1">CUDA C编程权威指南-第八章：GPU加速库和OpenACC</h1>
+<p><strong>系列导航</strong>：<a href="%E5%AF%BC%E8%AF%BB.md">导读</a> | 上一篇：<a href="%E7%AC%AC7%E7%AB%A0_%E8%B0%83%E6%95%B4%E6%8C%87%E4%BB%A4%E7%BA%A7%E5%8E%9F%E8%AF%AD.md">第7章 调整指令级原语</a> | 下一篇：<a href="%E7%AC%AC9%E7%AB%A0_%E5%A4%9AGPU%E7%BC%96%E7%A8%8B.md">第9章 多GPU编程</a></p>
+<blockquote>
+<p>系列第 8 篇。前面一直在手写核函数；这一章换条路——用<strong>现成 GPU 加速库</strong>和<strong>指令式并行</strong>：cuBLAS、cuFFT、cuSPARSE、cuRAND 等，以及 CUDA 6 的库特性与 OpenACC，少写甚至不写核函数也能拿到 GPU 加速。</p>
+</blockquote>
+<hr>
+<h2 id="qian-yan-cong-shou-xie-nei-he-dao-ku-yu-zhi-ling" tabindex="-1" id="前言：从手写内核到库与指令">前言：从手写内核到库与指令</h2>
+<p>前几章我们一直在写<strong>自己的核函数</strong>：从向量加法、矩阵加法到归约、转置，再到共享内存、流与并发、指令级原语。这条路径能让你对 GPU 的编程模型和执行模型有深刻理解。这一章会说明：在实际项目中，很多问题——<strong>线性代数</strong>（矩阵运算、求解器）、<strong>快速傅里叶变换（FFT）</strong>、<strong>稀疏矩阵运算</strong>、<strong>随机数生成</strong>——已有高度优化的现成实现；<strong>直接使用 CUDA 加速库</strong>，往往能以更少的代码、更短的开发时间获得接近甚至优于手写内核的性能。同时，<strong>OpenACC</strong> 等指令式方法允许在保留原有 C/Fortran 代码结构的前提下，通过编译器指令将热点循环或区域卸载到 GPU，适合遗留代码的渐进式加速。</p>
+<p>本章将系统学习以下内容：</p>
+<ul>
+<li><strong>CUDA 库概览</strong>：库的定位、与手写内核的取舍、常见库的分类与选用场景。</li>
+<li><strong>cuSPARSE</strong>：稀疏线性代数库，稀疏矩阵存储格式与典型运算（如 SpMV）。</li>
+<li><strong>cuBLAS</strong>：密集线性代数库，对应 BLAS 的 GPU 实现（saxpy、gemm 等）。</li>
+<li><strong>cuFFT</strong>：快速傅里叶变换库，一维/多维 FFT 的 GPU 加速。</li>
+<li><strong>cuRAND</strong>：随机数生成库，设备端或主机端高质量随机数。</li>
+<li><strong>CUDA 6 库特性</strong>：多 GPU 支持、统一内存与库的集成。</li>
+<li><strong>库性能概览</strong>：各库性能关注点与选型建议。</li>
+<li><strong>OpenACC</strong>：指令式并行编程模型，<code>#pragma acc</code> 与数据/计算区域、与 CUDA 的对比。</li>
+</ul>
+<p>通过本章，你将在「手写核函数」之外，掌握<strong>用库和指令</strong>快速获得 GPU 加速的两种主流方式。</p>
+<hr>
+<h2 id="yi-ben-zhang-zai-quan-shu-zhong-de-wei-zhi-yu-xue-xi-mu-biao" tabindex="-1" id="一、本章在全书中的位置与学习目标">一、本章在全书中的位置与学习目标</h2>
+<h3 id="1-1-wei-shi-yao-yao-xue-gpu-jia-su-ku-he-open-acc" tabindex="-1" id="1-1-为什么要学「GPU-加速库和-OpenACC」">1.1 为什么要学「GPU 加速库和 OpenACC」</h3>
+<p>第 2～7 章建立了从编程模型、执行模型、内存层次、流与并发到指令级原语的完整「手写内核」能力。在工程实践中，<strong>优先考虑现成 GPU 库</strong>能显著减少开发与维护成本，并在多数场景下获得接近最优的性能；只有在问题高度定制化或对延迟与资源有极端要求时，才需要手写内核。<strong>OpenACC</strong> 则提供了另一条路径——通过编译器指令将现有 C/Fortran 代码中的热点区域卸载到 GPU，适合遗留代码的渐进式迁移或快速原型。因此，理解各库的适用域、API 风格（句柄/计划、设备指针、数据布局），以及 OpenACC 的指令语义与适用场景，是写出<strong>可维护、高性能</strong> GPU 应用的重要一环；本章与第 2 章（性能模型）、第 6 章（流与库结合）、第 9 章（多 GPU 与库）紧密衔接。</p>
+<h3 id="1-2-xue-wan-ben-zhang-ni-ying-gai-neng-hui-da" tabindex="-1" id="1-2-学完本章，你应该能回答">1.2 学完本章，你应该能回答</h3>
+<table>
+<thead>
+<tr>
+<th>学习目标</th>
+<th>检验方式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>理解<strong>为何优先用库</strong>及库与手写内核的取舍</td>
+<td>能说明「能库则库、不能库再手写」的理由；能列举各库的典型用途</td>
+</tr>
+<tr>
+<td>掌握 <strong>cuBLAS</strong> 的 API 风格（句柄、设备指针、列主序）及 saxpy/gemm 用法</td>
+<td>能写出最小可运行的 cublasSaxpy 示例；说明列主序与 C 行主序的差异</td>
+</tr>
+<tr>
+<td>掌握 <strong>cuFFT</strong> 的 Plan → Execute → Destroy 流程及 R2C 输出长度</td>
+<td>能说明一维实数 FFT 输出为何是 N/2+1 个复数；知道 cufftExec* 为异步</td>
+</tr>
+<tr>
+<td>理解 <strong>cuSPARSE</strong> 的稀疏格式（CSR 等）与 SpMV 流程</td>
+<td>能说出 CSR 与 COO 的适用场景；知道格式选择对性能的影响</td>
+</tr>
+<tr>
+<td>掌握 <strong>cuRAND</strong> 的主机端与设备端用法及典型 API</td>
+<td>能写出主机端 curandGenerateUniform 示例；知道设备端在核函数内初始化的模式</td>
+</tr>
+<tr>
+<td>理解 <strong>CUDA 6</strong> 中多 GPU、统一内存与库的集成（书中涉及部分）</td>
+<td>能简述多 GPU 下每设备独立句柄、统一内存在库中的支持情况</td>
+</tr>
+<tr>
+<td>理解 <strong>OpenACC</strong> 的定位与常用指令（data、parallel、loop、kernels）</td>
+<td>能写出带 <code>#pragma acc data</code> 与 <code>parallel loop</code> 的向量加；说明与 CUDA 的对比</td>
+</tr>
+<tr>
+<td>掌握<strong>库的链接与头文件</strong>、<strong>性能选型</strong>的一般建议</td>
+<td>能正确链接 -lcublas -lcufft 等；能根据问题域选库并注意复用句柄/计划</td>
+</tr>
+</tbody>
+</table>
+<h3 id="1-3-bo-ke-yue-du-dao-tu-ben-zhang-jia-gou" tabindex="-1" id="1-3-博客阅读导图（本章架构）">1.3 博客阅读导图（本章架构）</h3>
+<p><strong>阅读建议</strong>：本章篇幅较长。二、四、五、九节建议<strong>精读</strong>（库概述、cuBLAS/cuFFT 与 OpenACC 最常用）；三、六节（cuSPARSE、cuRAND）可按需<strong>选读</strong>；七节（CUDA 6 库特性）为<strong>可略读</strong>，了解即可。</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br></pre></td><td class="code"><pre><span class="line">第 8 章  GPU 加速库和 OpenACC</span><br><span class="line">│</span><br><span class="line">├── 二、CUDA 库概述（书 8.1 节）【精读】</span><br><span class="line">│   ├── 为什么使用 GPU 加速库</span><br><span class="line">│   ├── 库的分类与选用场景</span><br><span class="line">│   └── 库的链接与头文件 ★ 实践必会</span><br><span class="line">│</span><br><span class="line">├── 三、cuSPARSE 库（书 8.2 节）★ 重难点【选读】</span><br><span class="line">│   ├── 简介与稀疏格式（COO、CSR、CSC、HYB）</span><br><span class="line">│   └── SpMV 流程与格式选择对性能的影响</span><br><span class="line">│</span><br><span class="line">├── 四、cuBLAS 库（书 8.3 节）★ 重难点【精读】</span><br><span class="line">│   ├── 简介与 API 风格（句柄、列主序、设备指针）</span><br><span class="line">│   ├── 完整示例：cublasSaxpy</span><br><span class="line">│   └── 矩阵乘法 cublasSgemm 与 leading dimension</span><br><span class="line">│</span><br><span class="line">├── 五、cuFFT 库（书 8.4 节）【精读】</span><br><span class="line">│   ├── 简介与 Plan/Execute/Destroy 流程</span><br><span class="line">│   ├── 一维实数 FFT（R2C）完整示例</span><br><span class="line">│   └── R2C 输出长度 N/2+1 与异步语义 ★ 易错点</span><br><span class="line">│</span><br><span class="line">├── 六、cuRAND 库（书 8.5 节）【选读】</span><br><span class="line">│   ├── 设备端 vs 主机端 API</span><br><span class="line">│   └── 主机端均匀分布示例与生成器类型</span><br><span class="line">│</span><br><span class="line">├── 七、CUDA 6 中的库特性（书 8.6 节）【可略读】</span><br><span class="line">│   ├── 多 GPU 与库</span><br><span class="line">│   └── 统一内存与库的集成</span><br><span class="line">│</span><br><span class="line">├── 八、CUDA 库性能概览（书 8.7 节）</span><br><span class="line">│   ├── 性能对比的意义与有效带宽</span><br><span class="line">│   └── 选型与使用建议（复用句柄/计划、结合流与多 GPU）</span><br><span class="line">│</span><br><span class="line">├── 九、使用 OpenACC（书 8.8 节）★ 重难点【精读】</span><br><span class="line">│   ├── OpenACC 简介与定位（渐进式加速）</span><br><span class="line">│   ├── 常用指令与数据区域（data、parallel、loop、kernels）</span><br><span class="line">│   ├── 简单示例：向量加法</span><br><span class="line">│   └── OpenACC 与 CUDA 的对比</span><br><span class="line">│</span><br><span class="line">└── 十、本章小结与重难点回顾</span><br></pre></td></tr></table></figure>
+<hr>
+<h2 id="er-cuda-ku-gai-shu-shu-8-1-jie" tabindex="-1" id="二、CUDA-库概述（书-8-1-节）">二、CUDA 库概述（书 8.1 节）</h2>
+<p>本节对应书中对「为什么要用 CUDA 库」以及「库的分类与选用」的总体介绍，为全章奠定概念基础。</p>
+<h3 id="2-1-wei-shi-yao-shi-yong-gpu-jia-su-ku" tabindex="-1" id="2-1-为什么使用-GPU-加速库">2.1 为什么使用 GPU 加速库</h3>
+<p>手写 CUDA 核函数能带来最大的灵活性和学习价值，但在工程实践中会面临<strong>开发成本高、维护难、性能调优复杂</strong>等问题。这一章会说明：NVIDIA 提供的 <strong>CUDA 加速库</strong>针对常见域（线性代数、FFT、稀疏运算、随机数等）做了深度优化，并随 CUDA 工具包一起发布，与驱动和硬件保持兼容。使用这些库可以：</p>
+<ul>
+<li><strong>减少开发时间</strong>：无需从零实现并调试复杂算法（如 FFT、稀疏求解器）。</li>
+<li><strong>获得经过验证的性能</strong>：库内部通常针对多种 GPU 架构做了调优，包括内存访问模式、占用率、算法选择等。</li>
+<li><strong>保持可移植性</strong>：同一套库 API 可在不同代际的 GPU 上运行，由库内部适配硬件。</li>
+</ul>
+<p>当然，库也有其适用范围：若问题非常定制化、或对延迟与资源有极端要求，手写内核仍是必要的。<strong>优先考虑库，再考虑手写</strong>，是多数应用开发的最佳策略。</p>
+<h3 id="2-2-ku-de-fen-lei-yu-xuan-yong-chang-jing" tabindex="-1" id="2-2-库的分类与选用场景">2.2 库的分类与选用场景</h3>
+<p>原书按<strong>功能域</strong>对常用 CUDA 库进行了分类。下表归纳书中涉及的库及其典型用途：</p>
+<table>
+<thead>
+<tr>
+<th>库名</th>
+<th>全称 / 含义</th>
+<th>典型用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>cuBLAS</strong></td>
+<td>CUDA Basic Linear Algebra Subprograms</td>
+<td>密集向量/矩阵运算：axpy、gemv、gemm 等</td>
+</tr>
+<tr>
+<td><strong>cuFFT</strong></td>
+<td>CUDA Fast Fourier Transform</td>
+<td>一维/多维 FFT、实数和复数 FFT</td>
+</tr>
+<tr>
+<td><strong>cuSPARSE</strong></td>
+<td>CUDA Sparse matrix library</td>
+<td>稀疏矩阵存储与运算（SpMV、稀疏求解等）</td>
+</tr>
+<tr>
+<td><strong>cuRAND</strong></td>
+<td>CUDA Random number generation</td>
+<td>设备端/主机端高质量随机数生成</td>
+</tr>
+<tr>
+<td><strong>Thrust</strong></td>
+<td>模板库（C++）</td>
+<td>排序、归约、扫描等通用并行算法（书中若涉及）</td>
+</tr>
+</tbody>
+</table>
+<p>选用原则：若你的问题可归结为<strong>稠密线性代数</strong>，优先考虑 cuBLAS；若涉及<strong>频谱分析、卷积、滤波</strong>等，考虑 cuFFT；若矩阵<strong>稀疏</strong>且规模大，考虑 cuSPARSE；若需要<strong>随机数</strong>（蒙特卡洛、随机算法），考虑 cuRAND。书中在后续各节会分别介绍各库的 API 风格与完整示例。</p>
+<h3 id="2-3-ku-de-lian-jie-yu-tou-wen-jian" tabindex="-1" id="2-3-库的链接与头文件">2.3 库的链接与头文件</h3>
+<p>使用 CUDA 库时，需要包含对应头文件并在链接时指定库。各库的头文件与库文件名与 BLAS/FFT 等标准命名对应，便于在现有构建系统中集成。书中会给出典型编译命令，例如：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 以 cuBLAS 为例：链接 libcublas</span></span><br><span class="line">nvcc -o myapp myapp.cu -lcublas</span><br><span class="line"></span><br><span class="line"><span class="comment"># 多库时</span></span><br><span class="line">nvcc -o myapp myapp.cu -lcublas -lcufft -lcurand</span><br></pre></td></tr></table></figure>
+<p>头文件通常为 <code>cublas_v2.h</code>、<code>cufft.h</code>、<code>cusparse.h</code>、<code>curand.h</code> 等。库的 API 多数采用**句柄（handle）<strong>或</strong>计划（plan）**管理状态：先创建句柄/计划，在其上调用运算，最后销毁。这种设计便于多线程或多流场景下为每个流维护独立状态。这一章会说明：链接时若缺少对应库（如 <code>-lcublas</code>），会报未定义引用错误；在 Windows 下需在项目属性中添加相应库依赖，与第 2 章中 nvcc 编译流程一致。</p>
+<blockquote>
+<p><strong>理解与体会</strong>：本章的「哲学」是：<strong>能库则库，不能库再手写</strong>。库不是替代你对 CUDA 执行模型和内存模型的理解，而是让你把精力放在业务逻辑和系统集成上；只有在库无法覆盖或需要极致定制时，才回到手写内核。选用库时，先看问题域（稠密/稀疏、FFT、随机数），再查对应库的 API 与数据布局（如 cuBLAS 的列主序），可少走弯路。</p>
+</blockquote>
+<hr>
+<h2 id="san-cu-sparse-ku-shu-8-2-jie" tabindex="-1" id="三、cuSPARSE-库（书-8-2-节）">三、cuSPARSE 库（书 8.2 节）</h2>
+<p>本节对应书中对 cuSPARSE 的讲解：稀疏矩阵的存储格式、描述符与典型运算（如 SpMV）。</p>
+<h3 id="3-1-cu-sparse-jian-jie-yu-xi-shu-ge-shi" tabindex="-1" id="3-1-cuSPARSE-简介与稀疏格式">3.1 cuSPARSE 简介与稀疏格式</h3>
+<p><strong>cuSPARSE</strong> 提供针对<strong>稀疏矩阵</strong>的线性代数运算，适用于非零元远少于总元素的大型矩阵。这一章会说明：稠密矩阵运算用 cuBLAS，稀疏矩阵运算用 cuSPARSE，二者互补。cuSPARSE 支持多种稀疏存储格式，常见包括：</p>
+<table>
+<thead>
+<tr>
+<th>格式</th>
+<th>全称</th>
+<th>特点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>COO</strong></td>
+<td>Coordinate</td>
+<td>三元组 (row, col, value)，简单但未针对运算优化</td>
+</tr>
+<tr>
+<td><strong>CSR</strong></td>
+<td>Compressed Sparse Row</td>
+<td>按行压缩，行指针 + 列索引 + 值，SpMV 等常用</td>
+</tr>
+<tr>
+<td><strong>CSC</strong></td>
+<td>Compressed Sparse Column</td>
+<td>按列压缩</td>
+</tr>
+<tr>
+<td><strong>HYB</strong></td>
+<td>Hybrid</td>
+<td>部分 ELL + 部分 COO，库可自动选择</td>
+</tr>
+</tbody>
+</table>
+<p>SpMV（Sparse Matrix-Vector multiplication）( y \leftarrow A x ) 是 cuSPARSE 中最常用的运算之一，对应 <code>cusparseSpMV</code> 或旧版 API 中的 <code>cusparseSpMV_bufferSize</code> + <code>cusparseSpMV</code>。使用前需用 <strong>cusparseSpMatDescr_t</strong>（或旧版的矩阵描述符）描述矩阵的格式、维度与数据指针。</p>
+<h3 id="3-2-shi-yong-liu-cheng-gai-shu-yu-zhong-nan-dian" tabindex="-1" id="3-2-使用流程概述与重难点">3.2 使用流程概述与重难点</h3>
+<p>典型流程（与书中一致）：(1) 创建 cuSPARSE 句柄 <code>cusparseCreate()</code>；(2) 创建矩阵描述符并设置格式、维度、设备指针（行偏移、列索引、值）；(3) 分配并传入向量 ( x )、( y ) 的设备指针；(4) 调用 SpMV 或其它稀疏运算；(5) 销毁描述符与句柄。概念性代码框架如下（具体 API 以 cuSPARSE 版本文档为准）：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 概念性流程：创建句柄、描述矩阵、执行 SpMV</span></span><br><span class="line">cusparseHandle_t handle;</span><br><span class="line">cusparseCreate(&amp;handle);</span><br><span class="line"></span><br><span class="line"><span class="comment">// 设置 CSR 格式的 A：行指针 d_csrRowPtr，列索引 d_csrColInd，值 d_csrVal</span></span><br><span class="line"><span class="comment">// 调用 cusparseSpMV 或 cusparseCsrmv 等（以实际版本 API 为准）</span></span><br><span class="line"><span class="comment">// ...</span></span><br><span class="line"></span><br><span class="line">cusparseDestroy(handle);</span><br></pre></td></tr></table></figure>
+<p><strong>稀疏矩阵的格式选择（CSR、CSC、HYB 等）会显著影响性能</strong>，cuSPARSE 文档会给出各格式的适用场景与性能建议。对于 SpMV ( y \leftarrow A x )，数学上即 ( y_i = \sum_j A_{ij} x_j )（对非零 ( A_{ij} ) 求和）；库内部会根据格式与矩阵结构选择最优内核，无需用户手写稀疏访问模式。</p>
+<blockquote>
+<p><strong>重难点</strong>：格式选择是 cuSPARSE 使用的关键。行访问为主的运算（如 SpMV 按行输出）通常用 <strong>CSR</strong> 更高效；列访问为主则考虑 <strong>CSC</strong>。<strong>HYB</strong> 适合非零元分布极不均匀的矩阵。若从稠密或其它格式转换，需注意转换 API 与描述符的一致性，避免指针或维度错误。</p>
+</blockquote>
+<hr>
+<h2 id="si-cu-blas-ku-shu-8-3-jie" tabindex="-1" id="四、cuBLAS-库（书-8-3-节）">四、cuBLAS 库（书 8.3 节）</h2>
+<p>本节对应书中对 cuBLAS 的讲解：API 风格、Level-1/2/3 运算概念，以及完整示例（saxpy、gemm）。</p>
+<h3 id="4-1-cu-blas-jian-jie-yu-api-feng-ge" tabindex="-1" id="4-1-cuBLAS-简介与-API-风格">4.1 cuBLAS 简介与 API 风格</h3>
+<p><strong>cuBLAS</strong> 是 NVIDIA 实现的 <strong>BLAS（Basic Linear Algebra Subprograms）</strong> 的 GPU 版本，提供与 BLAS 三个层次对应的例程：<strong>Level-1</strong>（向量与向量，如 saxpy）、<strong>Level-2</strong>（矩阵与向量，如 gemv）、<strong>Level-3</strong>（矩阵与矩阵，如 gemm）。这一章会说明：自 cuBLAS 5 起，API 采用 <strong>cuBLAS 2 风格</strong>：使用 <code>cublasHandle_t</code> 句柄管理库状态，支持多流与更好的异步行为；<strong>数据指针均为设备指针</strong>，由调用者在 GPU 上分配好内存后再传入。</p>
+<p>cuBLAS 的命名规则与 BLAS 类似：例如 <code>cublasSaxpy</code> 表示<strong>单精度</strong>（S）的 <strong>axpy</strong>；<code>cublasDgemm</code> 表示<strong>双精度</strong>（D）的 <strong>gemm</strong>（矩阵乘法）。axpy 的数学形式为：</p>
+<p>[<br>
+y \leftarrow \alpha x + y \quad \text{（逐元素： } y_i = \alpha x_i + y_i \text{）}<br>
+]</p>
+<p>即向量 (x) 缩放后加至向量 (y)。下表归纳书中涉及的常用运算与典型 API（以单精度为例）：</p>
+<table>
+<thead>
+<tr>
+<th>运算</th>
+<th>BLAS 含义</th>
+<th>典型 cuBLAS API（单精度）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>axpy</td>
+<td>( y \leftarrow \alpha x + y )</td>
+<td><code>cublasSaxpy</code></td>
+</tr>
+<tr>
+<td>dot</td>
+<td>( \alpha = x^T y )</td>
+<td><code>cublasSdot</code></td>
+</tr>
+<tr>
+<td>gemv</td>
+<td>( y \leftarrow \alpha A x + \beta y )</td>
+<td><code>cublasSgemv</code></td>
+</tr>
+<tr>
+<td>gemm</td>
+<td>( C \leftarrow \alpha A B + \beta C )</td>
+<td><code>cublasSgemm</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="4-2-wan-zheng-shi-li-cublas-saxpy" tabindex="-1" id="4-2-完整示例：cublasSaxpy">4.2 完整示例：cublasSaxpy</h3>
+<p>下面给出与书中风格一致的、使用 <strong>cublasSaxpy</strong> 实现 ( y \leftarrow \alpha x + y ) 的完整示例。包含：创建 cuBLAS 句柄、在设备上分配并初始化向量、调用 <code>cublasSaxpy</code>、将结果拷回主机并验证。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;stdio.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;stdlib.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;cuda_runtime.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;cublas_v2.h&gt;</span></span></span><br><span class="line"></span><br><span class="line"><span class="meta">#<span class="keyword">define</span> CHECK(call)                                                                 \</span></span><br><span class="line"><span class="meta">    do &#123;                                                                            \</span></span><br><span class="line"><span class="meta">        cudaError_t err = call;                                                     \</span></span><br><span class="line"><span class="meta">        <span class="keyword">if</span> (err != cudaSuccess) &#123;                                                   \</span></span><br><span class="line"><span class="meta">            printf(<span class="string">&quot;CUDA Error: %s:%d, %s\n&quot;</span>, __FILE__, __LINE__, cudaGetErrorString(err)); \</span></span><br><span class="line"><span class="meta">            exit(EXIT_FAILURE);                                                      \</span></span><br><span class="line"><span class="meta">        &#125;                                                                           \</span></span><br><span class="line"><span class="meta">    &#125; while (0)</span></span><br><span class="line"></span><br><span class="line"><span class="meta">#<span class="keyword">define</span> CUBLAS_CHECK(call)                                                          \</span></span><br><span class="line"><span class="meta">    do &#123;                                                                            \</span></span><br><span class="line"><span class="meta">        cublasStatus_t status = call;                                               \</span></span><br><span class="line"><span class="meta">        <span class="keyword">if</span> (status != CUBLAS_STATUS_SUCCESS) &#123;                                      \</span></span><br><span class="line"><span class="meta">            printf(<span class="string">&quot;cuBLAS Error: %s:%d\n&quot;</span>, __FILE__, __LINE__);                    \</span></span><br><span class="line"><span class="meta">            exit(EXIT_FAILURE);                                                      \</span></span><br><span class="line"><span class="meta">        &#125;                                                                           \</span></span><br><span class="line"><span class="meta">    &#125; while (0)</span></span><br><span class="line"></span><br><span class="line"><span class="type">int</span> <span class="title function_">main</span><span class="params">(<span class="type">int</span> argc, <span class="type">char</span> **argv)</span> &#123;</span><br><span class="line">    <span class="type">const</span> <span class="type">int</span> N = <span class="number">1</span> &lt;&lt; <span class="number">20</span>;  <span class="comment">// 1M 元素</span></span><br><span class="line">    <span class="type">size_t</span> size = N * <span class="keyword">sizeof</span>(<span class="type">float</span>);</span><br><span class="line">    <span class="type">float</span> alpha = <span class="number">2.0f</span>;</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 主机端分配并初始化</span></span><br><span class="line">    <span class="type">float</span> *h_x = (<span class="type">float</span> *)<span class="built_in">malloc</span>(size);</span><br><span class="line">    <span class="type">float</span> *h_y = (<span class="type">float</span> *)<span class="built_in">malloc</span>(size);</span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> i = <span class="number">0</span>; i &lt; N; i++) &#123;</span><br><span class="line">        h_x[i] = <span class="number">1.0f</span>;</span><br><span class="line">        h_y[i] = <span class="number">2.0f</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 设备端分配</span></span><br><span class="line">    <span class="type">float</span> *d_x = <span class="literal">NULL</span>;</span><br><span class="line">    <span class="type">float</span> *d_y = <span class="literal">NULL</span>;</span><br><span class="line">    CHECK(cudaMalloc((<span class="type">void</span> **)&amp;d_x, size));</span><br><span class="line">    CHECK(cudaMalloc((<span class="type">void</span> **)&amp;d_y, size));</span><br><span class="line">    CHECK(cudaMemcpy(d_x, h_x, size, cudaMemcpyHostToDevice));</span><br><span class="line">    CHECK(cudaMemcpy(d_y, h_y, size, cudaMemcpyHostToDevice));</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 创建 cuBLAS 句柄并执行 saxpy: y = alpha*x + y</span></span><br><span class="line">    cublasHandle_t handle;</span><br><span class="line">    CUBLAS_CHECK(cublasCreate(&amp;handle));</span><br><span class="line">    CUBLAS_CHECK(cublasSaxpy(handle, N, &amp;alpha, d_x, <span class="number">1</span>, d_y, <span class="number">1</span>));</span><br><span class="line">    CHECK(cudaDeviceSynchronize());</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 结果拷回主机</span></span><br><span class="line">    CHECK(cudaMemcpy(h_y, d_y, size, cudaMemcpyDeviceToHost));</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 简单验证：y[i] 应为 alpha*1 + 2 = 4.0</span></span><br><span class="line">    <span class="type">float</span> maxError = <span class="number">0.0f</span>;</span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> i = <span class="number">0</span>; i &lt; N; i++) &#123;</span><br><span class="line">        <span class="type">float</span> expected = alpha * h_x[i] + <span class="number">2.0f</span>;</span><br><span class="line">        <span class="type">float</span> diff = fabsf(h_y[i] - expected);</span><br><span class="line">        <span class="keyword">if</span> (diff &gt; maxError) maxError = diff;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="built_in">printf</span>(<span class="string">&quot;cuBLAS Saxpy: max error = %e\n&quot;</span>, maxError);</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 释放资源</span></span><br><span class="line">    CUBLAS_CHECK(cublasDestroy(handle));</span><br><span class="line">    CHECK(cudaFree(d_x));</span><br><span class="line">    CHECK(cudaFree(d_y));</span><br><span class="line">    <span class="built_in">free</span>(h_x);</span><br><span class="line">    <span class="built_in">free</span>(h_y);</span><br><span class="line"></span><br><span class="line">    <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>编译与运行（书中风格）：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">nvcc -o cublas_saxpy cublas_saxpy.cu -lcublas</span><br><span class="line">./cublas_saxpy</span><br></pre></td></tr></table></figure>
+<p><strong>说明</strong>：<code>cublasSaxpy(handle, N, &amp;alpha, d_x, incx, d_y, incy)</code> 中，<code>incx</code>/<code>incy</code> 为步长（通常为 1）。cuBLAS 默认使用<strong>列主序</strong>（column-major）存储矩阵；对于一维向量，顺序与 C 数组一致。所有指针必须是<strong>设备指针</strong>，且由调用者保证分配尺寸正确。</p>
+<h3 id="4-3-ju-zhen-cheng-fa-yu-cublas-sgemm" tabindex="-1" id="4-3-矩阵乘法与-cublasSgemm">4.3 矩阵乘法与 cublasSgemm</h3>
+<p>矩阵乘法是 Level-3 BLAS 的核心，( C \leftarrow \alpha A B + \beta C )。cuBLAS 提供 <code>cublasSgemm</code>（单精度）、<code>cublasDgemm</code>（双精度）等。接口形式（与书中及 cuBLAS 文档一致）：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">cublasStatus_t <span class="title function_">cublasSgemm</span><span class="params">(cublasHandle_t handle,</span></span><br><span class="line"><span class="params">    cublasOperation_t transa, cublasOperation_t transb,</span></span><br><span class="line"><span class="params">    <span class="type">int</span> m, <span class="type">int</span> n, <span class="type">int</span> k,</span></span><br><span class="line"><span class="params">    <span class="type">const</span> <span class="type">float</span> *alpha,</span></span><br><span class="line"><span class="params">    <span class="type">const</span> <span class="type">float</span> *A, <span class="type">int</span> lda,</span></span><br><span class="line"><span class="params">    <span class="type">const</span> <span class="type">float</span> *B, <span class="type">int</span> ldb,</span></span><br><span class="line"><span class="params">    <span class="type">const</span> <span class="type">float</span> *beta,</span></span><br><span class="line"><span class="params">    <span class="type">float</span> *C, <span class="type">int</span> ldc)</span>;</span><br></pre></td></tr></table></figure>
+<p>其中 <code>m, n, k</code> 分别表示矩阵 ( C ) 的行数、列数，以及 ( A ) 的列数（也是 ( B ) 的行数）；<code>transa</code>/<code>transb</code> 表示是否对 ( A )、( B ) 做转置；<code>lda</code>、<code>ldb</code>、<code>ldc</code> 为各矩阵的 <strong>leading dimension</strong>（列主序下为行数，或转置后的逻辑行数）。使用 cuBLAS 做矩阵乘法时，通常能获得接近 GPU 峰值性能的吞吐，无需手写 gemm 核函数。</p>
+<blockquote>
+<p><strong>重难点</strong>：(1) <strong>列主序</strong>：cuBLAS 与 Fortran BLAS 一致，矩阵按列优先存储；若你的数据是 C 语言行主序，要么在调用前转置，要么利用 <code>transa</code>/<code>transb</code> 用逻辑上的「转置」来匹配。(2) <strong>设备指针</strong>：所有 <code>A、B、C、x、y</code> 必须指向设备内存，传主机指针会导致未定义行为。(3) <strong>leading dimension</strong>：在列主序下，<code>lda</code> 通常为矩阵的行数（即连续存储的一列的长度），用于表达子矩阵或 strided 布局。</p>
+</blockquote>
+<hr>
+<h2 id="wu-cu-fft-ku-shu-8-4-jie" tabindex="-1" id="五、cuFFT-库（书-8-4-节）">五、cuFFT 库（书 8.4 节）</h2>
+<p>本节对应书中对 cuFFT 的讲解：库的定位、一维/多维 FFT 的规划与执行，以及完整示例。</p>
+<h3 id="5-1-cu-fft-jian-jie" tabindex="-1" id="5-1-cuFFT-简介">5.1 cuFFT 简介</h3>
+<p><strong>cuFFT</strong> 是 NVIDIA 提供的 <strong>快速傅里叶变换（FFT）</strong> GPU 库，支持一维、二维、三维 FFT，以及实数到复数（R2C）、复数到实数（C2R）、复数到复数（C2C）等多种类型。这一章会说明：FFT 在信号处理、图像处理、求解偏微分方程等领域应用广泛，手写高性能 FFT 核函数难度大，使用 cuFFT 可以快速获得接近最优的性能。</p>
+<p>cuFFT 的典型流程为：(1) <strong>创建计划</strong>（plan）——<code>cufftPlan1d</code> / <code>cufftPlan2d</code> / <code>cufftPlan3d</code> 或 <code>cufftPlanMany</code>；(2) <strong>执行 FFT</strong>——<code>cufftExecR2C</code>、<code>cufftExecC2R</code>、<code>cufftExecC2C</code> 等；(3) <strong>销毁计划</strong>——<code>cufftDestroy</code>。计划中会包含 FFT 的维度、批大小、数据类型等信息，执行阶段可多次复用同一计划，从而摊薄规划开销。</p>
+<h3 id="5-2-yi-wei-shi-shu-fft-wan-zheng-shi-li" tabindex="-1" id="5-2-一维实数-FFT-完整示例">5.2 一维实数 FFT 完整示例</h3>
+<p>下面给出与书中风格一致的、<strong>一维实数 FFT（R2C）</strong> 的完整示例：对长度为 <code>N</code> 的实序列做正向 FFT，得到 ( N/2+1 ) 个复数（利用对称性）；再做逆变换 C2R 可与原数据对比验证。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;stdio.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;stdlib.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;math.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;cuda_runtime.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;cufft.h&gt;</span></span></span><br><span class="line"></span><br><span class="line"><span class="meta">#<span class="keyword">define</span> CHECK(call)                                                                 \</span></span><br><span class="line"><span class="meta">    do &#123;                                                                            \</span></span><br><span class="line"><span class="meta">        cudaError_t err = call;                                                     \</span></span><br><span class="line"><span class="meta">        <span class="keyword">if</span> (err != cudaSuccess) &#123;                                                   \</span></span><br><span class="line"><span class="meta">            printf(<span class="string">&quot;CUDA Error: %s:%d, %s\n&quot;</span>, __FILE__, __LINE__, cudaGetErrorString(err)); \</span></span><br><span class="line"><span class="meta">            exit(EXIT_FAILURE);                                                      \</span></span><br><span class="line"><span class="meta">        &#125;                                                                           \</span></span><br><span class="line"><span class="meta">    &#125; while (0)</span></span><br><span class="line"></span><br><span class="line"><span class="meta">#<span class="keyword">define</span> N 1024</span></span><br><span class="line"></span><br><span class="line"><span class="type">int</span> <span class="title function_">main</span><span class="params">(<span class="type">void</span>)</span> &#123;</span><br><span class="line">    <span class="type">size_t</span> real_size = N * <span class="keyword">sizeof</span>(<span class="type">float</span>);</span><br><span class="line">    <span class="type">size_t</span> complex_size = (N / <span class="number">2</span> + <span class="number">1</span>) * <span class="keyword">sizeof</span>(cufftComplex);</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 主机端：准备实数输入</span></span><br><span class="line">    <span class="type">float</span> *h_signal = (<span class="type">float</span> *)<span class="built_in">malloc</span>(real_size);</span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> i = <span class="number">0</span>; i &lt; N; i++)</span><br><span class="line">        h_signal[i] = (<span class="type">float</span>)<span class="built_in">sin</span>(<span class="number">2.0</span> * M_PI * <span class="number">7.0</span> * i / N);</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 设备端分配</span></span><br><span class="line">    <span class="type">float</span> *d_signal = <span class="literal">NULL</span>;</span><br><span class="line">    cufftComplex *d_spectrum = <span class="literal">NULL</span>;</span><br><span class="line">    CHECK(cudaMalloc((<span class="type">void</span> **)&amp;d_signal, real_size));</span><br><span class="line">    CHECK(cudaMalloc((<span class="type">void</span> **)&amp;d_spectrum, complex_size));</span><br><span class="line">    CHECK(cudaMemcpy(d_signal, h_signal, real_size, cudaMemcpyHostToDevice));</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 创建 cuFFT 计划并执行 R2C</span></span><br><span class="line">    cufftHandle plan;</span><br><span class="line">    cufftPlan1d(&amp;plan, N, CUFFT_R2C, <span class="number">1</span>);</span><br><span class="line">    cufftExecR2C(plan, d_signal, d_spectrum);</span><br><span class="line">    CHECK(cudaDeviceSynchronize());</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 可选：逆变换 C2R 验证（书中可给出完整验证）</span></span><br><span class="line">    cufftDestroy(plan);</span><br><span class="line"></span><br><span class="line">    CHECK(cudaFree(d_signal));</span><br><span class="line">    CHECK(cudaFree(d_spectrum));</span><br><span class="line">    <span class="built_in">free</span>(h_signal);</span><br><span class="line"></span><br><span class="line">    <span class="built_in">printf</span>(<span class="string">&quot;cuFFT R2C 1D completed for N = %d\n&quot;</span>, N);</span><br><span class="line">    <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>编译与运行：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">nvcc -o cufft_r2c cufft_r2c.cu -lcufft</span><br><span class="line">./cufft_r2c</span><br></pre></td></tr></table></figure>
+<p><strong>说明</strong>：实数 FFT 结果具有共轭对称性，cuFFT 只输出 ( N/2+1 ) 个复数，节省存储与带宽。<code>cufftExec*</code> 为<strong>异步</strong>调用，若需与主机或其他内核同步，应在后续使用 <code>cudaDeviceSynchronize()</code> 或流/事件。</p>
+<h3 id="5-3-cu-fft-yu-gong-shi-dui-ying-ji-yi-cuo-dian" tabindex="-1" id="5-3-cuFFT-与公式对应及易错点">5.3 cuFFT 与公式对应及易错点</h3>
+<p>离散傅里叶变换（DFT）的正向形式（书中常给出）为：</p>
+<p>[<br>
+X_k = \sum_{n=0}^{N-1} x_n , e^{-2\pi i k n / N}, \quad k = 0, \ldots, N-1.<br>
+]</p>
+<p>对于实数输入，( X_k = \overline{X_{N-k}} )，因此只需存储 ( k = 0, \ldots, N/2 )。cuFFT 的 R2C 输出即对应 ( X_0, \ldots, X_{N/2} )。逆变换 C2R 由 ( X_0, \ldots, X_{N/2} ) 恢复实序列 ( x_n )。单位与归一化（如是否除以 ( N )）以 cuFFT 文档为准。</p>
+<blockquote>
+<p><strong>易错点</strong>：(1) <strong>R2C 输出长度</strong>：一维实数 FFT 输出是 <strong>N/2+1</strong> 个复数，不是 N；分配频谱缓冲区时必须按此大小，否则越界。(2) <strong>异步执行</strong>：<code>cufftExec*</code> 与 cuBLAS 类似，默认在当前流上异步执行；若紧接着在主机上使用结果或启动依赖该结果的内核，需显式同步或使用流与事件（第 6 章）。</p>
+</blockquote>
+<hr>
+<h2 id="liu-cu-rand-ku-shu-8-5-jie" tabindex="-1" id="六、cuRAND-库（书-8-5-节）">六、cuRAND 库（书 8.5 节）</h2>
+<p>本节对应书中对 cuRAND 的讲解：在设备端或主机端生成随机数、生成器类型与完整示例。</p>
+<h3 id="6-1-cu-rand-jian-jie" tabindex="-1" id="6-1-cuRAND-简介">6.1 cuRAND 简介</h3>
+<p><strong>cuRAND</strong> 提供在 GPU 上或由 GPU 支持的主机端<strong>高质量随机数生成</strong>。这一章会说明：蒙特卡洛模拟、随机算法、随机测试数据生成等场景都需要大量随机数，在设备端用 cuRAND 生成可以避免主机到设备的大规模传输，并可与核函数融合使用。cuRAND 支持多种生成器（如 XORWOW、MRG32k3a、Philox 等），以及均匀分布、正态分布等不同分布。</p>
+<p>典型用法分为两类：(1) <strong>设备端 API</strong>：在核函数或设备代码中调用 <code>curand_init</code> 初始化状态，再用 <code>curand</code> 系列函数生成随机数；(2) <strong>主机端 API</strong>：使用 <code>curandGenerateUniform</code>、<code>curandGenerateNormal</code> 等，由库在 GPU 上生成随机数并写入设备内存，主机通过 <code>cudaMemcpy</code> 取回（若需要）。书中会给出两种用法的示例。</p>
+<h3 id="6-2-zhu-ji-duan-api-shi-li-sheng-cheng-jun-yun-fen-bu-sui-ji-shu" tabindex="-1" id="6-2-主机端-API-示例：生成均匀分布随机数">6.2 主机端 API 示例：生成均匀分布随机数</h3>
+<p>下面给出与书中风格一致的、使用 <strong>主机端 cuRAND API</strong> 在设备上生成均匀分布随机数并拷回主机的完整示例。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;stdio.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;stdlib.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;cuda_runtime.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;curand.h&gt;</span></span></span><br><span class="line"></span><br><span class="line"><span class="meta">#<span class="keyword">define</span> CHECK(call)                                                                 \</span></span><br><span class="line"><span class="meta">    do &#123;                                                                            \</span></span><br><span class="line"><span class="meta">        cudaError_t err = call;                                                     \</span></span><br><span class="line"><span class="meta">        <span class="keyword">if</span> (err != cudaSuccess) &#123;                                                   \</span></span><br><span class="line"><span class="meta">            printf(<span class="string">&quot;CUDA Error: %s:%d, %s\n&quot;</span>, __FILE__, __LINE__, cudaGetErrorString(err)); \</span></span><br><span class="line"><span class="meta">            exit(EXIT_FAILURE);                                                      \</span></span><br><span class="line"><span class="meta">        &#125;                                                                           \</span></span><br><span class="line"><span class="meta">    &#125; while (0)</span></span><br><span class="line"></span><br><span class="line"><span class="meta">#<span class="keyword">define</span> CURAND_CHECK(call)                                                          \</span></span><br><span class="line"><span class="meta">    do &#123;                                                                            \</span></span><br><span class="line"><span class="meta">        curandStatus_t status = call;                                               \</span></span><br><span class="line"><span class="meta">        <span class="keyword">if</span> (status != CURAND_STATUS_SUCCESS) &#123;                                      \</span></span><br><span class="line"><span class="meta">            printf(<span class="string">&quot;cuRAND Error: %s:%d\n&quot;</span>, __FILE__, __LINE__);                    \</span></span><br><span class="line"><span class="meta">            exit(EXIT_FAILURE);                                                      \</span></span><br><span class="line"><span class="meta">        &#125;                                                                           \</span></span><br><span class="line"><span class="meta">    &#125; while (0)</span></span><br><span class="line"></span><br><span class="line"><span class="type">int</span> <span class="title function_">main</span><span class="params">(<span class="type">void</span>)</span> &#123;</span><br><span class="line">    <span class="type">const</span> <span class="type">size_t</span> N = <span class="number">1000000</span>;</span><br><span class="line">    <span class="type">size_t</span> size = N * <span class="keyword">sizeof</span>(<span class="type">float</span>);</span><br><span class="line"></span><br><span class="line">    <span class="type">float</span> *d_data = <span class="literal">NULL</span>;</span><br><span class="line">    CHECK(cudaMalloc((<span class="type">void</span> **)&amp;d_data, size));</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 创建 cuRAND 生成器（主机端 API）</span></span><br><span class="line">    curandGenerator_t gen;</span><br><span class="line">    CURAND_CHECK(curandCreateGenerator(&amp;gen, CURAND_RNG_PSEUDO_XORWOW));</span><br><span class="line">    CURAND_CHECK(curandSetPseudoRandomGeneratorSeed(gen, <span class="number">1234ULL</span>));</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 在设备上生成 [0, 1) 均匀分布</span></span><br><span class="line">    CURAND_CHECK(curandGenerateUniform(gen, d_data, N));</span><br><span class="line">    CHECK(cudaDeviceSynchronize());</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 拷回主机并简单统计</span></span><br><span class="line">    <span class="type">float</span> *h_data = (<span class="type">float</span> *)<span class="built_in">malloc</span>(size);</span><br><span class="line">    CHECK(cudaMemcpy(h_data, d_data, size, cudaMemcpyDeviceToHost));</span><br><span class="line"></span><br><span class="line">    <span class="type">double</span> sum = <span class="number">0.0</span>;</span><br><span class="line">    <span class="keyword">for</span> (<span class="type">size_t</span> i = <span class="number">0</span>; i &lt; N; i++) sum += h_data[i];</span><br><span class="line">    <span class="built_in">printf</span>(<span class="string">&quot;cuRAND Uniform: mean = %.6f (expected 0.5)\n&quot;</span>, sum / N);</span><br><span class="line"></span><br><span class="line">    CURAND_CHECK(curandDestroyGenerator(gen));</span><br><span class="line">    CHECK(cudaFree(d_data));</span><br><span class="line">    <span class="built_in">free</span>(h_data);</span><br><span class="line"></span><br><span class="line">    <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>编译与运行：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">nvcc -o curand_uniform curand_uniform.cu -lcurand</span><br><span class="line">./curand_uniform</span><br></pre></td></tr></table></figure>
+<p><strong>说明</strong>：<code>curandGenerateUniform(gen, d_data, N)</code> 在设备内存 <code>d_data</code> 中写入 N 个 ([0,1)) 均匀分布的单精度随机数。书中会介绍其它分布（如 <code>curandGenerateNormal</code>）以及设备端在核函数内调用 cuRAND 的写法。</p>
+<hr>
+<h2 id="qi-cuda-6-zhong-de-ku-te-xing-shu-8-6-jie" tabindex="-1" id="七、CUDA-6-中的库特性（书-8-6-节）">七、CUDA 6 中的库特性（书 8.6 节）</h2>
+<p>本节对应书中对 <strong>CUDA 6</strong> 引入的、与库相关特性的介绍：<strong>多 GPU 支持</strong>、<strong>统一内存（Unified Memory）</strong> 与库的集成等。</p>
+<h3 id="7-1-duo-gpu-yu-ku" tabindex="-1" id="7-1-多-GPU-与库">7.1 多 GPU 与库</h3>
+<p>这一章会说明：自 CUDA 6 起，部分库开始更好地支持<strong>多 GPU</strong> 场景。例如，应用可以在不同设备上创建各自的 cuBLAS 句柄，并配合 <code>cudaSetDevice()</code> 与多流，将不同线性代数任务分配到不同 GPU 上执行。库的 API 通常与单 GPU 一致，多 GPU 的协调由应用程序通过设备选择与流来管理。这与第 9 章多 GPU 编程的主题相衔接。</p>
+<h3 id="7-2-tong-yi-nei-cun-yu-ku" tabindex="-1" id="7-2-统一内存与库">7.2 统一内存与库</h3>
+<p><strong>统一内存（Unified Memory）</strong> 允许使用同一指针在主机与设备间透明迁移数据，减少显式的 <code>cudaMemcpy</code>。书中若涉及 CUDA 6 中库对统一内存的支持，会说明：部分库在传入「托管」指针时能正确在设备上访问数据，从而简化主机端代码。具体支持情况以各库文档为准。开发者在使用库时，可优先查阅当前 CUDA 版本文档中「Unified Memory」与各库的兼容说明，以便在简化代码与性能之间做出选择。</p>
+<hr>
+<h2 id="ba-cuda-ku-xing-neng-gai-lan-shu-8-7-jie" tabindex="-1" id="八、CUDA-库性能概览（书-8-7-节）">八、CUDA 库性能概览（书 8.7 节）</h2>
+<p>本节对应书中对<strong>库性能调查</strong>的总结：各库在典型问题规模下的性能关注点与选型建议。</p>
+<h3 id="8-1-xing-neng-dui-bi-de-yi-yi" tabindex="-1" id="8-1-性能对比的意义">8.1 性能对比的意义</h3>
+<p>书中会给出 cuBLAS、cuFFT、cuSPARSE 等在典型基准测试下的性能数据（如 GFlops、带宽利用率、与手写内核或 CPU 实现的对比）。目的是说明：<strong>正确使用库</strong>往往能达到或接近 GPU 理论峰值，且远快于未优化的 CPU 实现。与第 2 章、第 4 章一致，有效带宽可用来评估内存受限型库例程的表现：</p>
+<p>[<br>
+\text{有效带宽（GB/s）} = \frac{(\text{读字节数} + \text{写字节数})}{\text{运行时间（秒）}}<br>
+]</p>
+<p>下表为<strong>概念性归纳</strong>（与书中库性能调查对应；具体数值以原书该章性能表为准）：</p>
+<table>
+<thead>
+<tr>
+<th>库</th>
+<th>典型运算</th>
+<th>性能关注点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>cuBLAS</td>
+<td>gemm, axpy</td>
+<td>接近峰值 TFlops，带宽利用率</td>
+</tr>
+<tr>
+<td>cuFFT</td>
+<td>1D/2D/3D FFT</td>
+<td>与 FFT 规模、批大小相关</td>
+</tr>
+<tr>
+<td>cuSPARSE</td>
+<td>SpMV</td>
+<td>与稀疏模式、格式选择相关</td>
+</tr>
+<tr>
+<td>cuRAND</td>
+<td>均匀/正态分布</td>
+<td>生成吞吐（样本/秒）</td>
+</tr>
+</tbody>
+</table>
+<h3 id="8-2-xuan-xing-yu-shi-yong-jian-yi" tabindex="-1" id="8-2-选型与使用建议">8.2 选型与使用建议</h3>
+<p>书中总结的选型与使用建议可归纳为：(1) <strong>优先选用与问题匹配的库</strong>，避免重复造轮子；(2) <strong>注意数据布局与 API 约定</strong>（如列主序、复数格式）；(3) <strong>复用计划/句柄</strong>，减少重复创建与销毁的开销；(4) <strong>结合流与多 GPU</strong>（第 6 章、第 9 章）实现更大规模的并行与重叠。这些与前面章节形成呼应。</p>
+<hr>
+<h2 id="jiu-shi-yong-open-acc-shu-8-8-jie" tabindex="-1" id="九、使用-OpenACC（书-8-8-节）">九、使用 OpenACC（书 8.8 节）</h2>
+<p>本节对应书中对 <strong>OpenACC</strong> 的讲解：指令式并行编程模型、常用指令与数据管理、与 CUDA 的对比。</p>
+<h3 id="9-1-open-acc-jian-jie" tabindex="-1" id="9-1-OpenACC-简介">9.1 OpenACC 简介</h3>
+<p><strong>OpenACC</strong> 是一种基于<strong>编译器指令</strong>的并行编程模型，允许程序员在现有 C/C++ 或 Fortran 代码中通过 <strong>pragma</strong> 标注并行区域和数据映射，由支持 OpenACC 的编译器（如 PGI/NVIDIA HPC SDK 的 nvc/nvc++）自动生成主机与设备代码，并将指定区域卸载到 GPU 执行。这一章会说明：OpenACC 的定位是<strong>渐进式加速</strong>——不需要重写整个程序为 CUDA，只需在热点循环或区域添加指令，适合遗留代码或希望减少编程负担的场景。</p>
+<p>OpenACC 与 CUDA 的关系可以概括为：<strong>OpenACC 是指令层抽象，CUDA 是显式 API 与核函数</strong>。OpenACC 编译器最终可能生成 CUDA 代码或直接调用 CUDA 运行时；使用 OpenACC 不要求开发者直接写 <code>__global__</code> 核函数，但理解 GPU 执行模型有助于写出更高效的指令（如循环划分、数据局部性）。</p>
+<h3 id="9-2-chang-yong-zhi-ling-yu-shu-ju-qu-yu" tabindex="-1" id="9-2-常用指令与数据区域">9.2 常用指令与数据区域</h3>
+<p>书中会介绍的常用 OpenACC 指令包括：</p>
+<table>
+<thead>
+<tr>
+<th>指令类型</th>
+<th>典型写法</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>并行区域</strong></td>
+<td><code>#pragma acc parallel</code></td>
+<td>后续结构化块在加速器上并行执行</td>
+</tr>
+<tr>
+<td><strong>循环</strong></td>
+<td><code>#pragma acc loop</code></td>
+<td>标注可并行化的循环，由编译器映射到 GPU 线程</td>
+</tr>
+<tr>
+<td><strong>数据区域</strong></td>
+<td><code>#pragma acc data copyin(A) copyout(B)</code></td>
+<td>进入区域时将 A 拷入设备，离开时将 B 拷回主机</td>
+</tr>
+<tr>
+<td><strong>计算区域</strong></td>
+<td><code>#pragma acc kernels</code></td>
+<td>由编译器自动分析并并行化区域内代码</td>
+</tr>
+</tbody>
+</table>
+<p>数据子句常见有：<code>copyin</code>（进入时主机→设备）、<code>copyout</code>（离开时设备→主机）、<code>copy</code>（进入拷入、离开拷出）、<code>create</code>（在设备上分配，不拷回）等。书中会结合具体示例说明如何用 <code>parallel</code> + <code>loop</code> 或 <code>kernels</code> 加速循环。</p>
+<h3 id="9-3-jian-dan-open-acc-shi-li-xiang-liang-jia-fa" tabindex="-1" id="9-3-简单-OpenACC-示例：向量加法">9.3 简单 OpenACC 示例：向量加法</h3>
+<p>下面给出与书中风格一致的、用 <strong>OpenACC</strong> 实现的向量加法示例。通过 <code>#pragma acc data</code> 管理数据，<code>#pragma acc parallel loop</code> 将循环卸载到 GPU。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;stdio.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;stdlib.h&gt;</span></span></span><br><span class="line"></span><br><span class="line"><span class="meta">#<span class="keyword">define</span> N (1024 * 1024)</span></span><br><span class="line"></span><br><span class="line"><span class="type">int</span> <span class="title function_">main</span><span class="params">(<span class="type">void</span>)</span> &#123;</span><br><span class="line">    <span class="type">float</span> *A = (<span class="type">float</span> *)<span class="built_in">malloc</span>(N * <span class="keyword">sizeof</span>(<span class="type">float</span>));</span><br><span class="line">    <span class="type">float</span> *B = (<span class="type">float</span> *)<span class="built_in">malloc</span>(N * <span class="keyword">sizeof</span>(<span class="type">float</span>));</span><br><span class="line">    <span class="type">float</span> *C = (<span class="type">float</span> *)<span class="built_in">malloc</span>(N * <span class="keyword">sizeof</span>(<span class="type">float</span>));</span><br><span class="line"></span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> i = <span class="number">0</span>; i &lt; N; i++) &#123;</span><br><span class="line">        A[i] = <span class="number">1.0f</span>;</span><br><span class="line">        B[i] = <span class="number">2.0f</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">// OpenACC：数据拷入设备，计算在加速器上执行，结果拷回</span></span><br><span class="line">    <span class="meta">#<span class="keyword">pragma</span> acc data copyin(A[0:N], B[0:N]) copyout(C[0:N])</span></span><br><span class="line">    &#123;</span><br><span class="line">        <span class="meta">#<span class="keyword">pragma</span> acc parallel loop</span></span><br><span class="line">        <span class="keyword">for</span> (<span class="type">int</span> i = <span class="number">0</span>; i &lt; N; i++) &#123;</span><br><span class="line">            C[i] = A[i] + B[i];</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 验证</span></span><br><span class="line">    <span class="type">float</span> maxError = <span class="number">0.0f</span>;</span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> i = <span class="number">0</span>; i &lt; N; i++) &#123;</span><br><span class="line">        <span class="type">float</span> e = C[i] - <span class="number">3.0f</span>;</span><br><span class="line">        <span class="keyword">if</span> (e &lt; <span class="number">0</span>) e = -e;</span><br><span class="line">        <span class="keyword">if</span> (e &gt; maxError) maxError = e;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="built_in">printf</span>(<span class="string">&quot;OpenACC vector add: max error = %e\n&quot;</span>, maxError);</span><br><span class="line"></span><br><span class="line">    <span class="built_in">free</span>(A);</span><br><span class="line">    <span class="built_in">free</span>(B);</span><br><span class="line">    <span class="built_in">free</span>(C);</span><br><span class="line">    <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>编译（需 OpenACC 编译器，如 NVIDIA HPC SDK 的 nvc）：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">nvc -acc -Minfo=accel -o vecadd_acc vecadd_acc.c</span><br><span class="line">./vecadd_acc</span><br></pre></td></tr></table></figure>
+<p><strong>说明</strong>：<code>#pragma acc data</code> 划定数据生命周期；<code>copyin(A[0:N], B[0:N])</code> 表示将 A、B 拷入设备；<code>copyout(C[0:N])</code> 表示在离开区域时将 C 拷回主机。<code>#pragma acc parallel loop</code> 表示接下来的 for 循环在加速器上并行执行。书中会强调：实际性能取决于编译器对循环的映射与数据移动策略，可通过 <code>-Minfo=accel</code> 查看编译器生成的加速信息。</p>
+<h3 id="9-4-open-acc-yu-cuda-de-dui-bi" tabindex="-1" id="9-4-OpenACC-与-CUDA-的对比">9.4 OpenACC 与 CUDA 的对比</h3>
+<p>书中会对 OpenACC 与 CUDA 做简要对比，下表归纳：</p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>OpenACC</th>
+<th>CUDA C</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>编程方式</strong></td>
+<td>指令标注，编译器生成并行代码</td>
+<td>显式写核函数与内存/流 API</td>
+</tr>
+<tr>
+<td><strong>可移植性</strong></td>
+<td>可面向多厂商加速器（若编译器支持）</td>
+<td>面向 NVIDIA GPU</td>
+</tr>
+<tr>
+<td><strong>控制粒度</strong></td>
+<td>较粗，依赖编译器优化</td>
+<td>细粒度，可精确控制线程与内存</td>
+</tr>
+<tr>
+<td><strong>适用场景</strong></td>
+<td>遗留代码渐进式加速、快速原型</td>
+<td>高性能需求、深度调优、库开发</td>
+</tr>
+</tbody>
+</table>
+<p>理解两者关系后，可以在同一项目中混用：热点用 CUDA 或库，其余用 OpenACC 快速移植。</p>
+<blockquote>
+<p><strong>理解与体会</strong>：OpenACC 的<strong>数据子句</strong>是易错点：<code>copyin</code>/<code>copyout</code>/<code>copy</code>/<code>create</code> 决定了数据何时在主机与设备间移动，写错会导致结果未更新或重复拷贝。另外，OpenACC 依赖<strong>支持 OpenACC 的编译器</strong>（如 nvc），与纯 nvcc 的 CUDA 项目在构建链上不同；若团队已有大量 Fortran/C 科学计算代码，用 OpenACC 做「最小侵入」的 GPU 加速往往比全量重写为 CUDA 更现实。</p>
+</blockquote>
+<hr>
+<h2 id="shi-ben-zhang-xiao-jie-yu-zhong-nan-dian-hui-gu" tabindex="-1" id="十、本章小结与重难点回顾">十、本章小结与重难点回顾</h2>
+<h3 id="10-1-zhi-shi-xiao-jie-yu-shu-zhong-dui-ying" tabindex="-1" id="10-1-知识小结（与书中对应）">10.1 知识小结（与书中对应）</h3>
+<ul>
+<li><strong>CUDA 库</strong>：cuBLAS（稠密线性代数）、cuFFT（FFT）、cuSPARSE（稀疏运算）、cuRAND（随机数）；优先用库可减少开发成本并获接近最优性能。选用时按问题域匹配库，注意链接（-lcublas -lcufft 等）与头文件。</li>
+<li><strong>库的通用模式</strong>：句柄/计划管理、<strong>设备指针</strong>、正确链接；注意数据布局（如 cuBLAS 列主序）与 API 约定；多数库调用为<strong>异步</strong>，需在需要时同步或配合流。</li>
+<li><strong>cuBLAS</strong>：Level-1/2/3（saxpy、gemv、gemm）；列主序、leading dimension；所有数据指针为设备指针。</li>
+<li><strong>cuFFT</strong>：Plan → Execute → Destroy；R2C 输出长度为 N/2+1；cufftExec* 为异步。</li>
+<li><strong>cuSPARSE</strong>：稀疏格式（CSR、COO、CSC、HYB）与 SpMV；格式选择对性能影响大。</li>
+<li><strong>cuRAND</strong>：主机端 API（curandGenerateUniform 等）与设备端在核函数内初始化；多种生成器与分布。</li>
+<li><strong>CUDA 6</strong>：多 GPU 与统一内存在库中的支持，便于多设备与简化数据管理。</li>
+<li><strong>OpenACC</strong>：指令式并行，<code>#pragma acc data</code>、<code>parallel</code>、<code>loop</code>、<code>kernels</code>；适合渐进式加速与遗留代码，与 CUDA 可互补。</li>
+</ul>
+<h3 id="10-2-zhong-nan-dian-su-cha" tabindex="-1" id="10-2-重难点速查">10.2 重难点速查</h3>
+<table>
+<thead>
+<tr>
+<th>重难点</th>
+<th>要点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>库的选用</strong></td>
+<td>稠密线性代数→cuBLAS；FFT→cuFFT；稀疏→cuSPARSE；随机数→cuRAND。能库则库，不能库再手写。</td>
+</tr>
+<tr>
+<td><strong>cuBLAS 列主序与设备指针</strong></td>
+<td>矩阵按列主序；所有 A、B、C、x、y 为设备指针；C 行主序数据需转置或用 trans 参数。</td>
+</tr>
+<tr>
+<td><strong>cuFFT R2C 长度与异步</strong></td>
+<td>一维实数 FFT 输出为 N/2+1 个复数；cufftExec* 异步，需同步或流。</td>
+</tr>
+<tr>
+<td><strong>cuSPARSE 格式选择</strong></td>
+<td>CSR 常用于行访问为主的 SpMV；格式选择显著影响性能。</td>
+</tr>
+<tr>
+<td><strong>OpenACC 数据子句</strong></td>
+<td>copyin/copyout/copy/create 决定数据移动时机；写错会导致结果错误或多余拷贝。</td>
+</tr>
+<tr>
+<td><strong>OpenACC 与 CUDA 的取舍</strong></td>
+<td>遗留代码、快速移植用 OpenACC；高性能、深度调优、库开发用 CUDA。</td>
+</tr>
+</tbody>
+</table>
+<h3 id="10-3-xue-xi-si-kao" tabindex="-1" id="10-3-学习思考">10.3 学习思考</h3>
+<ul>
+<li><strong>与第 2 章的衔接</strong>：第 2 章介绍了性能模型与「计算时间 vs 传输时间」；使用库时，同样要关注数据在主机与设备间的移动（cudaMemcpy 或 OpenACC 的 data 子句），以及库调用与流的重叠（第 6 章），才能发挥库的吞吐优势。</li>
+<li><strong>与第 6 章的关系</strong>：库的 API 多数支持将句柄与流绑定（如 cublasSetStream），从而在多流上重叠多个库调用或库与手写内核的重叠；第 9 章多 GPU 则涉及每设备独立句柄与流。</li>
+<li><strong>实践建议</strong>：(1) 新项目优先查是否有现成库可覆盖问题域；(2) 使用库时严格遵循文档中的数据布局（列主序、R2C 长度等）和指针要求（设备指针）；(3) 复用句柄/计划，避免在循环内反复创建销毁；(4) 需要与主机或其他内核同步时，显式调用 cudaDeviceSynchronize 或使用事件与流。</li>
+</ul>
+<p>下表为本章<strong>自检要点</strong>（与书中描述一致）：</p>
+<table>
+<thead>
+<tr>
+<th>要点</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>库的选用</td>
+<td>cuBLAS/cuFFT/cuSPARSE/cuRAND 按问题域选用；能库则库</td>
+</tr>
+<tr>
+<td>cuBLAS</td>
+<td>句柄、设备指针、列主序；saxpy、gemm 的典型参数</td>
+</tr>
+<tr>
+<td>cuFFT</td>
+<td>Plan → Exec → Destroy；R2C 输出 N/2+1；异步</td>
+</tr>
+<tr>
+<td>cuSPARSE</td>
+<td>CSR/COO 等格式；SpMV 流程；格式影响性能</td>
+</tr>
+<tr>
+<td>cuRAND</td>
+<td>主机端 curandGenerateUniform；设备端 curand_init + curand</td>
+</tr>
+<tr>
+<td>OpenACC</td>
+<td>data copyin/copyout；parallel loop；与 CUDA 对比</td>
+</tr>
+<tr>
+<td>链接</td>
+<td>-lcublas -lcufft -lcurand 等；头文件 cublas_v2.h、cufft.h 等</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="xia-yi-zhang-yu-gao" tabindex="-1" id="下一章预告">下一章预告</h2>
+<p>在下一篇博客中，我们将进入<strong>第 9 章：多 GPU 编程</strong>：</p>
+<ul>
+<li>多 GPU 系统拓扑与通信（PCIe、NVLink 等）</li>
+<li>单机多 GPU 的线程与进程模型（单进程多设备、多进程）</li>
+<li>多 GPU 间的数据划分与负载均衡</li>
+<li>多 GPU 与库、流的结合</li>
+</ul>
+<p>从单 GPU 的库与指令，扩展到多 GPU 的协同——我们下一章见。</p>
+<hr>
+<h2 id="ben-zhang-zi-ce" tabindex="-1" id="本章自测">本章自测</h2>
+<ol>
+<li><strong>cuBLAS 的矩阵存储顺序是什么？若用 C 语言行主序存储，调用 cublasSgemm 时应注意什么？</strong></li>
+<li><strong>一维实数 FFT（R2C）输出有多少个复数？为何不是 N？</strong></li>
+<li><strong>OpenACC 中 <code>#pragma acc data</code> 与 <code>#pragma acc parallel loop</code> 分别负责什么？</strong></li>
+</ol>
+<p><strong>答案与解析</strong></p>
+<ol>
+<li>cuBLAS 使用列主序（column-major），与 C 的行主序相反。用 C 存矩阵时，可把 A、B 视为「逻辑上的转置」传入，或调用时交换 A/B 与 trans 参数以等效行主序乘法。</li>
+<li>实数序列的 FFT 具有共轭对称性，只需存 N/2+1 个复数即可完整表示。因此 R2C 输出长度为 N/2+1，不是 N。</li>
+<li><code>#pragma acc data</code> 定义数据区域，在进入区域时把数据拷到设备、离开时拷回（或指定 copyin/copyout 等）。<code>#pragma acc parallel loop</code> 将紧接着的循环在设备上并行执行，可配合 data 区域使用。</li>
+</ol>
+<hr>
+<p><strong>系列导航</strong>：<a href="%E5%AF%BC%E8%AF%BB.md">导读</a> | 上一篇：<a href="%E7%AC%AC7%E7%AB%A0_%E8%B0%83%E6%95%B4%E6%8C%87%E4%BB%A4%E7%BA%A7%E5%8E%9F%E8%AF%AD.md">第7章 调整指令级原语</a> | 下一篇：<a href="%E7%AC%AC9%E7%AB%A0_%E5%A4%9AGPU%E7%BC%96%E7%A8%8B.md">第9章 多GPU编程</a></p>
+<hr>
+<blockquote>
+<p><strong>本文为「CUDA C编程权威指南」系列博客第 8 篇，共 10 章。基于《Professional CUDA C Programming》by John Cheng, Max Grossman, Ty McKercher。</strong></p>
+</blockquote>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/e466b0a5/">https://smarter.xin/posts/e466b0a5/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/learning-path/">学习路线</a><a class="post-meta__tags" href="/tags/cuda/">CUDA</a><a class="post-meta__tags" href="/tags/gpu-programming/">GPU编程</a><a class="post-meta__tags" href="/tags/reading-notes/">读书笔记</a><a class="post-meta__tags" href="/tags/cuda-basics/">CUDA入门</a><a class="post-meta__tags" href="/tags/parallel-computing/">并行计算</a><a class="post-meta__tags" href="/tags/cublas/">cuBLAS</a><a class="post-meta__tags" href="/tags/cufft/">cuFFT</a><a class="post-meta__tags" href="/tags/openacc/">OpenACC</a></div><div class="post-share"><div class="social-share" data-image="/img/Nvidia_CUDA_Logo.jpg" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/844cd057/" title="CUDA C编程权威指南-第九章：多GPU编程"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">CUDA C编程权威指南-第九章：多GPU编程</div></div></div></a><a class="pagination-related  no-desc" href="/posts/74667ea3/" title="常见数据结构-图"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Algorithm.svg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">常见数据结构-图</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/98c27a24/" title="CUDA C编程权威指南-第十章：程序实现的注意事项"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-02-10</div><div class="info-item-2">CUDA C编程权威指南-第十章：程序实现的注意事项</div></div></div></a><a class="pagination-related no-desc" href="/posts/2b2e171a/" title="CUDA C编程权威指南-第一章：基于CUDA的异构并行计算"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-23</div><div class="info-item-2">CUDA C编程权威指南-第一章：基于CUDA的异构并行计算</div></div></div></a><a class="pagination-related no-desc" href="/posts/bdd22b42/" title="CUDA C编程权威指南-第二章：CUDA编程模型"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-25</div><div class="info-item-2">CUDA C编程权威指南-第二章：CUDA编程模型</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">97</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">171</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">20</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#cuda-c-bian-cheng-quan-wei-zhi-nan-di-ba-zhang-gpu-jia-su-ku-he-open-acc"><span class="toc-text">CUDA C编程权威指南-第八章：GPU加速库和OpenACC</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#qian-yan-cong-shou-xie-nei-he-dao-ku-yu-zhi-ling"><span class="toc-text">前言：从手写内核到库与指令</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#yi-ben-zhang-zai-quan-shu-zhong-de-wei-zhi-yu-xue-xi-mu-biao"><span class="toc-text">一、本章在全书中的位置与学习目标</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-1-wei-shi-yao-yao-xue-gpu-jia-su-ku-he-open-acc"><span class="toc-text">1.1 为什么要学「GPU 加速库和 OpenACC」</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#1-2-xue-wan-ben-zhang-ni-ying-gai-neng-hui-da"><span class="toc-text">1.2 学完本章，你应该能回答</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#1-3-bo-ke-yue-du-dao-tu-ben-zhang-jia-gou"><span class="toc-text">1.3 博客阅读导图（本章架构）</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#er-cuda-ku-gai-shu-shu-8-1-jie"><span class="toc-text">二、CUDA 库概述（书 8.1 节）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#2-1-wei-shi-yao-shi-yong-gpu-jia-su-ku"><span class="toc-text">2.1 为什么使用 GPU 加速库</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-2-ku-de-fen-lei-yu-xuan-yong-chang-jing"><span class="toc-text">2.2 库的分类与选用场景</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-3-ku-de-lian-jie-yu-tou-wen-jian"><span class="toc-text">2.3 库的链接与头文件</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#san-cu-sparse-ku-shu-8-2-jie"><span class="toc-text">三、cuSPARSE 库（书 8.2 节）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#3-1-cu-sparse-jian-jie-yu-xi-shu-ge-shi"><span class="toc-text">3.1 cuSPARSE 简介与稀疏格式</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-2-shi-yong-liu-cheng-gai-shu-yu-zhong-nan-dian"><span class="toc-text">3.2 使用流程概述与重难点</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#si-cu-blas-ku-shu-8-3-jie"><span class="toc-text">四、cuBLAS 库（书 8.3 节）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#4-1-cu-blas-jian-jie-yu-api-feng-ge"><span class="toc-text">4.1 cuBLAS 简介与 API 风格</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-2-wan-zheng-shi-li-cublas-saxpy"><span class="toc-text">4.2 完整示例：cublasSaxpy</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-3-ju-zhen-cheng-fa-yu-cublas-sgemm"><span class="toc-text">4.3 矩阵乘法与 cublasSgemm</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#wu-cu-fft-ku-shu-8-4-jie"><span class="toc-text">五、cuFFT 库（书 8.4 节）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#5-1-cu-fft-jian-jie"><span class="toc-text">5.1 cuFFT 简介</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-2-yi-wei-shi-shu-fft-wan-zheng-shi-li"><span class="toc-text">5.2 一维实数 FFT 完整示例</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-3-cu-fft-yu-gong-shi-dui-ying-ji-yi-cuo-dian"><span class="toc-text">5.3 cuFFT 与公式对应及易错点</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#liu-cu-rand-ku-shu-8-5-jie"><span class="toc-text">六、cuRAND 库（书 8.5 节）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#6-1-cu-rand-jian-jie"><span class="toc-text">6.1 cuRAND 简介</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-2-zhu-ji-duan-api-shi-li-sheng-cheng-jun-yun-fen-bu-sui-ji-shu"><span class="toc-text">6.2 主机端 API 示例：生成均匀分布随机数</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#qi-cuda-6-zhong-de-ku-te-xing-shu-8-6-jie"><span class="toc-text">七、CUDA 6 中的库特性（书 8.6 节）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#7-1-duo-gpu-yu-ku"><span class="toc-text">7.1 多 GPU 与库</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#7-2-tong-yi-nei-cun-yu-ku"><span class="toc-text">7.2 统一内存与库</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#ba-cuda-ku-xing-neng-gai-lan-shu-8-7-jie"><span class="toc-text">八、CUDA 库性能概览（书 8.7 节）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#8-1-xing-neng-dui-bi-de-yi-yi"><span class="toc-text">8.1 性能对比的意义</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#8-2-xuan-xing-yu-shi-yong-jian-yi"><span class="toc-text">8.2 选型与使用建议</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#jiu-shi-yong-open-acc-shu-8-8-jie"><span class="toc-text">九、使用 OpenACC（书 8.8 节）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#9-1-open-acc-jian-jie"><span class="toc-text">9.1 OpenACC 简介</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#9-2-chang-yong-zhi-ling-yu-shu-ju-qu-yu"><span class="toc-text">9.2 常用指令与数据区域</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#9-3-jian-dan-open-acc-shi-li-xiang-liang-jia-fa"><span class="toc-text">9.3 简单 OpenACC 示例：向量加法</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#9-4-open-acc-yu-cuda-de-dui-bi"><span class="toc-text">9.4 OpenACC 与 CUDA 的对比</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-ben-zhang-xiao-jie-yu-zhong-nan-dian-hui-gu"><span class="toc-text">十、本章小结与重难点回顾</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#10-1-zhi-shi-xiao-jie-yu-shu-zhong-dui-ying"><span class="toc-text">10.1 知识小结（与书中对应）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#10-2-zhong-nan-dian-su-cha"><span class="toc-text">10.2 重难点速查</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#10-3-xue-xi-si-kao"><span class="toc-text">10.3 学习思考</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xia-yi-zhang-yu-gao"><span class="toc-text">下一章预告</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#ben-zhang-zi-ce"><span class="toc-text">本章自测</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/98c27a24/" title="CUDA C编程权威指南-第十章：程序实现的注意事项"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA C编程权威指南-第十章：程序实现的注意事项"/></a><div class="content"><a class="title" href="/posts/98c27a24/" title="CUDA C编程权威指南-第十章：程序实现的注意事项">CUDA C编程权威指南-第十章：程序实现的注意事项</a><time datetime="2026-02-10T09:00:00.000Z" title="发表于 2026-02-10 17:00:00">2026-02-10</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/844cd057/" title="CUDA C编程权威指南-第九章：多GPU编程"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA C编程权威指南-第九章：多GPU编程"/></a><div class="content"><a class="title" href="/posts/844cd057/" title="CUDA C编程权威指南-第九章：多GPU编程">CUDA C编程权威指南-第九章：多GPU编程</a><time datetime="2026-02-08T02:30:00.000Z" title="发表于 2026-02-08 10:30:00">2026-02-08</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/e466b0a5/" title="CUDA C编程权威指南-第八章：GPU加速库和OpenACC"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA C编程权威指南-第八章：GPU加速库和OpenACC"/></a><div class="content"><a class="title" href="/posts/e466b0a5/" title="CUDA C编程权威指南-第八章：GPU加速库和OpenACC">CUDA C编程权威指南-第八章：GPU加速库和OpenACC</a><time datetime="2026-02-06T05:10:00.000Z" title="发表于 2026-02-06 13:10:00">2026-02-06</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>

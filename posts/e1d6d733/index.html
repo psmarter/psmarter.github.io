@@ -1,0 +1,745 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>CUDA C编程权威指南-第五章：共享内存和常量内存 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="CUDA C编程权威指南-第五章：共享内存和常量内存 系列导航：导读 | 上一篇：第4章 全局内存 | 下一篇：第6章 流和并发  系列第 5 篇。第 4 章讲了全局内存的对齐与合并、矩阵转置里的读写取舍；这一章把数据「搬到片上」：共享内存的布局与 bank 冲突、用共享内存做矩阵转置与归约、常量内存和线程束洗牌怎么用，把「怎么访问全局内存」和「怎么在片上复用、重组数据」串成一条线。   前言：从">
+<meta property="og:type" content="article">
+<meta property="og:title" content="CUDA C编程权威指南-第五章：共享内存和常量内存">
+<meta property="og:url" content="https://smarter.xin/posts/e1d6d733/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="CUDA C编程权威指南-第五章：共享内存和常量内存 系列导航：导读 | 上一篇：第4章 全局内存 | 下一篇：第6章 流和并发  系列第 5 篇。第 4 章讲了全局内存的对齐与合并、矩阵转置里的读写取舍；这一章把数据「搬到片上」：共享内存的布局与 bank 冲突、用共享内存做矩阵转置与归约、常量内存和线程束洗牌怎么用，把「怎么访问全局内存」和「怎么在片上复用、重组数据」串成一条线。   前言：从">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/Nvidia_CUDA_Logo.jpg">
+<meta property="article:published_time" content="2026-01-31T03:00:00.000Z">
+<meta property="article:modified_time" content="2026-03-16T03:38:42.112Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="学习路线">
+<meta property="article:tag" content="CUDA">
+<meta property="article:tag" content="GPU编程">
+<meta property="article:tag" content="读书笔记">
+<meta property="article:tag" content="CUDA入门">
+<meta property="article:tag" content="并行计算">
+<meta property="article:tag" content="共享内存">
+<meta property="article:tag" content="常量内存">
+<meta property="article:tag" content="bank冲突">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/Nvidia_CUDA_Logo.jpg"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "CUDA C编程权威指南-第五章：共享内存和常量内存",
+  "url": "https://smarter.xin/posts/e1d6d733/",
+  "image": "https://smarter.xin/img/Nvidia_CUDA_Logo.jpg",
+  "datePublished": "2026-01-31T03:00:00.000Z",
+  "dateModified": "2026-03-16T03:38:42.112Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/e1d6d733/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'CUDA C编程权威指南-第五章：共享内存和常量内存',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">97</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">171</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">20</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/Nvidia_CUDA_Logo.jpg);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">CUDA C编程权威指南-第五章：共享内存和常量内存</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">CUDA C编程权威指南-第五章：共享内存和常量内存</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-01-31T03:00:00.000Z" title="发表于 2026-01-31 11:00:00">2026-01-31</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-03-16T03:38:42.112Z" title="更新于 2026-03-16 11:38:42">2026-03-16</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/knowledge-sharing/">知识分享</a><i class="fas fa-angle-right post-meta-separator"></i><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/knowledge-sharing/cuda-c-programming-guide/">CUDA C编程权威指南</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">9.4k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>31分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="cuda-c-bian-cheng-quan-wei-zhi-nan-di-wu-zhang-gong-xiang-nei-cun-he-chang-liang-nei-cun" tabindex="-1">CUDA C编程权威指南-第五章：共享内存和常量内存</h1>
+<p><strong>系列导航</strong>：<a href="%E5%AF%BC%E8%AF%BB.md">导读</a> | 上一篇：<a href="%E7%AC%AC4%E7%AB%A0_%E5%85%A8%E5%B1%80%E5%86%85%E5%AD%98.md">第4章 全局内存</a> | 下一篇：<a href="%E7%AC%AC6%E7%AB%A0_%E6%B5%81%E5%92%8C%E5%B9%B6%E5%8F%91.md">第6章 流和并发</a></p>
+<blockquote>
+<p>系列第 5 篇。第 4 章讲了全局内存的对齐与合并、矩阵转置里的读写取舍；这一章把数据「搬到片上」：<strong>共享内存</strong>的布局与 bank 冲突、用共享内存做矩阵转置与归约、<strong>常量内存</strong>和<strong>线程束洗牌</strong>怎么用，把「怎么访问全局内存」和「怎么在片上复用、重组数据」串成一条线。</p>
+</blockquote>
+<hr>
+<h2 id="qian-yan-cong-quan-ju-nei-cun-dao-pian-shang-nei-cun" tabindex="-1" id="前言：从全局内存到片上内存">前言：从全局内存到片上内存</h2>
+<p>第4章指出：当算法不得不以非合并方式访问全局内存时（例如矩阵转置中按列读或按列写），带宽利用率会下降。需要留意的是：<strong>在许多情况下，可以通过共享内存来改善全局内存的合并访问</strong>——先把数据以合并方式从全局内存加载到共享内存，在共享内存中按需重组或复用，再以合并方式写回全局内存。这样既减少了全局内存事务数，又利用了片上存储的低延迟与高带宽。</p>
+<p>此外，<strong>共享内存</strong>与 <strong>L1 缓存</strong>在 Fermi 等架构上共享同一块片上存储（如 64 KB），程序员可通过运行时 API 调整二者比例；<strong>常量内存</strong>则提供只读、带专用缓存的存储，当线程束内所有线程访问同一地址时能获得广播优势。本章将系统覆盖（书中原意）：在共享内存中数据如何排布、什么是 bank 与 bank 冲突、如何用 padding 消除冲突、二维共享内存与线性全局内存的索引转换、矩阵转置与并行归约的共享内存实现、常量内存与只读缓存的区别，以及<strong>线程束洗牌指令</strong>（warp shuffle）的入门用法。</p>
+<hr>
+<h2 id="yi-ben-zhang-zai-quan-shu-zhong-de-wei-zhi-yu-xue-xi-mu-biao" tabindex="-1" id="一、本章在全书中的位置与学习目标">一、本章在全书中的位置与学习目标</h2>
+<h3 id="1-1-wei-shi-yao-yao-xue-gong-xiang-nei-cun-he-chang-liang-nei-cun" tabindex="-1" id="1-1-为什么要学「共享内存和常量内存」">1.1 为什么要学「共享内存和常量内存」</h3>
+<p>第 4 章从<strong>全局内存</strong>回答了「如何对齐与合并、为何矩阵转置难以双端合并」；但性能瓶颈的突破往往在于<strong>把热数据搬到片上、按需复用</strong>。这一章会说明：<strong>大多数 GPU 应用程序受内存带宽限制</strong>，而共享内存是 SM 上的<strong>片上可编程存储器</strong>，延迟远低于全局内存、带宽更高；<strong>在许多情况下，可以通过共享内存来改善全局内存的合并访问</strong>。因此，理解共享内存的布局与 bank 冲突、掌握用共享内存做 tile 与归约、区分常量内存与只读缓存的适用场景，并会用<strong>线程束洗牌</strong>在 warp 内无共享内存参与地交换数据，是写出高性能核函数的关键一步；本章与第 3 章（执行模型、归约）、第 4 章（全局内存、矩阵转置）紧密衔接。</p>
+<h3 id="1-2-xue-wan-ben-zhang-ni-ying-gai-neng-hui-da" tabindex="-1" id="1-2-学完本章，你应该能回答">1.2 学完本章，你应该能回答</h3>
+<table>
+<thead>
+<tr>
+<th>学习目标</th>
+<th>检验方式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>理解<strong>共享内存</strong>的作用域、生命周期及静态/动态分配方式</td>
+<td>能写出 <code>__shared__</code> 与 <code>extern __shared__</code> 的用法，并说明动态共享内存的第三个参数含义</td>
+</tr>
+<tr>
+<td>理解 <strong><code>__syncthreads()</code></strong> 的语义及竞争条件</td>
+<td>能解释「先加载到共享内存 → __syncthreads → 再计算」的模式，以及分支内误用的危险</td>
+</tr>
+<tr>
+<td>掌握** bank 与 bank 冲突**的定义及 bank 索引公式</td>
+<td>能判断「连续 32 个 float」「同一列」「步长 2」等访问是否冲突</td>
+</tr>
+<tr>
+<td>掌握用 <strong>padding</strong> 消除二维共享内存按列访问的 bank 冲突</td>
+<td>能写出 <code>tile[32][33]</code> 的声明及线性索引 <code>row*(BLOCK_DIM+1)+col</code>，并说明为何 +1 能消除冲突</td>
+</tr>
+<tr>
+<td>掌握<strong>共享内存矩阵转置</strong>的流程与索引转换</td>
+<td>能写出读入 <code>tile[ty][tx]</code>、写出 <code>tile[tx][ty]</code> 及 idx_in、idx_out 的推导</td>
+</tr>
+<tr>
+<td>掌握<strong>共享内存归约</strong>的流程（加载→块内多轮归约→写回）</td>
+<td>能与第 3 章全局内存归约对比，说明为何共享内存版本减少全局访问次数</td>
+</tr>
+<tr>
+<td>理解<strong>常量内存</strong>的适用场景及 <strong>cudaMemcpyToSymbol</strong> 用法</td>
+<td>能说明同址广播、不同址串行化及 64KB 限制；会写主机端拷贝与核函数内只读使用</td>
+</tr>
+<tr>
+<td>区分<strong>常量缓存</strong>与<strong>只读缓存</strong>（__ldg）</td>
+<td>能说出数据来源、容量与最佳访问模式的区别</td>
+</tr>
+<tr>
+<td>理解<strong>线程束洗牌</strong>的概念及 <strong>__shfl_down_sync</strong> 等用法</td>
+<td>能写出 warp 内归约片段，并说明 mask 与「无需共享内存」的优势</td>
+</tr>
+</tbody>
+</table>
+<h3 id="1-3-bo-ke-yue-du-dao-tu-ben-zhang-jia-gou" tabindex="-1" id="1-3-博客阅读导图（本章架构）">1.3 博客阅读导图（本章架构）</h3>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br></pre></td><td class="code"><pre><span class="line">第 5 章  共享内存和常量内存</span><br><span class="line">│</span><br><span class="line">├── 二、共享内存概述（书 5.1 节）</span><br><span class="line">│   ├── 为什么使用共享内存、声明与生命周期（静态/动态）</span><br><span class="line">│   └── 同步与竞争条件、__syncthreads 的正确使用</span><br><span class="line">│</span><br><span class="line">├── 三、共享内存的布局与 Bank 冲突（书 5.2 节）★ 重难点</span><br><span class="line">│   ├── 数据排布、二维与线性索引</span><br><span class="line">│   ├── Bank 与 bank 冲突、典型访问模式表</span><br><span class="line">│   └── 使用 padding 消除 bank 冲突</span><br><span class="line">│</span><br><span class="line">├── 四、使用共享内存的矩阵转置（书 5.3 节）</span><br><span class="line">│   ├── 思路与索引转换（读入 tile、写出转置）</span><br><span class="line">│   └── 完整核函数与有效带宽</span><br><span class="line">│</span><br><span class="line">├── 五、使用共享内存的并行归约（书 5.4 节）</span><br><span class="line">│   ├── 思路与共享内存阶段</span><br><span class="line">│   └── 完整核函数与第 3 章归约的对比</span><br><span class="line">│</span><br><span class="line">├── 六、常量内存（书 5.5 节）</span><br><span class="line">│   ├── 常量内存与常量缓存、同址广播与不同址串行化</span><br><span class="line">│   ├── cudaMemcpyToSymbol 与核函数用法</span><br><span class="line">│   └── 常量缓存与只读缓存的区别</span><br><span class="line">│</span><br><span class="line">├── 七、线程束洗牌（书 5.6 节）</span><br><span class="line">│   ├── 概念与适用场景</span><br><span class="line">│   └── warp 内求和示例与 mask</span><br><span class="line">│</span><br><span class="line">└── 八、本章小结与重难点回顾</span><br></pre></td></tr></table></figure>
+<hr>
+<h2 id="er-gong-xiang-nei-cun-gai-shu-shu-5-1-jie" tabindex="-1" id="二、共享内存概述（书-5-1-节）">二、共享内存概述（书 5.1 节）</h2>
+<p>本节对应书中对共享内存的总体介绍：为什么需要共享内存、它与全局内存的关系，以及基本用法与同步要求。</p>
+<h3 id="2-1-wei-shi-yao-shi-yong-gong-xiang-nei-cun" tabindex="-1" id="2-1-为什么使用共享内存">2.1 为什么使用共享内存</h3>
+<p>这一节会说明：<strong>大多数设备端数据访问都是从全局内存开始的</strong>，且<strong>多数 GPU 应用程序受内存带宽限制</strong>。全局内存虽然容量大，但延迟高（约 400～800 周期）、带宽有限；而<strong>共享内存</strong>是 SM 上的<strong>片上可编程存储器</strong>，仅对同一线程块内的线程可见，延迟远低于全局内存（约数十周期），带宽也远高于全局内存。因此，把<strong>会被多次使用或需要在线程间共享</strong>的数据先加载到共享内存，在块内完成计算后再写回全局内存，可以显著减少对全局内存的访问次数并改善有效带宽。</p>
+<p>共享内存的典型用途包括（书中及业界共识）：(1) <strong>作为可编程缓存</strong>：将全局内存中的一块数据（tile）以合并方式读入共享内存，供块内线程多次访问；(2) <strong>重组访问模式</strong>：例如矩阵转置时，先按行合并读入 tile，在共享内存中按列写出，使写回全局内存时也是合并的；(3) <strong>块内协作与归约</strong>：同一块内线程通过共享内存交换中间结果，并用 <code>__syncthreads()</code> 保证可见性。第4章已提到：矩阵转置若只靠全局内存，要么读合并写不合并，要么写合并读不合并；<strong>使用共享内存做中转</strong>即可实现读写两端都接近合并。</p>
+<blockquote>
+<p><strong>理解与体会</strong>：共享内存的本质是「程序员可控的片上缓存」——CPU 的 L1/L2 对程序员透明，而 GPU 把这块存储暴露出来，让我们显式决定「先把哪块数据搬进来、以什么顺序读写」。用好共享内存，就能在「合并访问」与「复杂访问模式」之间架起桥梁：全局内存只负责合并地进、合并地出；中间的重组与复用全在片上完成。</p>
+</blockquote>
+<h3 id="2-2-gong-xiang-nei-cun-de-sheng-ming-yu-sheng-ming-zhou-qi" tabindex="-1" id="2-2-共享内存的声明与生命周期">2.2 共享内存的声明与生命周期</h3>
+<p>共享内存在核函数内通过 <strong><code>__shared__</code></strong> 修饰符声明，其<strong>作用域为线程块</strong>，<strong>生命周期与线程块一致</strong>——块内所有线程共享同一块物理存储，块执行结束后该存储被释放。书中区分两种分配方式：</p>
+<table>
+<thead>
+<tr>
+<th>分配方式</th>
+<th>语法</th>
+<th>特点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>静态共享内存</strong></td>
+<td><code>__shared__ float tile[N];</code></td>
+<td>编译时确定大小，<code>N</code> 为常量</td>
+</tr>
+<tr>
+<td><strong>动态共享内存</strong></td>
+<td><code>extern __shared__ float s[];</code></td>
+<td>大小在核函数启动时由第三参数指定</td>
+</tr>
+</tbody>
+</table>
+<p>动态共享内存的典型用法：在主机端启动核函数时，通过执行配置的<strong>第三个参数</strong>传入每个块所需的共享内存字节数，例如：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 主机端：每个块需要 blockDim.x * blockDim.y * sizeof(float) 字节共享内存</span></span><br><span class="line"><span class="type">size_t</span> smemSize = block.x * block.y * <span class="keyword">sizeof</span>(<span class="type">float</span>);</span><br><span class="line">kernel&lt;&lt;&lt;grid, block, smemSize&gt;&gt;&gt;(d_in, d_out, nx, ny);</span><br></pre></td></tr></table></figure>
+<p>核函数内则声明为 <code>extern __shared__ float s[];</code>，由运行时根据 <code>smemSize</code> 分配。若一个核函数中同时需要多种用途的共享内存（例如一块做 tile、一块做归约缓冲），可在同一块 <code>extern __shared__</code> 中通过<strong>偏移</strong>手动划分区域。需要留意的是：<strong>共享内存是有限的资源</strong>；第3章已给出不同计算能力下「每块最大共享内存」等限制，分配过多会导致每 SM 可驻留的块数减少，影响占用率。</p>
+<blockquote>
+<p><strong>易错点</strong>：动态共享内存的<strong>第三个参数是字节数</strong>，不是元素个数；若传 <code>block.x * block.y</code> 而忘记乘 <code>sizeof(float)</code>，会导致越界或未定义行为。另外，<code>extern __shared__</code> 只能声明一次，多块共享内存需在同一块缓冲区里用偏移划分。</p>
+</blockquote>
+<h3 id="2-3-tong-bu-yu-jing-zheng-tiao-jian" tabindex="-1" id="2-3-同步与竞争条件">2.3 同步与竞争条件</h3>
+<p>块内线程通过共享内存共享数据时，必须注意<strong>写后读、读后写</strong>等竞争条件。这一节会说明：在逻辑上并行执行的线程，在物理上并非同时执行；若线程 A 写入共享内存某位置，线程 B（可能在不同线程束中）读取该位置，<strong>必须</strong>在 A 写完之后、B 再读，否则结果未定义。<strong><code>__syncthreads()</code></strong> 提供了块内栅栏：当被调用时，块内所有线程必须都到达该点，并且在该点之前的所有全局内存和共享内存访问对该块内所有线程可见之后，才能继续执行。因此，典型模式是：先由所有线程合作把全局数据加载到共享内存 → <strong><code>__syncthreads()</code></strong> → 再在共享内存上做计算或重组 → 必要时再次 <strong><code>__syncthreads()</code></strong> → 最后写回全局内存。第3章已强调：<strong>不同块之间没有同步</strong>；块间协作只能通过结束内核、再启动新内核实现。</p>
+<blockquote>
+<p><strong>易错点</strong>：<strong><code>__syncthreads()</code> 必须被块内所有线程无差别地执行</strong>。若放在 <code>if (tid &lt; 32)</code> 等分支内，则只有部分线程到达栅栏，其余线程不执行该调用，会导致死锁或未定义行为。因此，要么所有线程都进入同一分支并调用 <code>__syncthreads()</code>，要么在分支外、所有线程必经的路径上调用。</p>
+</blockquote>
+<hr>
+<h2 id="san-gong-xiang-nei-cun-de-bu-ju-yu-bank-chong-tu-shu-5-2-jie" tabindex="-1" id="三、共享内存的布局与-Bank-冲突（书-5-2-节）">三、共享内存的布局与 Bank 冲突（书 5.2 节）</h2>
+<p>本节对应书中「数据在共享内存中如何排布」以及「bank 与 bank 冲突」的讲解，是使用共享内存时避免性能陷阱的核心。</p>
+<h3 id="3-1-gong-xiang-nei-cun-de-shu-ju-pai-bu" tabindex="-1" id="3-1-共享内存的数据排布">3.1 共享内存的数据排布</h3>
+<p>共享内存在物理上被组织为<strong>线性地址空间</strong>，按<strong>字节地址</strong>连续排列。这一节会说明：从编程视角看，声明为 <code>__shared__ float tile[32][32]</code> 的二维数组，在内存中仍按<strong>行优先</strong>线性存储——<code>tile[row][col]</code> 的线性字节地址可表示为：</p>
+<p>[<br>
+\text{字节地址} = (\text{row} \times \text{列数} + \text{col}) \times \text{每元素字节数}<br>
+]</p>
+<p>例如 <code>tile[row][col]</code>（float 为 4 字节），线性索引为 <code>row * 32 + col</code>，对应字节地址为 <code>(row*32+col)*4</code>。<strong>从二维共享内存到线性全局内存的索引转换</strong>是矩阵转置等核函数中的常见操作：全局内存中矩阵按行优先存储，块内线程通常负责一块子矩阵（tile）；线程 <code>(tx, ty)</code> 在块内对应 tile 的 <code>(tx, ty)</code>，在全局矩阵中的行、列则需要加上块的起始偏移（<code>blockIdx.y * blockDim.y</code>、<code>blockIdx.x * blockDim.x</code>），从而得到全局线性索引 <code>row * nx + col</code>。掌握这一转换是编写正确且高效的 tile 型核函数的基础。</p>
+<h3 id="3-2-bank-yu-bank-chong-tu" tabindex="-1" id="3-2-Bank-与-Bank-冲突">3.2 Bank 与 Bank 冲突</h3>
+<p>为了提供高带宽，共享内存被划分为多个 <strong>bank</strong>。这一节会说明：在 Fermi 及之后的架构中，共享内存通常被组织为 <strong>32 个 bank</strong>，<strong>每个 bank 的宽度为 4 字节</strong>；连续 4 字节字（word）依次映射到 bank 0、1、2、…、31，再循环。即：</p>
+<p>[<br>
+\text{bank 索引} = (\text{字节地址} \div 4) \bmod 32<br>
+]</p>
+<p>因此，若 32 个线程（一个 warp）各访问一个 float，且这些 float 的线性索引连续（如 <code>tid</code> 对应 <code>s[tid]</code>），则 32 个地址分别落在 32 个不同 bank，<strong>无冲突</strong>，可在一个周期内完成。但若 32 个线程访问<strong>同一 bank 的不同地址</strong>（例如同一列的不同行），则这些访问会<strong>串行化</strong>，产生 <strong>bank 冲突</strong>，导致多次事务、延迟增加。需要留意的是：<strong>若线程束内多个线程访问同一 bank 的不同 4 字节字，就会发生 bank 冲突</strong>；若访问的是<strong>同一 bank 内的同一地址</strong>，硬件会<strong>广播</strong>该字给所有请求线程，计为一次访问，不产生冲突。</p>
+<p>下表归纳书中所述的几种典型访问模式与是否冲突（以 32 bank、4 字节宽为例；书中配有共享内存 bank 布局示意图）：</p>
+<table>
+<thead>
+<tr>
+<th>访问模式</th>
+<th>示例（32 线程）</th>
+<th>Bank 情况</th>
+<th>是否冲突</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>连续 32 个 float</td>
+<td><code>s[threadIdx.x]</code></td>
+<td>各线程不同 bank</td>
+<td>无冲突</td>
+</tr>
+<tr>
+<td>同一地址</td>
+<td><code>s[0]</code> 全 warp 读</td>
+<td>同一 bank 同一地址，广播</td>
+<td>无冲突</td>
+</tr>
+<tr>
+<td>同一列（行优先二维）</td>
+<td><code>s[row][0]</code>，row 不同</td>
+<td>同一 bank 不同地址</td>
+<td>有冲突</td>
+</tr>
+<tr>
+<td>步长为 2 的间隔访问</td>
+<td><code>s[threadIdx.x * 2]</code></td>
+<td>偶数 bank 重复</td>
+<td>2 路冲突</td>
+</tr>
+</tbody>
+</table>
+<p>因此，在编写使用二维共享内存的核函数时（如矩阵转置），<strong>按列访问</strong>共享内存往往会导致 bank 冲突，需要结合下文 padding 或索引重排来消除。</p>
+<blockquote>
+<p><strong>理解与体会</strong>：Bank 冲突的本质是「多个线程同时向同一个 bank 要不同地址」——硬件上每个 bank 一次只能服务一个地址，所以这些请求会被串行化。反之，若 32 个线程访问 32 个不同 bank，或访问同一 bank 的<strong>同一地址</strong>（硬件会广播），则无冲突。记忆窍门：<strong>连续、错开、同址</strong>往往安全；**同一逻辑列（行优先下的列）**在未 padding 时易冲突。</p>
+</blockquote>
+<h3 id="3-3-shi-yong-padding-xiao-chu-bank-chong-tu" tabindex="-1" id="3-3-使用-Padding-消除-Bank-冲突">3.3 使用 Padding 消除 Bank 冲突</h3>
+<p>对于行优先的二维共享内存，有一种常见情况：对于行优先的二维共享内存 <code>tile[BLOCK_DIM][BLOCK_DIM]</code>，若线程按<strong>列</strong>读取（即 <code>tile[row][col]</code> 中 col 固定、row 由线程变化），则同一 warp 内不同 row 对应的线性索引相差「列数」的整数倍；当列数为 32 的约数时，不同行会落在同一 bank，产生冲突。<strong>Padding</strong> 的做法是：在每行末尾<strong>多分配一列</strong>（或若干列），使「逻辑列数」变为 33（或 32+1），这样按列访问时，相邻行对应的线性索引相差 33 个 4 字节字，其 bank 索引相差 (33 \bmod 32 = 1)，从而 32 行会分散到 32 个不同 bank，<strong>消除冲突</strong>。</p>
+<p>声明示例（书中风格）：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">define</span> BLOCK_DIM 32</span></span><br><span class="line"><span class="comment">// 无 padding：tile[32][32]，按列访问可能 32 路冲突</span></span><br><span class="line"><span class="comment">// 有 padding：tile[32][33]，按列访问时 bank 分散</span></span><br><span class="line">__shared__ <span class="type">float</span> tile[BLOCK_DIM][BLOCK_DIM + <span class="number">1</span>];  <span class="comment">// +1 即 padding 一列</span></span><br></pre></td></tr></table></figure>
+<p>线性索引公式变为：<code>tile[row][col]</code> 对应线性索引 <code>row * (BLOCK_DIM + 1) + col</code>。这样，从全局内存「按行」合并读入时，写入共享内存的列下标仍为 <code>col</code>，行下标为 <code>row</code>，对应共享内存中的位置 <code>tile[row][col]</code>；当从共享内存「按列」读出并写回全局内存时，读的是 <code>tile[col][row]</code>（转置），由于 padding，同一 warp 内不同 <code>col</code> 对应的 <code>tile[col][row]</code> 会落在不同 bank。书中在矩阵转置核函数中会使用带 padding 的共享内存，下面第四节给出完整实现。</p>
+<blockquote>
+<p><strong>易错点</strong>：使用 padding 后，若你在代码里<strong>手动计算线性索引</strong>（例如做一维化处理），必须用 <strong><code>row * (BLOCK_DIM + 1) + col</code></strong>，不能再用 <code>row * BLOCK_DIM + col</code>，否则会访问错误位置或越界。</p>
+</blockquote>
+<hr>
+<h2 id="si-shi-yong-gong-xiang-nei-cun-de-ju-zhen-zhuan-zhi-shu-5-3-jie" tabindex="-1" id="四、使用共享内存的矩阵转置（书-5-3-节）">四、使用共享内存的矩阵转置（书 5.3 节）</h2>
+<p>本节对应书中「用共享内存避免非合并的全局内存访问」的矩阵转置案例：先合并读入 tile，在共享内存中转置，再合并写出。</p>
+<h3 id="4-1-si-lu-yu-suo-yin-zhuan-huan" tabindex="-1" id="4-1-思路与索引转换">4.1 思路与索引转换</h3>
+<p>第4章已说明：若直接对全局内存做转置，读按行则写按列（非合并），写按行则读按列（非合并）。<strong>共享内存方案</strong>：每个线程块负责矩阵中的一个 <strong>tile</strong>（例如 32×32）；(1) 块内线程<strong>按行</strong>从全局内存把该 tile 读入共享内存（合并读）；(2) <strong><code>__syncthreads()</code></strong> 确保 tile 写满；(3) 块内线程<strong>按列</strong>从共享内存读出（对应转置后的行），写回全局内存的转置位置（合并写）。这样，全局内存的读和写都是合并的。</p>
+<p><strong>二维共享内存到线性全局内存的索引</strong>（书中要点；书中通常配有 tile 与全局矩阵的索引对应图）：设块维度为 <code>(BLOCK_DIM, BLOCK_DIM)</code>，线程 <code>(tx, ty)</code> 在块内对应 tile 的 <code>(tx, ty)</code>。读入时：全局输入矩阵 <code>in</code> 的行、列为 <code>row = blockIdx.y * BLOCK_DIM + ty</code>，<code>col = blockIdx.x * BLOCK_DIM + tx</code>，线性索引 <code>idx_in = row * nx + col</code>。写入时：转置后输出矩阵 <code>out</code> 中，该元素应位于「原列作行、原行作列」，即 <code>out_col = row</code>，<code>out_row = col</code>，线性索引 <code>idx_out = out_row * ny + out_col = col * ny + row</code>。共享内存中，读入阶段 <code>tile[ty][tx] = in[idx_in]</code>；写出阶段从共享内存读 <code>tile[tx][ty]</code>（行列互换即转置），写 <code>out[idx_out] = tile[tx][ty]</code>。若使用 padding，共享内存声明为 <code>tile[BLOCK_DIM][BLOCK_DIM+1]</code>，则读入时仍为 <code>tile[ty][tx]</code>，写出时读 <code>tile[tx][ty]</code>，此时按「列」读共享内存（第一维为 tx，第二维为 ty），因 padding 而避免 bank 冲突。</p>
+<blockquote>
+<p><strong>理解与体会</strong>：矩阵转置是「用共享内存换双端合并」的典范：第 4 章在纯全局内存下只能二选一（读合并或写合并），这里用一块 32×33 的共享内存做中转，全局内存只做「按行整块读入」和「按行整块写出」，中间在片上完成行列互换。代价是多一次 <code>__syncthreads()</code> 和有限的共享内存占用；收益是有效带宽的显著提升，书中用 nvprof 对比即可验证。</p>
+</blockquote>
+<h3 id="4-2-wan-zheng-he-han-shu-yu-zhu-han-shu-kuang-jia" tabindex="-1" id="4-2-完整核函数与主函数框架">4.2 完整核函数与主函数框架</h3>
+<p>下面给出与书中风格一致的<strong>带 padding 的共享内存矩阵转置</strong>核函数及简要主函数框架（含 CHECK 与执行配置）：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;stdio.h&gt;</span></span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;cuda_runtime.h&gt;</span></span></span><br><span class="line"></span><br><span class="line"><span class="meta">#<span class="keyword">define</span> CHECK(call)                                                            \</span></span><br><span class="line"><span class="meta">    do &#123;                                                                       \</span></span><br><span class="line"><span class="meta">        cudaError_t err = call;                                                 \</span></span><br><span class="line"><span class="meta">        <span class="keyword">if</span> (err != cudaSuccess) &#123;                                               \</span></span><br><span class="line"><span class="meta">            printf(<span class="string">&quot;Error %s:%d, code %d, reason: %s\n&quot;</span>, __FILE__, __LINE__,   \</span></span><br><span class="line"><span class="meta">                   err, cudaGetErrorString(err));                               \</span></span><br><span class="line"><span class="meta">            exit(1);                                                            \</span></span><br><span class="line"><span class="meta">        &#125;                                                                      \</span></span><br><span class="line"><span class="meta">    &#125; while (0)</span></span><br><span class="line"></span><br><span class="line"><span class="meta">#<span class="keyword">define</span> BLOCK_DIM 32</span></span><br><span class="line"></span><br><span class="line"><span class="comment">// 使用共享内存 + padding 的矩阵转置（读写均合并）</span></span><br><span class="line">__global__ <span class="type">void</span> <span class="title function_">transposeShared</span><span class="params">(<span class="type">float</span> *in, <span class="type">float</span> *out, <span class="type">int</span> nx, <span class="type">int</span> ny)</span> &#123;</span><br><span class="line">    __shared__ <span class="type">float</span> tile[BLOCK_DIM][BLOCK_DIM + <span class="number">1</span>];  <span class="comment">// padding 消除 bank 冲突</span></span><br><span class="line"></span><br><span class="line">    <span class="type">unsigned</span> <span class="type">int</span> tx = threadIdx.x;</span><br><span class="line">    <span class="type">unsigned</span> <span class="type">int</span> ty = threadIdx.y;</span><br><span class="line">    <span class="type">unsigned</span> <span class="type">int</span> row = blockIdx.y * blockDim.y + ty;</span><br><span class="line">    <span class="type">unsigned</span> <span class="type">int</span> col = blockIdx.x * blockDim.x + tx;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span> (row &lt; ny &amp;&amp; col &lt; nx) &#123;</span><br><span class="line">        tile[ty][tx] = in[row * nx + col];  <span class="comment">// 按行读全局内存 → 合并</span></span><br><span class="line">    &#125;</span><br><span class="line">    __syncthreads();</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 转置：输出 (col, row) 对应输入 (row, col)</span></span><br><span class="line">    <span class="type">unsigned</span> <span class="type">int</span> out_row = col;</span><br><span class="line">    <span class="type">unsigned</span> <span class="type">int</span> out_col = row;</span><br><span class="line">    <span class="keyword">if</span> (out_row &lt; nx &amp;&amp; out_col &lt; ny) &#123;</span><br><span class="line">        out[out_row * ny + out_col] = tile[tx][ty];  <span class="comment">// 按列读共享内存（padding 后无冲突），按行写全局 → 合并</span></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="type">int</span> <span class="title function_">main</span><span class="params">()</span> &#123;</span><br><span class="line">    <span class="type">int</span> nx = <span class="number">1024</span>, ny = <span class="number">1024</span>;</span><br><span class="line">    <span class="type">size_t</span> nBytes = nx * ny * <span class="keyword">sizeof</span>(<span class="type">float</span>);</span><br><span class="line"></span><br><span class="line">    <span class="type">float</span> *h_in  = (<span class="type">float</span> *)<span class="built_in">malloc</span>(nBytes);</span><br><span class="line">    <span class="type">float</span> *h_out = (<span class="type">float</span> *)<span class="built_in">malloc</span>(nBytes);</span><br><span class="line">    <span class="comment">// 初始化 h_in ...</span></span><br><span class="line"></span><br><span class="line">    <span class="type">float</span> *d_in, *d_out;</span><br><span class="line">    CHECK(cudaMalloc((<span class="type">void</span> **)&amp;d_in, nBytes));</span><br><span class="line">    CHECK(cudaMalloc((<span class="type">void</span> **)&amp;d_out, nBytes));</span><br><span class="line">    CHECK(cudaMemcpy(d_in, h_in, nBytes, cudaMemcpyHostToDevice));</span><br><span class="line"></span><br><span class="line">    dim3 <span class="title function_">block</span><span class="params">(BLOCK_DIM, BLOCK_DIM)</span>;</span><br><span class="line">    dim3 <span class="title function_">grid</span><span class="params">((nx + block.x - <span class="number">1</span>) / block.x, (ny + block.y - <span class="number">1</span>) / block.y)</span>;</span><br><span class="line">    transposeShared&lt;&lt;&lt;grid, block&gt;&gt;&gt;(d_in, d_out, nx, ny);</span><br><span class="line"></span><br><span class="line">    CHECK(cudaMemcpy(h_out, d_out, nBytes, cudaMemcpyDeviceToHost));</span><br><span class="line">    <span class="comment">// 验证转置正确性 ...</span></span><br><span class="line">    cudaFree(d_in);</span><br><span class="line">    cudaFree(d_out);</span><br><span class="line">    <span class="built_in">free</span>(h_in);</span><br><span class="line">    <span class="built_in">free</span>(h_out);</span><br><span class="line">    <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p><strong>有效带宽</strong>（与第4章一致）可按下式估算（书中思路）：</p>
+<p>[<br>
+\text{有效带宽（GB/s）} = \frac{(\text{读字节数} + \text{写字节数}) \times 10^{-9}}{\text{核函数执行时间（秒）}}<br>
+]</p>
+<p>对于 (n \times n) 的 float 矩阵转置，读字节数 = 写字节数 = (n^2 \times 4)。书中会对比「仅全局内存的转置」与「共享内存 + padding 的转置」的 nvprof 带宽或耗时；通常共享内存版本能显著提高有效带宽，因为读写两端都实现了合并。</p>
+<hr>
+<h2 id="wu-shi-yong-gong-xiang-nei-cun-de-bing-xing-gui-yue-shu-5-4-jie" tabindex="-1" id="五、使用共享内存的并行归约（书-5-4-节）">五、使用共享内存的并行归约（书 5.4 节）</h2>
+<p>本节对应书中「用共享内存缓存数据以减少全局内存访问」的并行归约：第3章已在全局内存上做了相邻/交错配对归约，本节把每块的输入先加载到共享内存，在共享内存中做多轮归约，最后只把块内结果写回全局内存，从而大幅减少全局内存访问次数。</p>
+<h3 id="5-1-si-lu-yu-gong-xiang-nei-cun-jie-duan" tabindex="-1" id="5-1-思路与共享内存阶段">5.1 思路与共享内存阶段</h3>
+<p>书中思路：每个线程块负责一段连续元素；块内每个线程先从全局内存读取一个（或若干个）元素到寄存器或共享内存，然后在<strong>共享内存</strong>中进行多轮成对归约（与第3章的交错配对类似），每轮后**<code>__syncthreads()</code><strong>，最后将块内部分和由线程 0 写回全局内存的 <code>g_odata[blockIdx.x]</code>。这样，每块只对全局内存做</strong>一次块大小的加载<strong>和</strong>一次标量写回**，而不是在全局内存上就地多轮读写，显著减少全局内存事务。</p>
+<p>共享内存中的归约与第3章 reduceInterleaved 逻辑一致：stride 从 blockDim.x/2 开始减半，每次 <code>s[tid] += s[tid + stride]</code>，<code>__syncthreads()</code>。注意：共享内存数组 <code>s[]</code> 需在归约前由各线程用全局数据初始化，例如 <code>s[tid] = g_idata[blockIdx.x * blockDim.x + tid]</code>（需处理边界，如 <code>idx &gt;= n</code> 时赋 0 或单位元）。</p>
+<blockquote>
+<p><strong>理解与体会</strong>：第 3 章的归约是在全局内存上「就地」多轮读写，每轮都有大量全局内存访问；本章把「一块」的数据一次性搬进共享内存，在片上完成多轮归约，每块只写回一个标量。这样全局内存的读从「多轮、可能非合并」变成「一次块大小的合并加载 + 一次标量写回」，是典型的「用共享内存减少全局访问次数」的模式。</p>
+</blockquote>
+<h3 id="5-2-wan-zheng-gong-xiang-nei-cun-gui-yue-he-han-shu-shu-zhong-feng-ge" tabindex="-1" id="5-2-完整共享内存归约核函数（书中风格）">5.2 完整共享内存归约核函数（书中风格）</h3>
+<p>下面给出基于共享内存的整数求和归约核函数（与书中 reduce 系列对应），含块内加载、共享内存归约、写回：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line">__global__ <span class="type">void</span> <span class="title function_">reduceShared</span><span class="params">(<span class="type">int</span> *g_idata, <span class="type">int</span> *g_odata, <span class="type">unsigned</span> <span class="type">int</span> n)</span> &#123;</span><br><span class="line">    __shared__ <span class="type">int</span> s[<span class="number">256</span>];  <span class="comment">// 假设 blockDim.x &lt;= 256</span></span><br><span class="line"></span><br><span class="line">    <span class="type">unsigned</span> <span class="type">int</span> tid = threadIdx.x;</span><br><span class="line">    <span class="type">unsigned</span> <span class="type">int</span> idx = blockIdx.x * blockDim.x + threadIdx.x;</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 从全局内存加载到共享内存，越界则填 0</span></span><br><span class="line">    s[tid] = (idx &lt; n) ? g_idata[idx] : <span class="number">0</span>;</span><br><span class="line">    __syncthreads();</span><br><span class="line"></span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> stride = blockDim.x / <span class="number">2</span>; stride &gt; <span class="number">0</span>; stride &gt;&gt;= <span class="number">1</span>) &#123;</span><br><span class="line">        <span class="keyword">if</span> (tid &lt; stride) &#123;</span><br><span class="line">            s[tid] += s[tid + stride];</span><br><span class="line">        &#125;</span><br><span class="line">        __syncthreads();</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span> (tid == <span class="number">0</span>) &#123;</span><br><span class="line">        g_odata[blockIdx.x] = s[<span class="number">0</span>];</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>书中还会结合<strong>循环展开</strong>与 <strong>warp 内最后阶段不调用 __syncthreads()</strong> 等优化（第3章已提及）；进一步地，<strong>线程束洗牌</strong>（第七节）可在 warp 内无共享内存参与的情况下做归约，减少共享内存带宽压力。有效带宽公式仍为：(\text{有效带宽} = (\text{读字节数} + \text{写字节数}) / \text{时间})；共享内存版本因全局内存读写的总字节数不变但访问次数与模式更优，通常能获得更高的有效带宽与更短的执行时间。</p>
+<hr>
+<h2 id="liu-chang-liang-nei-cun-shu-5-5-jie" tabindex="-1" id="六、常量内存（书-5-5-节）">六、常量内存（书 5.5 节）</h2>
+<p>本节对应书中对常量内存与常量缓存的介绍，以及常量内存与只读缓存的区别。</p>
+<h3 id="6-1-chang-liang-nei-cun-yu-chang-liang-huan-cun" tabindex="-1" id="6-1-常量内存与常量缓存">6.1 常量内存与常量缓存</h3>
+<p><strong>常量内存</strong>是设备上的一种只读内存，在源码中通过 <strong><code>__constant__</code></strong> 在全局/文件作用域声明，由<strong>主机</strong>在运行时通过 <strong><code>cudaMemcpyToSymbol</code></strong> 写入，设备端核函数只能读取。这一节会说明：常量内存在硬件上配有专用的<strong>常量缓存</strong>；当线程束内<strong>所有线程访问同一地址</strong>时，该地址的一个 32 位字会从常量缓存<strong>广播</strong>给整个 warp，因此只需一次读取即可满足 32 个线程，非常适合「所有线程用同一参数」的场景（如半径、系数表、查找表首地址等）。</p>
+<p>常量内存有<strong>容量限制</strong>（如 64 KB），且当线程束内线程访问<strong>不同地址</strong>时，不同地址的请求会<strong>串行化</strong>，性能可能不如合并的全局内存访问。因此需要留意的是：<strong>常量内存最适合所有线程读取相同常量的情况</strong>；若各线程访问不同地址，应优先考虑合并的全局内存或只读缓存（<code>__ldg</code> / 只读数据缓存）。典型适用场景包括：小型的查找表或系数表、所有线程共用的配置参数（如滤波半径、块大小）、以及 kernel 启动前由主机一次性写入、设备端只读的常量数据。</p>
+<blockquote>
+<p><strong>理解与体会</strong>：常量内存与共享内存的「同址广播」类似，但作用域是全局、且为只读。其优势仅在 <strong>warp 内所有线程访问同一地址</strong> 时发挥；一旦 32 个线程访问 32 个不同地址，会退化成串行读取，反而不如合并的全局内存。所以使用前要问：这段数据是不是「全 warp 同参数」？若是小表但各线程查不同下标，更宜用全局内存 + <code>__ldg</code>。</p>
+</blockquote>
+<h3 id="6-2-chang-liang-nei-cun-de-yong-fa-cuda-memcpy-to-symbol-yu-he-han-shu" tabindex="-1" id="6-2-常量内存的用法：cudaMemcpyToSymbol-与核函数">6.2 常量内存的用法：cudaMemcpyToSymbol 与核函数</h3>
+<p>主机端使用 <strong>cudaMemcpyToSymbol</strong> 将数据拷贝到设备上的 <code>__constant__</code> 变量：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">__constant__ <span class="type">float</span> constData[<span class="number">256</span>];</span><br><span class="line"></span><br><span class="line"><span class="comment">// 主机端：拷贝到常量内存</span></span><br><span class="line">CHECK(cudaMemcpyToSymbol(constData, h_data, <span class="keyword">sizeof</span>(<span class="type">float</span>) * <span class="number">256</span>));</span><br></pre></td></tr></table></figure>
+<p>核函数中直接按只读使用：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">__global__ <span class="type">void</span> <span class="title function_">useConstant</span><span class="params">(<span class="type">float</span> *out, <span class="type">int</span> n)</span> &#123;</span><br><span class="line">    <span class="type">int</span> idx = blockIdx.x * blockDim.x + threadIdx.x;</span><br><span class="line">    <span class="keyword">if</span> (idx &lt; n) &#123;</span><br><span class="line">        out[idx] = constData[idx % <span class="number">256</span>];  <span class="comment">// 若 idx%256 在 warp 内相同则更优</span></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>当 <code>idx % 256</code> 在 warp 内一致时（例如同一 warp 内 idx 连续且块大小 256 的整数倍），可发挥广播优势；否则会串行化。书中会对比「常量内存 + 同址访问」与「全局内存合并访问」的性能差异。</p>
+<h3 id="6-3-chang-liang-huan-cun-yu-zhi-du-huan-cun-de-qu-bie" tabindex="-1" id="6-3-常量缓存与只读缓存的区别">6.3 常量缓存与只读缓存的区别</h3>
+<p>（对应第 4 章只读缓存）：<strong>常量缓存</strong>专用于 <code>__constant__</code> 变量，粒度与广播行为如上所述。<strong>只读缓存</strong>（计算能力 3.5+）可用于<strong>全局内存</strong>的只读加载（通过 <code>__ldg</code> 或 <code>const __restrict__</code> 指针），加载粒度为 32 字节，对分散读取常优于 L1。二者区别可归纳为：</p>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th>常量缓存</th>
+<th>只读缓存（全局内存只读）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>数据来源</td>
+<td><code>__constant__</code>，cudaMemcpyToSymbol</td>
+<td>全局内存（__ldg / const <strong>restrict</strong>）</td>
+</tr>
+<tr>
+<td>容量</td>
+<td>有限（如 64 KB）</td>
+<td>独立于常量内存</td>
+</tr>
+<tr>
+<td>最佳访问</td>
+<td>同址（warp 内同一地址）广播</td>
+<td>可分散，32 字节粒度</td>
+</tr>
+<tr>
+<td>适用场景</td>
+<td>小表、全 warp 同参数</td>
+<td>大只读数组、分散读</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="qi-xian-cheng-shu-xi-pai-warp-shuffle-shu-5-6-jie" tabindex="-1" id="七、线程束洗牌（Warp-Shuffle）（书-5-6-节）">七、线程束洗牌（Warp Shuffle）（书 5.6 节）</h2>
+<p>本节对应书中「Programming with the warp shuffle instruction」：在同一 warp 内通过寄存器直接交换数据，无需共享内存，延迟更低。</p>
+<h3 id="7-1-gai-nian-yu-gua-yong-chang-jing" tabindex="-1" id="7-1-概念与适用场景">7.1 概念与适用场景</h3>
+<p><strong>线程束洗牌</strong>是计算能力 3.0 及以上支持的** warp 内<strong>寄存器级数据交换指令。这一节会说明：同一 warp 内的线程可以通过 <strong><code>__shfl</code></strong> 系列内建函数，根据</strong>源 lane 索引<strong>或</strong>偏移<strong>直接读取另一线程的寄存器值，而</strong>不经过共享内存**。这样可以在 warp 内做归约、扫描等操作时减少共享内存的 bank 冲突与带宽占用，并降低延迟。</p>
+<p>典型用法：<strong>归约</strong>时，warp 内 32 个线程先各自持有一个值，通过 <code>__shfl_down_sync</code> 等逐步两两相加，最终 warp 内 lane 0 得到该 warp 的部分和；多个 warp 再通过共享内存或第二次核函数合并。<strong>同步</strong>：洗牌指令需指定<strong>参与线程的掩码</strong>（如 <code>__shfl_down_sync(0xffffffff, val, offset)</code> 表示整个 warp 参与），以保证语义正确。书中还会介绍其他变体：<strong><code>__shfl_up_sync</code></strong>（从更高 lane 索引取）、<strong><code>__shfl_xor_sync</code></strong>（按 lane 索引异或得到源 lane，常用于 butterfly 式归约），以及按<strong>源 lane 索引</strong>直接读取的 <strong><code>__shfl_sync</code></strong>，便于实现更灵活的数据交换模式。</p>
+<blockquote>
+<p><strong>理解与体会</strong>：Warp shuffle 把「warp 内数据交换」从共享内存搬到了<strong>寄存器间直接交换</strong>，既省共享内存带宽，又降低延迟。适合「先 warp 内归约/扫描，再块内跨 warp 合并」的两阶段设计；此时共享内存只需存每个 warp 的一个结果，而不是 32 个中间值。</p>
+</blockquote>
+<h3 id="7-2-jian-dan-shi-li-warp-nei-qiu-he" tabindex="-1" id="7-2-简单示例：warp-内求和">7.2 简单示例：warp 内求和</h3>
+<p>下面给出书中风格的 <strong>warp 内</strong> 32 个线程对寄存器 <code>val</code> 做求和，结果在 lane 0 的片段（完整归约还需块内跨 warp 合并）：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line">__device__ __forceinline__ <span class="type">int</span> <span class="title function_">warpReduce</span><span class="params">(<span class="type">int</span> val)</span> &#123;</span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> offset = warpSize / <span class="number">2</span>; offset &gt; <span class="number">0</span>; offset &gt;&gt;= <span class="number">1</span>) &#123;</span><br><span class="line">        val += __shfl_down_sync(<span class="number">0xffffffff</span>, val, offset);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> val;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">__global__ <span class="type">void</span> <span class="title function_">reduceShuffle</span><span class="params">(<span class="type">int</span> *g_idata, <span class="type">int</span> *g_odata, <span class="type">unsigned</span> <span class="type">int</span> n)</span> &#123;</span><br><span class="line">    <span class="type">unsigned</span> <span class="type">int</span> tid = threadIdx.x;</span><br><span class="line">    <span class="type">unsigned</span> <span class="type">int</span> idx = blockIdx.x * blockDim.x + tid;</span><br><span class="line">    <span class="type">int</span> val = (idx &lt; n) ? g_idata[idx] : <span class="number">0</span>;</span><br><span class="line"></span><br><span class="line">    <span class="type">int</span> lane = tid % warpSize;</span><br><span class="line">    <span class="type">int</span> warpId = tid / warpSize;</span><br><span class="line"></span><br><span class="line">    val = warpReduce(val);  <span class="comment">// warp 内归约</span></span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span> (lane == <span class="number">0</span>) &#123;</span><br><span class="line">        <span class="comment">// 每个 warp 的 lane 0 写入共享内存，再在块内归约</span></span><br><span class="line">        <span class="comment">// 此处省略共享内存合并多 warp 的代码</span></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p><strong><code>__shfl_down_sync(mask, val, offset)</code></strong> 表示当前线程从「相对自己向下 offset 个 lane」的线程取 <code>val</code>；其他变体包括 <code>__shfl_up_sync</code>、<code>__shfl_xor_sync</code> 等，用于不同的数据移动模式。使用洗牌时需注意 <strong>mask</strong> 必须与当前活跃线程一致（例如整个 warp 参与则 mask = 0xffffffff），否则未定义行为。</p>
+<blockquote>
+<p><strong>易错点</strong>：<strong>Shuffle 的 mask 必须正确</strong>。若内核中有分支导致部分线程不参与归约，则不应使用全 warp 的 <code>0xffffffff</code>，而应使用实际参与线程的掩码（如 <code>__activemask()</code> 或根据分支计算出的 mask），否则未参与线程的寄存器值会被错误地参与交换，导致结果错误或未定义行为。</p>
+</blockquote>
+<hr>
+<h2 id="ba-ben-zhang-xiao-jie-yu-zhong-nan-dian-hui-gu" tabindex="-1" id="八、本章小结与重难点回顾">八、本章小结与重难点回顾</h2>
+<h3 id="8-1-zhi-shi-xiao-jie-yu-shu-zhong-dui-ying" tabindex="-1" id="8-1-知识小结（与书中对应）">8.1 知识小结（与书中对应）</h3>
+<ul>
+<li><strong>共享内存</strong>：片上可编程、块内可见、低延迟高带宽；用于作可编程缓存、重组访问模式（如矩阵转置）、块内协作与归约。分静态（<code>__shared__ T arr[N]</code>）与动态（<code>extern __shared__ T s[]</code>，启动时传字节数）。</li>
+<li><strong>布局与 bank</strong>：共享内存按行优先线性排布；Fermi 及以后为 32 bank、每 bank 4 字节，bank 索引 = (字节地址/4) mod 32。同一 warp 访问同一 bank 不同地址会 bank 冲突；同址则广播无冲突。</li>
+<li><strong>Padding</strong>：二维共享内存每行多一列（如 <code>tile[32][33]</code>）可使按列访问时 bank 分散，消除典型矩阵转置中的 bank 冲突。</li>
+<li><strong>矩阵转置</strong>：用共享内存 tile 先合并读入、<code>__syncthreads()</code>、再按列读出写回全局，实现读写双端合并；配合 padding 避免共享内存按列读时的 bank 冲突。</li>
+<li><strong>并行归约</strong>：将块内数据先载入共享内存，在共享内存中做多轮交错配对归约，最后写回一块一个标量；可结合 warp 内洗牌进一步减少共享内存访问。</li>
+<li><strong>常量内存</strong>：<code>__constant__</code> + <code>cudaMemcpyToSymbol</code>，只读、专用常量缓存；warp 内同址访问时广播，性能最优；不同址会串行化。</li>
+<li><strong>常量缓存 vs 只读缓存</strong>：常量缓存面向 <code>__constant__</code>；只读缓存面向全局内存只读加载（<code>__ldg</code>），适合大数组或分散读。</li>
+<li><strong>线程束洗牌</strong>：<code>__shfl_*_sync</code> 在 warp 内通过寄存器交换数据，无需共享内存，适合 warp 内归约/扫描；需正确设置 mask。</li>
+</ul>
+<h3 id="8-2-zhong-nan-dian-su-cha" tabindex="-1" id="8-2-重难点速查">8.2 重难点速查</h3>
+<table>
+<thead>
+<tr>
+<th>重难点</th>
+<th>要点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>共享内存 vs 全局内存</strong></td>
+<td>共享内存片上、块内可见、低延迟高带宽；用作可编程缓存时，全局内存只负责合并进、合并出，中间重组在片上完成。</td>
+</tr>
+<tr>
+<td><strong>Bank 与 bank 冲突</strong></td>
+<td>32 bank、每 bank 4 字节；bank 索引 = (字节地址/4) mod 32。同一 warp 访问同一 bank 不同地址→冲突；同址→广播无冲突。</td>
+</tr>
+<tr>
+<td><strong>Padding 消除冲突</strong></td>
+<td>二维行优先下按列访问易冲突；每行多一列（如 33）使相邻行线性索引差 33 字，33 mod 32=1，32 行分散到 32 个 bank。</td>
+</tr>
+<tr>
+<td><strong>矩阵转置索引</strong></td>
+<td>读入 <code>tile[ty][tx]=in[row*nx+col]</code>，写出 <code>out[col*ny+row]=tile[tx][ty]</code>；row/col 含块偏移。</td>
+</tr>
+<tr>
+<td><strong>__syncthreads 使用</strong></td>
+<td>必须被块内所有线程执行，不能放在仅部分线程进入的分支内，否则死锁或未定义行为。</td>
+</tr>
+<tr>
+<td><strong>常量内存适用场景</strong></td>
+<td>仅当 warp 内同址访问时才有广播优势；不同址会串行化，且容量有限（如 64KB）。大表或分散读宜用全局内存+__ldg。</td>
+</tr>
+<tr>
+<td><strong>Warp shuffle 与 mask</strong></td>
+<td>warp 内寄存器级交换，无需共享内存；mask 须与参与线程一致，分支导致部分线程不参与时不能用 0xffffffff。</td>
+</tr>
+</tbody>
+</table>
+<h3 id="8-3-xue-xi-si-kao" tabindex="-1" id="8-3-学习思考">8.3 学习思考</h3>
+<ul>
+<li><strong>与第 4 章的衔接</strong>：第 4 章指出矩阵转置在纯全局内存下无法同时做到读合并与写合并；本章用共享内存做 tile 中转，先合并读入、在片上转置、再合并写出，是「用空间换带宽」的典型。理解这一点，就能举一反三到其他「访问模式与合并要求矛盾」的场景。</li>
+<li><strong>与第 3 章的关系</strong>：第 3 章归约在全局内存上多轮读写；本章把块内数据搬进共享内存后多轮归约，每块只写回一个标量，大幅减少全局访问次数。进一步地，warp 内用 shuffle 做第一段归约，共享内存只存每个 warp 的一个结果，可同时减少共享内存占用与 bank 冲突风险。</li>
+<li><strong>实践建议</strong>：写新内核时，若存在「先按一种顺序读、再按另一种顺序写」的需求，优先考虑共享内存 tile + __syncthreads；使用二维共享内存时，若按列访问，检查是否需 padding（如 tile[32][33]）；常量内存只留给「全 warp 同参数」的小表或配置；归约类内核可先实现共享内存版，再在 warp 内用 __shfl_down_sync 做一层优化。</li>
+</ul>
+<p>下表归纳本章涉及的三种可编程内存的典型用途与性能要点（与书中描述一致）：</p>
+<table>
+<thead>
+<tr>
+<th>内存类型</th>
+<th>作用域</th>
+<th>典型用途</th>
+<th>性能要点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>共享内存</strong></td>
+<td>线程块</td>
+<td>tile 缓存、转置/归约中转、块内协作</td>
+<td>低延迟、高带宽；注意 bank 冲突与 padding</td>
+</tr>
+<tr>
+<td><strong>全局内存</strong></td>
+<td>全部</td>
+<td>主数据、输入输出缓冲</td>
+<td>对齐与合并；可配合共享内存减少访问</td>
+</tr>
+<tr>
+<td><strong>常量内存</strong></td>
+<td>全部</td>
+<td>只读参数、小表、全 warp 同址数据</td>
+<td>同址广播优；不同址易串行化，容量有限（如 64 KB）</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="xia-yi-zhang-yu-gao" tabindex="-1" id="下一章预告">下一章预告</h2>
+<p>在下一篇博客中，我们将进入<strong>第 6 章：流与并发</strong>：</p>
+<ul>
+<li><strong>CUDA 流</strong>的概念与默认流</li>
+<li><strong>基于流的重叠</strong>：主机与设备、传输与计算、多流并发</li>
+<li><strong>流回调</strong>与事件（cudaEvent）</li>
+<li><strong>多 GPU</strong> 编程入门</li>
+</ul>
+<p>从「单次内核与单次传输」到「用流与事件组织并发」，是进一步提升吞吐与隐藏延迟的关键一步。</p>
+<hr>
+<h2 id="ben-zhang-zi-ce" tabindex="-1" id="本章自测">本章自测</h2>
+<ol>
+<li><strong>共享内存的 bank 冲突是什么？如何用 padding 消除 32×32 tile 的写冲突？</strong></li>
+<li><strong>用共享内存做矩阵转置时，典型步骤是什么？为何能同时实现读合并与写合并？</strong></li>
+<li><strong>块内线程在共享内存上协作时，为什么必须在「加载完成」与「使用数据前」之间加 <code>__syncthreads()</code>？</strong></li>
+</ol>
+<p><strong>答案与解析</strong></p>
+<ol>
+<li>同一 warp 内多线程若访问同一 bank 的不同地址，会串行化（bank 冲突）。32×32 按行存时，同一列属于同一 bank；在每行后多开一列（如 32×33）做 padding，使同一列元素分布到不同 bank，可消除写冲突。</li>
+<li>步骤：块内线程按行从全局内存合并读入共享内存 → <code>__syncthreads()</code> → 按列从共享内存读出并写回全局转置位置（写合并）。全局侧只做「整块合并读入」和「整块合并写出」，中间在片上转置。</li>
+<li>因为线程并行执行，写共享内存的线程与读共享内存的线程可能不同步；若不加 <code>__syncthreads()</code>，读线程可能读到未写入的数据。栅栏保证「所有线程写完、对块内可见」后再继续。</li>
+</ol>
+<hr>
+<p><strong>系列导航</strong>：<a href="%E5%AF%BC%E8%AF%BB.md">导读</a> | 上一篇：<a href="%E7%AC%AC4%E7%AB%A0_%E5%85%A8%E5%B1%80%E5%86%85%E5%AD%98.md">第4章 全局内存</a> | 下一篇：<a href="%E7%AC%AC6%E7%AB%A0_%E6%B5%81%E5%92%8C%E5%B9%B6%E5%8F%91.md">第6章 流和并发</a></p>
+<hr>
+<blockquote>
+<p><strong>本文为「CUDA C编程权威指南」系列博客第 5 篇，共 10 章。基于《Professional CUDA C Programming》by John Cheng, Max Grossman, Ty McKercher。</strong></p>
+</blockquote>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/e1d6d733/">https://smarter.xin/posts/e1d6d733/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/learning-path/">学习路线</a><a class="post-meta__tags" href="/tags/cuda/">CUDA</a><a class="post-meta__tags" href="/tags/gpu-programming/">GPU编程</a><a class="post-meta__tags" href="/tags/reading-notes/">读书笔记</a><a class="post-meta__tags" href="/tags/cuda-basics/">CUDA入门</a><a class="post-meta__tags" href="/tags/parallel-computing/">并行计算</a><a class="post-meta__tags" href="/tags/shared-memory/">共享内存</a><a class="post-meta__tags" href="/tags/constant-memory/">常量内存</a><a class="post-meta__tags" href="/tags/bank-conflict/">bank冲突</a></div><div class="post-share"><div class="social-share" data-image="/img/Nvidia_CUDA_Logo.jpg" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/d47d974/" title="CUDA C编程权威指南-第六章：流和并发"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">CUDA C编程权威指南-第六章：流和并发</div></div></div></a><a class="pagination-related  no-desc" href="/posts/1f074790/" title="CUDA C编程权威指南-第四章：全局内存"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">CUDA C编程权威指南-第四章：全局内存</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/98c27a24/" title="CUDA C编程权威指南-第十章：程序实现的注意事项"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-02-10</div><div class="info-item-2">CUDA C编程权威指南-第十章：程序实现的注意事项</div></div></div></a><a class="pagination-related no-desc" href="/posts/2b2e171a/" title="CUDA C编程权威指南-第一章：基于CUDA的异构并行计算"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-23</div><div class="info-item-2">CUDA C编程权威指南-第一章：基于CUDA的异构并行计算</div></div></div></a><a class="pagination-related no-desc" href="/posts/bdd22b42/" title="CUDA C编程权威指南-第二章：CUDA编程模型"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-25</div><div class="info-item-2">CUDA C编程权威指南-第二章：CUDA编程模型</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">97</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">171</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">20</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#cuda-c-bian-cheng-quan-wei-zhi-nan-di-wu-zhang-gong-xiang-nei-cun-he-chang-liang-nei-cun"><span class="toc-text">CUDA C编程权威指南-第五章：共享内存和常量内存</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#qian-yan-cong-quan-ju-nei-cun-dao-pian-shang-nei-cun"><span class="toc-text">前言：从全局内存到片上内存</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#yi-ben-zhang-zai-quan-shu-zhong-de-wei-zhi-yu-xue-xi-mu-biao"><span class="toc-text">一、本章在全书中的位置与学习目标</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-1-wei-shi-yao-yao-xue-gong-xiang-nei-cun-he-chang-liang-nei-cun"><span class="toc-text">1.1 为什么要学「共享内存和常量内存」</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#1-2-xue-wan-ben-zhang-ni-ying-gai-neng-hui-da"><span class="toc-text">1.2 学完本章，你应该能回答</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#1-3-bo-ke-yue-du-dao-tu-ben-zhang-jia-gou"><span class="toc-text">1.3 博客阅读导图（本章架构）</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#er-gong-xiang-nei-cun-gai-shu-shu-5-1-jie"><span class="toc-text">二、共享内存概述（书 5.1 节）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#2-1-wei-shi-yao-shi-yong-gong-xiang-nei-cun"><span class="toc-text">2.1 为什么使用共享内存</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-2-gong-xiang-nei-cun-de-sheng-ming-yu-sheng-ming-zhou-qi"><span class="toc-text">2.2 共享内存的声明与生命周期</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-3-tong-bu-yu-jing-zheng-tiao-jian"><span class="toc-text">2.3 同步与竞争条件</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#san-gong-xiang-nei-cun-de-bu-ju-yu-bank-chong-tu-shu-5-2-jie"><span class="toc-text">三、共享内存的布局与 Bank 冲突（书 5.2 节）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#3-1-gong-xiang-nei-cun-de-shu-ju-pai-bu"><span class="toc-text">3.1 共享内存的数据排布</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-2-bank-yu-bank-chong-tu"><span class="toc-text">3.2 Bank 与 Bank 冲突</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-3-shi-yong-padding-xiao-chu-bank-chong-tu"><span class="toc-text">3.3 使用 Padding 消除 Bank 冲突</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#si-shi-yong-gong-xiang-nei-cun-de-ju-zhen-zhuan-zhi-shu-5-3-jie"><span class="toc-text">四、使用共享内存的矩阵转置（书 5.3 节）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#4-1-si-lu-yu-suo-yin-zhuan-huan"><span class="toc-text">4.1 思路与索引转换</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-2-wan-zheng-he-han-shu-yu-zhu-han-shu-kuang-jia"><span class="toc-text">4.2 完整核函数与主函数框架</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#wu-shi-yong-gong-xiang-nei-cun-de-bing-xing-gui-yue-shu-5-4-jie"><span class="toc-text">五、使用共享内存的并行归约（书 5.4 节）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#5-1-si-lu-yu-gong-xiang-nei-cun-jie-duan"><span class="toc-text">5.1 思路与共享内存阶段</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-2-wan-zheng-gong-xiang-nei-cun-gui-yue-he-han-shu-shu-zhong-feng-ge"><span class="toc-text">5.2 完整共享内存归约核函数（书中风格）</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#liu-chang-liang-nei-cun-shu-5-5-jie"><span class="toc-text">六、常量内存（书 5.5 节）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#6-1-chang-liang-nei-cun-yu-chang-liang-huan-cun"><span class="toc-text">6.1 常量内存与常量缓存</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-2-chang-liang-nei-cun-de-yong-fa-cuda-memcpy-to-symbol-yu-he-han-shu"><span class="toc-text">6.2 常量内存的用法：cudaMemcpyToSymbol 与核函数</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-3-chang-liang-huan-cun-yu-zhi-du-huan-cun-de-qu-bie"><span class="toc-text">6.3 常量缓存与只读缓存的区别</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#qi-xian-cheng-shu-xi-pai-warp-shuffle-shu-5-6-jie"><span class="toc-text">七、线程束洗牌（Warp Shuffle）（书 5.6 节）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#7-1-gai-nian-yu-gua-yong-chang-jing"><span class="toc-text">7.1 概念与适用场景</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#7-2-jian-dan-shi-li-warp-nei-qiu-he"><span class="toc-text">7.2 简单示例：warp 内求和</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#ba-ben-zhang-xiao-jie-yu-zhong-nan-dian-hui-gu"><span class="toc-text">八、本章小结与重难点回顾</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#8-1-zhi-shi-xiao-jie-yu-shu-zhong-dui-ying"><span class="toc-text">8.1 知识小结（与书中对应）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#8-2-zhong-nan-dian-su-cha"><span class="toc-text">8.2 重难点速查</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#8-3-xue-xi-si-kao"><span class="toc-text">8.3 学习思考</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xia-yi-zhang-yu-gao"><span class="toc-text">下一章预告</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#ben-zhang-zi-ce"><span class="toc-text">本章自测</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/98c27a24/" title="CUDA C编程权威指南-第十章：程序实现的注意事项"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA C编程权威指南-第十章：程序实现的注意事项"/></a><div class="content"><a class="title" href="/posts/98c27a24/" title="CUDA C编程权威指南-第十章：程序实现的注意事项">CUDA C编程权威指南-第十章：程序实现的注意事项</a><time datetime="2026-02-10T09:00:00.000Z" title="发表于 2026-02-10 17:00:00">2026-02-10</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/844cd057/" title="CUDA C编程权威指南-第九章：多GPU编程"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA C编程权威指南-第九章：多GPU编程"/></a><div class="content"><a class="title" href="/posts/844cd057/" title="CUDA C编程权威指南-第九章：多GPU编程">CUDA C编程权威指南-第九章：多GPU编程</a><time datetime="2026-02-08T02:30:00.000Z" title="发表于 2026-02-08 10:30:00">2026-02-08</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/e466b0a5/" title="CUDA C编程权威指南-第八章：GPU加速库和OpenACC"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA C编程权威指南-第八章：GPU加速库和OpenACC"/></a><div class="content"><a class="title" href="/posts/e466b0a5/" title="CUDA C编程权威指南-第八章：GPU加速库和OpenACC">CUDA C编程权威指南-第八章：GPU加速库和OpenACC</a><time datetime="2026-02-06T05:10:00.000Z" title="发表于 2026-02-06 13:10:00">2026-02-06</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>

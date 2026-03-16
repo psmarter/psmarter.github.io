@@ -1,0 +1,804 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>CUDA C编程权威指南-第七章：调整指令级原语 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="CUDA C编程权威指南-第七章：调整指令级原语 系列导航：导读 | 上一篇：第6章 流和并发 | 下一篇：第8章 GPU加速库和OpenACC  系列第 7 篇。第 6 章讲了流与并发；这一章回到单次内核内部，在内存和执行配置已经优化过的基础上，从指令级再挖一点性能：warp 级原语（洗牌、表决、同步、活跃掩码）、循环展开和快速数学，让内核的指令吞吐和延迟隐藏更好一点。   前言：从内存与流到指">
+<meta property="og:type" content="article">
+<meta property="og:title" content="CUDA C编程权威指南-第七章：调整指令级原语">
+<meta property="og:url" content="https://smarter.xin/posts/1aaa52d4/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="CUDA C编程权威指南-第七章：调整指令级原语 系列导航：导读 | 上一篇：第6章 流和并发 | 下一篇：第8章 GPU加速库和OpenACC  系列第 7 篇。第 6 章讲了流与并发；这一章回到单次内核内部，在内存和执行配置已经优化过的基础上，从指令级再挖一点性能：warp 级原语（洗牌、表决、同步、活跃掩码）、循环展开和快速数学，让内核的指令吞吐和延迟隐藏更好一点。   前言：从内存与流到指">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/Nvidia_CUDA_Logo.jpg">
+<meta property="article:published_time" content="2026-02-04T07:20:00.000Z">
+<meta property="article:modified_time" content="2026-03-16T03:38:42.113Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="学习路线">
+<meta property="article:tag" content="CUDA">
+<meta property="article:tag" content="GPU编程">
+<meta property="article:tag" content="读书笔记">
+<meta property="article:tag" content="CUDA入门">
+<meta property="article:tag" content="并行计算">
+<meta property="article:tag" content="指令级原语">
+<meta property="article:tag" content="warp洗牌">
+<meta property="article:tag" content="循环展开">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/Nvidia_CUDA_Logo.jpg"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "CUDA C编程权威指南-第七章：调整指令级原语",
+  "url": "https://smarter.xin/posts/1aaa52d4/",
+  "image": "https://smarter.xin/img/Nvidia_CUDA_Logo.jpg",
+  "datePublished": "2026-02-04T07:20:00.000Z",
+  "dateModified": "2026-03-16T03:38:42.113Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/1aaa52d4/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'CUDA C编程权威指南-第七章：调整指令级原语',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">97</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">171</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">20</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/Nvidia_CUDA_Logo.jpg);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">CUDA C编程权威指南-第七章：调整指令级原语</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">CUDA C编程权威指南-第七章：调整指令级原语</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-02-04T07:20:00.000Z" title="发表于 2026-02-04 15:20:00">2026-02-04</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-03-16T03:38:42.113Z" title="更新于 2026-03-16 11:38:42">2026-03-16</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/knowledge-sharing/">知识分享</a><i class="fas fa-angle-right post-meta-separator"></i><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/knowledge-sharing/cuda-c-programming-guide/">CUDA C编程权威指南</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">8.8k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>29分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="cuda-c-bian-cheng-quan-wei-zhi-nan-di-qi-zhang-diao-zheng-zhi-ling-ji-yuan-yu" tabindex="-1">CUDA C编程权威指南-第七章：调整指令级原语</h1>
+<p><strong>系列导航</strong>：<a href="%E5%AF%BC%E8%AF%BB.md">导读</a> | 上一篇：<a href="%E7%AC%AC6%E7%AB%A0_%E6%B5%81%E5%92%8C%E5%B9%B6%E5%8F%91.md">第6章 流和并发</a> | 下一篇：<a href="%E7%AC%AC8%E7%AB%A0_GPU%E5%8A%A0%E9%80%9F%E5%BA%93%E5%92%8COpenACC.md">第8章 GPU加速库和OpenACC</a></p>
+<blockquote>
+<p>系列第 7 篇。第 6 章讲了流与并发；这一章回到<strong>单次内核内部</strong>，在内存和执行配置已经优化过的基础上，从<strong>指令级</strong>再挖一点性能：<strong>warp 级原语</strong>（洗牌、表决、同步、活跃掩码）、<strong>循环展开</strong>和<strong>快速数学</strong>，让内核的指令吞吐和延迟隐藏更好一点。</p>
+</blockquote>
+<hr>
+<h2 id="qian-yan-cong-nei-cun-yu-liu-dao-zhi-ling-ji" tabindex="-1" id="前言：从内存与流到指令级">前言：从内存与流到指令级</h2>
+<p>到目前为止，我们已经在<strong>编程模型</strong>（第2章）、<strong>执行模型</strong>（第3章）、<strong>全局内存</strong>（第4章）、<strong>共享内存与常量内存</strong>（第5章）以及<strong>流与并发</strong>（第6章）上做了系统学习。在单次内核内部，性能既受<strong>内存访问</strong>影响，也受<strong>指令发射与执行</strong>影响。这一节提到：当内存访问已经优化到一定程度后，<strong>指令级</strong>的细节——例如同一 warp 内线程如何高效协作、如何减少分支与循环开销、如何在精度与速度之间取舍——就会成为进一步榨取性能的关键。</p>
+<p>本章将系统学习「调整指令级原语」，主要包括：</p>
+<ul>
+<li><strong>线程束洗牌再探</strong>：在第5章入门基础上，深入 <code>__shfl_*_sync</code> 的各类变体、掩码语义及与归约/扫描的完整结合。</li>
+<li><strong>线程束表决函数</strong>：<code>__ballot_sync</code>、<code>__all_sync</code>、<code>__any_sync</code> 的用法与典型场景（条件计数、全/任一满足判断）。</li>
+<li><strong>活跃掩码与 warp 同步</strong>：<code>__activemask()</code> 的适用与误用、<code>__syncwarp()</code> 的细粒度同步与内存栅栏。</li>
+<li><strong>循环展开</strong>：<code>#pragma unroll</code> 与手写展开对指令吞吐与延迟隐藏的影响（与第3章归约中的展开相呼应）。</li>
+<li><strong>快速数学与精度</strong>：编译器快速数学选项（如 <code>--use_fast_math</code>）、单/双精度与指令吞吐的取舍。</li>
+</ul>
+<p>通过本章，你将对「warp 内协作」和「指令级调优」有完整认识，并能在实际内核中正确、安全地使用这些原语。</p>
+<hr>
+<h2 id="yi-ben-zhang-zai-quan-shu-zhong-de-wei-zhi-yu-xue-xi-mu-biao" tabindex="-1" id="一、本章在全书中的位置与学习目标">一、本章在全书中的位置与学习目标</h2>
+<h3 id="1-1-wei-shi-yao-yao-xue-diao-zheng-zhi-ling-ji-yuan-yu" tabindex="-1" id="1-1-为什么要学「调整指令级原语」">1.1 为什么要学「调整指令级原语」</h3>
+<p>第 4～6 章从<strong>内存</strong>（全局、共享、常量）和<strong>流与并发</strong>角度做了优化；但在单次内核内部，性能还受<strong>指令发射与执行</strong>制约。需要搞清楚的是：当内存访问已优化到一定程度后，<strong>指令级</strong>细节——同一 warp 内如何高效协作、如何减少分支与循环开销、如何在精度与速度之间取舍——会成为进一步榨取性能的关键。<strong>指令级原语</strong>是直接对应硬件能力、在 warp 内完成协作或信息交换的<strong>内建函数</strong>（洗牌、表决、warp 同步、活跃掩码）；配合<strong>循环展开</strong>与<strong>快速数学</strong>，可在不增加内存带宽的前提下提高有效指令吞吐、更好隐藏延迟。本章与第 3 章（延迟隐藏、归约与展开）、第 5 章（洗牌入门）紧密衔接，是「从内存优化到指令优化」的必经一步。</p>
+<h3 id="1-2-xue-wan-ben-zhang-ni-ying-gai-neng-hui-da" tabindex="-1" id="1-2-学完本章，你应该能回答">1.2 学完本章，你应该能回答</h3>
+<table>
+<thead>
+<tr>
+<th>学习目标</th>
+<th>检验方式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>理解<strong>指令级原语</strong>的动机与分类（洗牌、表决、同步、活跃掩码）</td>
+<td>能说明为何在内存优化之后仍需指令级调优；能列举四类原语及典型用途</td>
+</tr>
+<tr>
+<td>掌握<strong>洗牌四变体</strong>的语义与适用场景（sync/down/up/xor）</td>
+<td>能写出 warp 内树形归约与蝶形归约片段；说明 mask 与 width 的含义</td>
+</tr>
+<tr>
+<td>掌握<strong>参与掩码</strong>的正确获取方式（ballot 生成、不可用 activemask 代替）</td>
+<td>能解释为何在分化分支内用 __activemask 做归约掩码会出错；会写 ballot_sync 生成 mask 再洗牌</td>
+</tr>
+<tr>
+<td>掌握<strong>表决函数</strong>：ballot / all / any 的语义与典型用法</td>
+<td>能写出「满足条件的线程数」与「全/任一为真」的集体判断</td>
+</tr>
+<tr>
+<td>理解 <strong>__activemask</strong> 与 <strong>__syncwarp</strong> 的适用与误用</td>
+<td>能说明 __activemask 不同步、不可替代 ballot 做参与掩码；__syncwarp 只同步 warp、不能替代 __syncthreads</td>
+</tr>
+<tr>
+<td>理解<strong>循环展开</strong>对指令吞吐与延迟隐藏的作用</td>
+<td>能说明 #pragma unroll 与手写展开的取舍；注意寄存器压力与占用率权衡</td>
+</tr>
+<tr>
+<td>理解<strong>快速数学</strong>与单/双精度对吞吐与精度的影响</td>
+<td>能说明 --use_fast_math 的利弊；单精度相对双精度的吞吐优势</td>
+</tr>
+</tbody>
+</table>
+<h3 id="1-3-bo-ke-yue-du-dao-tu-ben-zhang-jia-gou" tabindex="-1" id="1-3-博客阅读导图（本章架构）">1.3 博客阅读导图（本章架构）</h3>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br></pre></td><td class="code"><pre><span class="line">第 7 章  调整指令级原语</span><br><span class="line">│</span><br><span class="line">├── 二、指令级优化与线程束原语概述（书 7.1 节）</span><br><span class="line">│   ├── 为什么需要指令级调整</span><br><span class="line">│   └── 线程束原语的分类与适用场景、_sync 与 mask 语义 ★</span><br><span class="line">│</span><br><span class="line">├── 三、线程束洗牌再探（书 7.2 节）★ 重难点</span><br><span class="line">│   ├── 洗牌四种变体（sync/down/up/xor）</span><br><span class="line">│   ├── 基于洗牌的 warp 内归约（完整实现）</span><br><span class="line">│   └── __shfl_xor 与蝶形归约</span><br><span class="line">│</span><br><span class="line">├── 四、线程束表决函数（书 7.3 节）</span><br><span class="line">│   ├── __ballot_sync：条件为真的线程位掩码、参与掩码的正确用法</span><br><span class="line">│   └── __all_sync 与 __any_sync</span><br><span class="line">│</span><br><span class="line">├── 五、活跃掩码与 warp 同步（书 7.4 节）★ 易错点</span><br><span class="line">│   ├── __activemask 的语义与误用（不可在分化分支内作归约掩码）</span><br><span class="line">│   └── __syncwarp：warp 内同步与内存栅栏</span><br><span class="line">│</span><br><span class="line">├── 六、循环展开与指令级并行（书 7.5 节）</span><br><span class="line">│   ├── 为何展开能提升指令吞吐</span><br><span class="line">│   └── #pragma unroll 与手写展开</span><br><span class="line">│</span><br><span class="line">├── 七、快速数学与精度取舍（书 7.6 节）</span><br><span class="line">│   ├── --use_fast_math 与 intrinsic 行为</span><br><span class="line">│   └── 单精度与双精度指令吞吐</span><br><span class="line">│</span><br><span class="line">└── 八、本章小结与重难点回顾</span><br></pre></td></tr></table></figure>
+<hr>
+<h2 id="er-zhi-ling-ji-you-hua-yu-xian-cheng-shu-yuan-yu-gai-shu-shu-7-1-jie" tabindex="-1" id="二、指令级优化与线程束原语概述（书-7-1-节）">二、指令级优化与线程束原语概述（书 7.1 节）</h2>
+<p>本节对应书中对「指令级」优化动机与线程束（warp）原语分类的总体介绍，为全章奠定概念基础。</p>
+<h3 id="2-1-wei-shi-yao-xu-yao-zhi-ling-ji-diao-zheng" tabindex="-1" id="2-1-为什么需要指令级调整">2.1 为什么需要指令级调整</h3>
+<p>GPU 的执行单元按 <strong>SIMT</strong>（单指令多线程）方式工作：同一 warp 内的 32 个线程在同一周期执行同一条指令，各自操作私有数据。第3章已经说明：<strong>指令延迟</strong>（算术约 10～20 周期、全局内存约 400～800 周期）需要靠足够多的<strong>活跃线程束</strong>来隐藏；<strong>线程束分化</strong>会导致同一 warp 内部分线程空转，降低有效吞吐。在内存访问已经通过合并、共享内存、常量内存等手段优化之后，若内核仍受<strong>指令吞吐</strong>或 <strong>warp 内协作效率</strong>限制，就需要在<strong>指令级</strong>做文章。</p>
+<p>这一节提到：<strong>指令级原语</strong>是指那些直接对应硬件能力、在 warp 内完成协作或信息交换的<strong>内建函数</strong>（intrinsics）。它们通常具有以下特点：(1) 在 warp 内线程间直接交换数据或进行集体操作；(2) 不经过全局内存或共享内存，延迟极低；(3) 正确使用时能显著减少内存访问次数和同步开销，提升指令吞吐与能效。典型代表包括：<strong>洗牌</strong>（shuffle）、<strong>表决</strong>（vote）、<strong>warp 同步</strong>（syncwarp）与<strong>活跃掩码查询</strong>（activemask）。第5章已介绍过洗牌的基本用法；本章将系统展开所有与「调整指令级原语」相关的内建函数与编程模式。</p>
+<p>从延迟隐藏的角度，第3章给出的「所需线程数」下界仍适用：每个 SM 上至少需要足够的活跃线程以覆盖指令延迟。书中表 3-3 等给出的典型值为：算术指令延迟约 10～20 周期，全局内存访问延迟约 400～800 周期。因此仅从算术角度，每 SM 至少需约「每 SM 核心数 × 算术延迟」个线程；<strong>指令级原语</strong>通过减少每条「逻辑操作」对应的内存访问和同步次数，在相同线程规模下提高<strong>有效指令吞吐</strong>，从而更好地利用这些线程隐藏延迟。下表归纳书中涉及的指令类型与典型延迟（与第3章一致）：</p>
+<table>
+<thead>
+<tr>
+<th>指令类型</th>
+<th>典型延迟（周期）</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>算术指令</td>
+<td>10～20</td>
+<td>如 32 位浮点乘加</td>
+</tr>
+<tr>
+<td>全局内存访问</td>
+<td>400～800</td>
+<td>需大量线程束隐藏</td>
+</tr>
+<tr>
+<td>共享内存访问</td>
+<td>约数十</td>
+<td>远低于全局内存</td>
+</tr>
+<tr>
+<td>洗牌/寄存器交换</td>
+<td>约 1～2 条指令</td>
+<td>无内存参与，延迟极低</td>
+</tr>
+</tbody>
+</table>
+<h3 id="2-2-xian-cheng-shu-yuan-yu-de-fen-lei-yu-gua-yong-chang-jing" tabindex="-1" id="2-2-线程束原语的分类与适用场景">2.2 线程束原语的分类与适用场景</h3>
+<p>书中及 CUDA 编程指南将 warp 级原语按功能分为几类，便于我们在不同场景下选用。下表归纳了本章涉及的主要原语及其典型用途（与书中描述一致）：</p>
+<table>
+<thead>
+<tr>
+<th>类别</th>
+<th>原语示例</th>
+<th>典型用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>数据交换</strong></td>
+<td><code>__shfl_sync</code>, <code>__shfl_down_sync</code>, <code>__shfl_up_sync</code>, <code>__shfl_xor_sync</code></td>
+<td>warp 内归约、扫描、广播、butterfly 交换</td>
+</tr>
+<tr>
+<td><strong>表决</strong></td>
+<td><code>__ballot_sync</code>, <code>__all_sync</code>, <code>__any_sync</code></td>
+<td>条件满足计数、全/任一为真判断、参与掩码计算</td>
+</tr>
+<tr>
+<td><strong>同步与栅栏</strong></td>
+<td><code>__syncwarp</code></td>
+<td>warp 内细粒度同步、共享内存读写之间的栅栏</td>
+</tr>
+<tr>
+<td><strong>活跃掩码</strong></td>
+<td><code>__activemask</code></td>
+<td>查询当前与己一起执行的线程掩码（需谨慎使用）</td>
+</tr>
+</tbody>
+</table>
+<p><strong>同步语义</strong>：自 CUDA 9 起，带 <strong><code>_sync</code></strong> 后缀的 warp 原语要求传入一个 <strong>32 位掩码</strong>（mask），指明<strong>参与该集体操作的线程</strong>。这些原语会在参与线程间形成<strong>隐式同步</strong>：所有在 mask 中的线程必须都执行到该原语，集体操作才会正确完成。在 Volta 及以后架构上，线程可独立取指（independent thread scheduling），同一 warp 内线程不再保证锁步执行，因此<strong>必须</strong>使用带 <code>_sync</code> 的原语并正确设置 mask，否则会出现未定义行为或错误结果。mask 应由<strong>程序逻辑</strong>确定（例如由 <code>__ballot_sync(FULL_MASK, predicate)</code> 根据条件计算），而不是在可能分化的分支内用 <code>__activemask()</code> 临时取得，后者在某些用法下会导致错误（见第五节）。</p>
+<blockquote>
+<p><strong>理解与体会</strong>：可以把「指令级原语」理解为 GPU 在 warp 级别提供的「硬件级集体操作」——不经过全局或共享内存，直接在寄存器与线程间交换或表决，延迟极低。用好它们，就能在保持相同线程规模的前提下，减少每条逻辑操作对应的内存访问和同步次数，从而提高有效指令吞吐、更好隐藏延迟。<strong>mask 的正确性</strong>是全章最容易出错的地方：mask 必须与「实际参与该集体操作的线程集合」一致，在部分线程因分支不参与时，必须用 <code>__ballot_sync(FULL_MASK, condition)</code> 在分支前算出参与掩码，而不能在分支内用 <code>__activemask()</code> 代替。</p>
+</blockquote>
+<hr>
+<h2 id="san-xian-cheng-shu-xi-pai-zai-tan-shu-7-2-jie" tabindex="-1" id="三、线程束洗牌再探（书-7-2-节）">三、线程束洗牌再探（书 7.2 节）</h2>
+<p>本节对应书中对 warp 洗牌指令的深入讲解：在第5章基础上，完整覆盖四种洗牌变体、掩码含义、以及它们在归约与扫描中的标准用法。</p>
+<h3 id="3-1-xi-pai-zhi-ling-de-si-chong-bian-ti" tabindex="-1" id="3-1-洗牌指令的四种变体">3.1 洗牌指令的四种变体</h3>
+<p><strong>线程束洗牌</strong>允许同一 warp 内的线程<strong>直接读取</strong>其他线程的<strong>寄存器</strong>值，而无需经过共享内存或全局内存。这一节提到：数据在寄存器间移动，延迟远低于共享内存访问（通常 1～2 条指令即可完成一次交换），且不占用共享内存，有利于提高占用率或把共享内存留给其他用途。与共享内存实现相比：一次 warp 内归约若用共享内存，通常需要「写共享内存 → __syncthreads() → 读共享内存」多轮，而洗牌仅需若干条 <code>__shfl_*_sync</code> 与算术指令，指令数与延迟都更小。</p>
+<p>CUDA 提供四类洗牌内建函数（均带 <code>_sync</code>，需指定 mask）。书中会结合图示说明各变体的数据移动方向，便于在归约、扫描、广播等模式中选用：</p>
+<table>
+<thead>
+<tr>
+<th>函数签名（以 int 为例）</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>__shfl_sync(mask, val, src_lane, width)</code></td>
+<td>从<strong>指定 lane 索引</strong> <code>src_lane</code> 的线程读取 <code>val</code></td>
+</tr>
+<tr>
+<td><code>__shfl_down_sync(mask, val, offset, width)</code></td>
+<td>从<strong>当前 lane + offset</strong> 的线程读取 <code>val</code>（若越界则返回本线程的 <code>val</code>）</td>
+</tr>
+<tr>
+<td><code>__shfl_up_sync(mask, val, offset, width)</code></td>
+<td>从<strong>当前 lane - offset</strong> 的线程读取 <code>val</code></td>
+</tr>
+<tr>
+<td><code>__shfl_xor_sync(mask, val, lane_mask, width)</code></td>
+<td>从 <strong>lane 索引 = 当前 lane XOR lane_mask</strong> 的线程读取 <code>val</code></td>
+</tr>
+</tbody>
+</table>
+<p>参数说明：<strong>mask</strong> 为参与集体操作的线程掩码（通常 <code>0xffffffff</code> 表示整个 warp）；<strong>width</strong> 可选，默认 <code>warpSize</code>（32），可指定更小的「逻辑 warp 宽度」以支持子 warp 操作。例如 <code>__shfl_down_sync</code> 常用于<strong>树形归约</strong>（每轮将下半区间的值「向下」传到当前 lane 并累加），<code>__shfl_xor_sync</code> 常用于<strong>蝶形</strong>（butterfly）模式的归约或扫描（书中会结合图示说明各变体的数据移动方向）。</p>
+<blockquote>
+<p><strong>理解与体会</strong>：洗牌把「warp 内数据交换」从共享内存搬到了<strong>寄存器间直接交换</strong>，既省共享内存带宽与 bank 冲突顾虑，又降低延迟（约 1～2 条指令）。适合「先 warp 内归约/扫描，再块内跨 warp 合并」的两阶段设计；此时共享内存只需存每个 warp 的一个结果，而不是 32 个中间值，与第 5 章的洗牌入门一脉相承。</p>
+</blockquote>
+<h3 id="3-2-ji-yu-xi-pai-de-warp-nei-gui-yue-wan-zheng-shi-xian" tabindex="-1" id="3-2-基于洗牌的-warp-内归约（完整实现）">3.2 基于洗牌的 warp 内归约（完整实现）</h3>
+<p>下面给出与书中风格一致的、<strong>基于洗牌的 warp 内归约</strong>完整实现：每个线程先持有一个值 <code>val</code>，经过 (\log_2(32)=5) 轮 <code>__shfl_down_sync</code> 累加，最终 lane 0 得到该 warp 的和。随后将每个 warp 的部分和写入共享内存，再在块内做一次跨 warp 归约（或第二次洗牌/共享内存合并），得到块级结果。公式上，warp 内归约的步数为：</p>
+<p>[<br>
+\text{步数} = \lceil \log_2(\text{warpSize}) \rceil = 5 \quad (\text{warpSize}=32)<br>
+]</p>
+<p>每步一次洗牌 + 一次加法，无共享内存读写，延迟极低。完整核函数示例（含块内跨 warp 合并）如下：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;cstdio&gt;</span></span></span><br><span class="line"></span><br><span class="line"><span class="meta">#<span class="keyword">define</span> CHECK(call) do &#123; \</span></span><br><span class="line"><span class="meta">    cudaError_t e = (call); \</span></span><br><span class="line"><span class="meta">    <span class="keyword">if</span> (e != cudaSuccess) &#123; \</span></span><br><span class="line"><span class="meta">        fprintf(stderr, <span class="string">&quot;CUDA error %s %d: %s\n&quot;</span>, __FILE__, __LINE__, cudaGetErrorString(e)); \</span></span><br><span class="line"><span class="meta">        return; \</span></span><br><span class="line"><span class="meta">    &#125; \</span></span><br><span class="line"><span class="meta">&#125; while(0)</span></span><br><span class="line"></span><br><span class="line"><span class="type">const</span> <span class="type">int</span> warpSize = <span class="number">32</span>;</span><br><span class="line"><span class="meta">#<span class="keyword">define</span> FULL_MASK 0xffffffff</span></span><br><span class="line"></span><br><span class="line"><span class="comment">// 书中风格：warp 内归约，结果在 lane 0</span></span><br><span class="line">__device__ __forceinline__ <span class="type">float</span> <span class="title function_">warpReduceSum</span><span class="params">(<span class="type">float</span> val)</span> &#123;</span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> offset = warpSize / <span class="number">2</span>; offset &gt; <span class="number">0</span>; offset &gt;&gt;= <span class="number">1</span>)</span><br><span class="line">        val += __shfl_down_sync(FULL_MASK, val, offset);</span><br><span class="line">    <span class="keyword">return</span> val;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">__global__ <span class="type">void</span> <span class="title function_">reduceShuffleKernel</span><span class="params">(<span class="type">const</span> <span class="type">float</span> *__restrict__ g_in, <span class="type">float</span> *__restrict__ g_out, <span class="type">int</span> n)</span> &#123;</span><br><span class="line">    __shared__ <span class="type">float</span> s_sum[<span class="number">32</span>];  <span class="comment">// 每 warp 一个槽位，最多 32 个 warp  per block</span></span><br><span class="line">    <span class="type">int</span> tid = threadIdx.x + blockIdx.x * blockDim.x;</span><br><span class="line">    <span class="type">int</span> lane = threadIdx.x % warpSize;</span><br><span class="line">    <span class="type">int</span> warpId = threadIdx.x / warpSize;</span><br><span class="line"></span><br><span class="line">    <span class="type">float</span> val = (tid &lt; n) ? g_in[tid] : <span class="number">0.0f</span>;</span><br><span class="line">    val = warpReduceSum(val);</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span> (lane == <span class="number">0</span>)</span><br><span class="line">        s_sum[warpId] = val;</span><br><span class="line">    __syncthreads();</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 块内第一个 warp 将各 warp 部分和再归约</span></span><br><span class="line">    <span class="keyword">if</span> (warpId == <span class="number">0</span>) &#123;</span><br><span class="line">        <span class="type">float</span> blockVal = (lane &lt; (blockDim.x / warpSize)) ? s_sum[lane] : <span class="number">0.0f</span>;</span><br><span class="line">        blockVal = warpReduceSum(blockVal);</span><br><span class="line">        <span class="keyword">if</span> (lane == <span class="number">0</span>)</span><br><span class="line">            g_out[blockIdx.x] = blockVal;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>上述实现中，<strong>mask</strong> 使用 <code>FULL_MASK</code>，表示整个 warp 参与；若存在<strong>部分线程不参与</strong>（例如根据 <code>tid &lt; n</code> 判断），应先用 <code>__ballot_sync(FULL_MASK, tid &lt; n)</code> 得到参与掩码，再在参与分支内用该掩码调用 <code>__shfl_down_sync(mask, val, offset)</code>，这样未参与线程不会被错误地纳入归约（见第四节表决函数与书中说明）。</p>
+<blockquote>
+<p><strong>易错点</strong>：<strong>洗牌的 mask 必须与参与线程一致</strong>。若内核中有分支导致部分线程不参与归约，则不能使用全 warp 的 <code>FULL_MASK</code>，而必须用<strong>程序逻辑</strong>确定的参与掩码（如 <code>__ballot_sync(FULL_MASK, condition)</code> 的返回值），否则未参与线程的寄存器值会被错误地参与交换，得到错误结果或未定义行为。因此<strong>不要在分化分支内用 __activemask() 代替</strong>——详见第五节。</p>
+</blockquote>
+<p><strong>编译与运行</strong>：将上述核函数与下面的主机代码一起编译即可得到完整可执行程序。主机端负责分配设备内存、拷贝输入、配置网格与块、拷贝结果并验证（此处省略验证逻辑）。建议块大小设为 256 或 512（为 warpSize 的整数倍），以便每个块内 warp 数适中；网格大小根据 (n) 向上取整。编译命令示例：<code>nvcc -O3 -arch=sm_70 -o reduceShuffle reduceShuffle.cu</code>（计算能力按实际设备调整，洗牌需 3.0+）。</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 主机端：完整调用流程（与书中风格一致）</span></span><br><span class="line"><span class="type">void</span> <span class="title function_">runReduceShuffle</span><span class="params">(<span class="type">int</span> n)</span> &#123;</span><br><span class="line">    <span class="type">size_t</span> bytes = n * <span class="keyword">sizeof</span>(<span class="type">float</span>);</span><br><span class="line">    <span class="type">float</span> *d_in = nullptr, *d_out = nullptr;</span><br><span class="line">    CHECK(cudaMalloc(&amp;d_in, bytes));</span><br><span class="line">    CHECK(cudaMalloc(&amp;d_out, ((n + <span class="number">255</span>) / <span class="number">256</span>) * <span class="keyword">sizeof</span>(<span class="type">float</span>)));</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 假设已准备 h_in，拷贝到设备</span></span><br><span class="line">    <span class="comment">// CHECK(cudaMemcpy(d_in, h_in, bytes, cudaMemcpyHostToDevice));</span></span><br><span class="line"></span><br><span class="line">    <span class="type">int</span> blockSize = <span class="number">256</span>;</span><br><span class="line">    <span class="type">int</span> gridSize = (n + blockSize - <span class="number">1</span>) / blockSize;</span><br><span class="line">    reduceShuffleKernel&lt;&lt;&lt;gridSize, blockSize&gt;&gt;&gt;(d_in, d_out, n);</span><br><span class="line">    CHECK(cudaDeviceSynchronize());</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 若 gridSize &gt; 1，可在主机或再启动一次核函数对 d_out 做最终归约</span></span><br><span class="line">    CHECK(cudaFree(d_in));</span><br><span class="line">    CHECK(cudaFree(d_out));</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<h3 id="3-3-shfl-xor-yu-die-xing-gui-yue" tabindex="-1" id="3-3-shfl-xor-与蝶形归约">3.3 __shfl_xor 与蝶形归约</h3>
+<p><strong><code>__shfl_xor_sync(mask, val, lane_mask, width)</code></strong> 的语义是：当前线程从 <strong>lane 索引 = 当前 lane XOR lane_mask</strong> 的线程读取 <code>val</code>。当 <code>lane_mask</code> 依次取 16、8、4、2、1 时，恰好形成<strong>蝶形</strong>连接模式，与树形归约一样可在 (\log_2(32)) 步内完成 warp 内求和。书中会说明：xor 方式在某些实现上能减少依赖链，可能对指令调度更友好。示例片段（仅 warp 内，lane 0 得和）：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">__device__ __forceinline__ <span class="type">float</span> <span class="title function_">warpReduceSumXor</span><span class="params">(<span class="type">float</span> val)</span> &#123;</span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> lane_mask = warpSize / <span class="number">2</span>; lane_mask &gt; <span class="number">0</span>; lane_mask &gt;&gt;= <span class="number">1</span>)</span><br><span class="line">        val += __shfl_xor_sync(FULL_MASK, val, lane_mask);</span><br><span class="line">    <span class="keyword">return</span> val;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<hr>
+<h2 id="si-xian-cheng-shu-biao-jue-han-shu-shu-7-3-jie" tabindex="-1" id="四、线程束表决函数（书-7-3-节）">四、线程束表决函数（书 7.3 节）</h2>
+<p>本节对应书中对 <strong>warp 表决</strong>（vote）原语的介绍：<code>__ballot_sync</code>、<code>__all_sync</code>、<code>__any_sync</code> 的语义、典型用法以及与洗牌配合生成「参与掩码」的正确方式。</p>
+<h3 id="4-1-ballot-sync-tiao-jian-wei-zhen-de-xian-cheng-wei-yan-ma" tabindex="-1" id="4-1-ballot-sync：条件为真的线程位掩码">4.1 __ballot_sync：条件为真的线程位掩码</h3>
+<p><strong><code>__ballot_sync(mask, predicate)</code></strong> 的返回值是一个 <strong>32 位无符号整数</strong>：若某 lane 在 <strong>mask</strong> 中且其 <strong>predicate</strong> 非零，则返回值中该 lane 对应的位为 1，否则为 0。这一节提到：该原语常用于 (1) <strong>统计</strong> warp 内满足某条件的线程数（对返回值做 <code>__popc</code>  population count）；(2) <strong>生成参与后续洗牌/集体操作的掩码</strong>——只有满足条件的线程才参与归约时，应先用 <code>__ballot_sync(FULL_MASK, condition)</code> 得到参与掩码，再在该掩码下调用 <code>__shfl_*_sync(participant_mask, val, ...)</code>，这样未参与线程不会贡献错误数据。</p>
+<blockquote>
+<p><strong>重点</strong>：<strong>调用 <code>__ballot_sync</code> 时通常使用 FULL_MASK</strong>，因为此时要统计的是「整个 warp 中哪些线程满足条件」；所有线程都应执行到该调用，得到一致的 32 位掩码。随后，只有满足条件的线程进入归约分支，并在分支内使用<strong>刚才得到的</strong> participant_mask 调用洗牌，从而保证参与洗牌的线程集合与 mask 一致，语义正确。这是「部分线程参与归约」时<strong>正确</strong>获取参与掩码的方式，与「在分支内用 __activemask()」的误用形成对比（见第五节）。</p>
+</blockquote>
+<p>示例：warp 内「满足 <code>tid &lt; n</code> 的线程」参与归约，并得到参与线程数：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">__global__ <span class="type">void</span> <span class="title function_">reduceWithBallot</span><span class="params">(<span class="type">const</span> <span class="type">float</span> *g_in, <span class="type">float</span> *g_out, <span class="type">int</span> n)</span> &#123;</span><br><span class="line">    <span class="type">int</span> tid = threadIdx.x + blockIdx.x * blockDim.x;</span><br><span class="line">    <span class="type">int</span> lane = threadIdx.x % warpSize;</span><br><span class="line">    <span class="type">int</span> warpId = threadIdx.x / warpSize;</span><br><span class="line">    <span class="type">bool</span> active = (tid &lt; n);</span><br><span class="line">    <span class="type">unsigned</span> participant_mask = __ballot_sync(FULL_MASK, active);</span><br><span class="line">    <span class="type">int</span> num_active = __popc(participant_mask);</span><br><span class="line"></span><br><span class="line">    <span class="type">float</span> val = active ? g_in[tid] : <span class="number">0.0f</span>;</span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> offset = warpSize / <span class="number">2</span>; offset &gt; <span class="number">0</span>; offset &gt;&gt;= <span class="number">1</span>)</span><br><span class="line">        val += __shfl_down_sync(participant_mask, val, offset);</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span> (lane == <span class="number">0</span> &amp;&amp; num_active &gt; <span class="number">0</span>) &#123;</span><br><span class="line">        <span class="comment">// 每个 warp 的 lane 0 得到该 warp 内活跃线程的和，可写入共享内存再块内归约</span></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<h3 id="4-2-all-sync-yu-any-sync" tabindex="-1" id="4-2-all-sync-与-any-sync">4.2 __all_sync 与 __any_sync</h3>
+<p><strong><code>__all_sync(mask, predicate)</code></strong>：当且仅当 <strong>mask 中所有线程</strong>的 predicate 均非零时，返回非零；否则返回 0。<strong><code>__any_sync(mask, predicate)</code></strong>：当且仅当 <strong>mask 中至少一个线程</strong>的 predicate 非零时，返回非零。这一节提到：二者用于 warp 内的<strong>集体判断</strong>，无需再根据 ballot 结果做标量判断，可简化代码并减少分支。例如：若「warp 内全部线程都满足某条件」才执行某路径，可写 <code>if (__all_sync(FULL_MASK, cond)) &#123; ... &#125;</code>；若「至少一个满足」则用 <code>__any_sync</code>。</p>
+<p>下表归纳三种表决函数的语义（与书中及 CUDA 编程指南一致）：</p>
+<table>
+<thead>
+<tr>
+<th>原语</th>
+<th>返回值含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>__ballot_sync(mask, pred)</code></td>
+<td>32 位掩码：pred 非零且被 mask 包含的 lane 对应位为 1</td>
+</tr>
+<tr>
+<td><code>__all_sync(mask, pred)</code></td>
+<td>非零当且仅当 mask 内所有线程 pred 非零</td>
+</tr>
+<tr>
+<td><code>__any_sync(mask, pred)</code></td>
+<td>非零当且仅当 mask 内至少一个线程 pred 非零</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="wu-huo-yue-yan-ma-yu-warp-tong-bu-shu-7-4-jie" tabindex="-1" id="五、活跃掩码与-warp-同步（书-7-4-节）">五、活跃掩码与 warp 同步（书 7.4 节）</h2>
+<p>本节对应书中对 <strong><code>__activemask()</code></strong> 与 <strong><code>__syncwarp()</code></strong> 的说明：二者分别用于「查询当前活跃线程」和「warp 内细粒度同步」，但使用不当会导致错误，书中会强调正确用法与典型误用。</p>
+<h3 id="5-1-activemask-de-yu-yi-yu-wu-yong-yi-cuo-dian" tabindex="-1" id="5-1-activemask-的语义与误用-★-易错点">5.1 __activemask 的语义与误用 ★ 易错点</h3>
+<p><strong><code>__activemask()</code></strong> 返回一个 32 位掩码，表示<strong>当前与调用线程一起执行到该点的、同一 warp 内的线程</strong>。这一节提到：该原语<strong>不</strong>进行同步，它只反映「当前这一刻」哪些线程与己同处同一执行点。因此它适用于调试、或「机会式」的 warp 内协作（例如已知某分支内线程会一起执行且逻辑上等价于同一掩码），但不能替代由程序逻辑显式确定的参与掩码。</p>
+<p>一种<strong>错误用法</strong>是：在<strong>已分化的分支内部</strong>用 <code>__activemask()</code> 得到掩码，再将该掩码用于 <code>__shfl_down_sync(mask, val, offset)</code> 做归约。因为 CUDA 执行模型（尤其在 Volta 及以后）<strong>不保证</strong>「走同一分支的线程会同时执行到 __activemask()」；可能只有部分线程进入该分支，此时得到的「活跃」掩码只是子集，用其做归约会得到<strong>部分和</strong>而非整个 warp 的和，结果错误。正确做法是<strong>在分支之前</strong>用 <strong><code>__ballot_sync(FULL_MASK, condition)</code></strong> 根据逻辑条件计算「应参与归约」的线程掩码，再在分支内使用该掩码调用洗牌（见 4.1 节）。<strong>小结</strong>：<code>__activemask()</code> 只查询、不同步，且不保证与「逻辑上应参与集体操作的线程」一致，因此<strong>不能</strong>在分化分支内用作洗牌/归约的参与掩码。</p>
+<h3 id="5-2-syncwarp-warp-nei-tong-bu-yu-nei-cun-zha-lan" tabindex="-1" id="5-2-syncwarp：warp-内同步与内存栅栏">5.2 __syncwarp：warp 内同步与内存栅栏</h3>
+<p><strong><code>__syncwarp(mask)</code></strong> 使当前线程等待，直到 <strong>mask</strong> 所指定的同一 warp 内所有线程都执行到各自的 <code>__syncwarp(mask)</code>（且使用相同 mask）为止；同时提供 <strong>warp 级内存栅栏</strong>，保证在调用前后的共享内存（及可观测的全局内存）访问顺序。这一节提到：当 warp 内线程需要先写共享内存、再被其他 lane 读取时，应在写与读之间插入 <code>__syncwarp()</code>，以避免竞态。</p>
+<blockquote>
+<p><strong>重难点</strong>：<strong><code>__syncwarp</code> 只同步 mask 内的线程</strong>，<strong>不能替代</strong>块级 <code>__syncthreads()</code>；跨 warp 的协作仍须使用 <code>__syncthreads()</code>。此外，若在 warp 内归约中仅使用洗牌指令，每步洗牌之间<strong>不需要</strong>再插 <code>__syncwarp()</code>，因为 <code>__shfl_*_sync</code> 本身已带有参与线程的同步语义。<strong>错误用法</strong>：在共享内存版树形归约中，若在「读-改-写」之间仅用 <code>__syncwarp()</code> 而不同步整个块，可能与其他 warp 的写入产生竞态；此时必须使用 <code>__syncthreads()</code>。</p>
+</blockquote>
+<p>示例（书中风格）：warp 内先将各自寄存器写入共享内存的某个布局，再经 <code>__syncwarp()</code> 后按转置布局读取，实现 warp 内数据重排：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">__shared__ <span class="type">float</span> smem[<span class="number">32</span>];</span><br><span class="line"><span class="type">float</span> val = my_value();</span><br><span class="line"><span class="type">int</span> lane = threadIdx.x % warpSize;</span><br><span class="line">smem[lane] = val;</span><br><span class="line">__syncwarp();</span><br><span class="line">val = smem[(lane + <span class="number">1</span>) % warpSize];  <span class="comment">// 例如循环移位</span></span><br></pre></td></tr></table></figure>
+<hr>
+<h2 id="liu-xun-huan-zhan-kai-yu-zhi-ling-ji-bing-xing-shu-7-5-jie" tabindex="-1" id="六、循环展开与指令级并行（书-7-5-节）">六、循环展开与指令级并行（书 7.5 节）</h2>
+<p>本节对应书中对<strong>循环展开</strong>在指令级优化中作用的说明；与第3章归约中的展开相呼应，强调其对指令吞吐与延迟隐藏的贡献。</p>
+<h3 id="6-1-wei-he-zhan-kai-neng-ti-sheng-zhi-ling-tun-tu" tabindex="-1" id="6-1-为何展开能提升指令吞吐">6.1 为何展开能提升指令吞吐</h3>
+<p>这一节提到：<strong>循环</strong>会产生分支（循环条件判断）与连续依赖（下一轮依赖上一轮结果），不利于硬件充分流水线化和隐藏延迟。<strong>循环展开</strong>通过减少迭代次数、在单次迭代中执行更多<strong>独立</strong>操作，使调度器有更多可发射的指令，从而更好地隐藏算术或内存延迟。第3章已给出「每线程处理多个元素」和「最后阶段展开到 32 线程后去掉 __syncthreads」的归约示例；本章从「指令级」角度强调：展开后同一 warp 内可用的<strong>独立指令</strong>增多，有利于提高 <strong>ILP</strong>（指令级并行）和占用率效益。</p>
+<p>公式上，若原循环迭代次数为 (N)，展开因子为 (U)，则有效迭代轮数约为 (\lceil N/U \rceil)，分支与循环开销成比例下降；同时每轮内 (U) 次操作的调度灵活性提高。与第3章延迟隐藏公式一致：隐藏延迟所需的「有效并行度」与每 SM 核心数和指令延迟的乘积相关；展开在相同线程数下增加了「可并行调度的指令」数量，从而更易满足该需求。书中提醒：展开会<strong>增加每线程寄存器使用</strong>，可能降低占用率，需在「更多 ILP」与「更多活跃 warp」之间做权衡。</p>
+<blockquote>
+<p><strong>理解与体会</strong>：第 3 章归约里已经用过「每线程多元素」和「最后阶段完全展开、去掉 __syncthreads」；本章从指令级角度统一理解——展开的本质是<strong>减少循环分支、增加同一迭代内的独立指令</strong>，让调度器有更多可发射的指令来填满流水线、隐藏延迟。使用时要在「更多 ILP」和「寄存器压力/占用率」之间做权衡，避免过度展开导致寄存器溢出或块数下降。</p>
+</blockquote>
+<h3 id="6-2-pragma-unroll-yu-shou-xie-zhan-kai" tabindex="-1" id="6-2-pragma-unroll-与手写展开">6.2 #pragma unroll 与手写展开</h3>
+<p>CUDA 支持 <strong><code>#pragma unroll</code></strong> 指示编译器对紧接的 for 循环进行展开。完整形式为 <code>#pragma unroll N</code>，表示展开因子为 N；也可写 <code>#pragma unroll</code> 由编译器自动选择因子。书中示例风格如下：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">__global__ <span class="type">void</span> <span class="title function_">kernelUnroll</span><span class="params">(<span class="type">float</span> *out, <span class="type">const</span> <span class="type">float</span> *in, <span class="type">int</span> n)</span> &#123;</span><br><span class="line">    <span class="type">int</span> i = blockIdx.x * blockDim.x + threadIdx.x;</span><br><span class="line">    <span class="type">float</span> sum = <span class="number">0.0f</span>;</span><br><span class="line">    <span class="meta">#<span class="keyword">pragma</span> unroll 4</span></span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> k = <span class="number">0</span>; k &lt; <span class="number">4</span>; k++) &#123;</span><br><span class="line">        <span class="type">int</span> idx = i + k * blockDim.x * gridDim.x;</span><br><span class="line">        <span class="keyword">if</span> (idx &lt; n)</span><br><span class="line">            sum += in[idx];</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">if</span> (i &lt; n)</span><br><span class="line">        out[i] = sum;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>手写展开即显式写出多份相似代码，去掉循环变量，便于对关键路径做精细控制；书中在归约等内核中会同时使用「每线程多元素」与「最后一轮完全展开」两种方式。</p>
+<p>下表简要归纳循环展开对指令级的影响（与书中描述一致）：</p>
+<table>
+<thead>
+<tr>
+<th>方面</th>
+<th>效果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>分支与循环开销</td>
+<td>迭代次数减少，分支频率降低</td>
+</tr>
+<tr>
+<td>独立指令数</td>
+<td>单次迭代内多条可并行调度指令，利于隐藏延迟</td>
+</tr>
+<tr>
+<td>寄存器压力</td>
+<td>展开因子越大，每线程寄存器越多，可能降低占用率</td>
+</tr>
+<tr>
+<td>适用场景</td>
+<td>归约、点积、固定步长访问等可批量处理的循环</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="qi-kuai-su-shu-xue-yu-jing-du-qu-she-shu-7-6-jie" tabindex="-1" id="七、快速数学与精度取舍（书-7-6-节）">七、快速数学与精度取舍（书 7.6 节）</h2>
+<p>本节对应书中对<strong>快速数学</strong>选项与<strong>单/双精度</strong>在指令吞吐与精度之间取舍的说明。</p>
+<h3 id="7-6-1-use-fast-math-yu-intrinsic-xing-wei" tabindex="-1" id="7-6-1-use-fast-math-与-intrinsic-行为">7.6.1 --use_fast_math 与 intrinsic 行为</h3>
+<p>这一节提到：NVCC 的 <strong><code>--use_fast_math</code></strong> 选项会将许多标准数学函数替换为<strong>更快、精度略低</strong>的实现（如降低尾数精度、使用更快的近似），从而<strong>提高指令吞吐</strong>、减少周期数。代价是结果可能与 IEEE 严格一致的结果有偏差，在科学计算或合规场景需谨慎使用。该选项还会影响<strong>乘加融合</strong>（FMA）等优化，进一步改变性能与精度。典型编译方式：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">nvcc -O3 --use_fast_math -o app kernel.cu</span><br></pre></td></tr></table></figure>
+<p>某些内建函数（如 <code>__fmaf_rn</code>）可单独控制舍入与融合行为；书中若涉及会在此说明。下表概括快速数学的典型影响（与书中及文档一致）：</p>
+<table>
+<thead>
+<tr>
+<th>方面</th>
+<th>常规编译</th>
+<th>–use_fast_math</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>部分数学函数</td>
+<td>高精度、较慢</td>
+<td>快速近似、略低精度</td>
+</tr>
+<tr>
+<td>乘加等</td>
+<td>可能分离为多条指令</td>
+<td>更易融合为 FMA，吞吐更高</td>
+</tr>
+<tr>
+<td>适用场景</td>
+<td>对精度敏感的应用</td>
+<td>对吞吐敏感、可接受小误差的应用</td>
+</tr>
+</tbody>
+</table>
+<h3 id="7-6-2-dan-jing-du-yu-shuang-jing-du-zhi-ling-tun-tu" tabindex="-1" id="7-6-2-单精度与双精度指令吞吐">7.6.2 单精度与双精度指令吞吐</h3>
+<p>书中会给出（或引用）不同架构上<strong>单精度与双精度</strong>的每 SM 每周期操作数差异：通常<strong>双精度</strong>的峰值吞吐低于单精度（例如 1:2 或 1:4），因此在不影响算法正确性的前提下，合理使用<strong>单精度</strong>能显著提高指令吞吐。同时，单精度占用的寄存器与带宽更少，有利于提高占用率与内存带宽利用率。</p>
+<p>公式上，若某内核为<strong>计算受限</strong>，则理论执行时间可近似为：<br>
+[<br>
+T \approx \frac{\text{总运算数}}{\text{峰值指令吞吐（ops/s）}}<br>
+]<br>
+降低精度（如改用单精度）或使用快速数学可提高<strong>有效吞吐</strong>，从而缩短 (T)。书中表 7-x（以原书为准）会列出典型架构下单/双精度峰值比（如 Fermi/Kepler 的 FP32 vs FP64 每 SM 每周期操作数），供读者在精度与性能之间权衡。</p>
+<hr>
+<h2 id="ba-ben-zhang-xiao-jie-yu-zhong-nan-dian-hui-gu" tabindex="-1" id="八、本章小结与重难点回顾">八、本章小结与重难点回顾</h2>
+<h3 id="8-1-zhi-shi-xiao-jie-yu-shu-zhong-dui-ying" tabindex="-1" id="8-1-知识小结（与书中对应）">8.1 知识小结（与书中对应）</h3>
+<ul>
+<li><strong>指令级原语</strong>：在 warp 内直接协作或交换数据的内建函数，包括洗牌、表决、warp 同步与活跃掩码；正确使用可减少内存访问与同步、提升指令吞吐。自 CUDA 9 起须使用带 <code>_sync</code> 的原语并正确设置 <strong>mask</strong>（Volta 及以后架构上线程可独立取指，mask 由程序逻辑或 <code>__ballot_sync</code> 确定）。</li>
+<li><strong>洗牌</strong>：<code>__shfl_sync</code>、<code>__shfl_down_sync</code>、<code>__shfl_up_sync</code>、<code>__shfl_xor_sync</code> 用于 warp 内归约、扫描、广播、蝶形交换；必须使用 <code>_sync</code> 版本，<strong>mask 必须与参与线程一致</strong>（部分线程参与时用 <code>__ballot_sync(FULL_MASK, condition)</code> 得到参与掩码再用于洗牌）。</li>
+<li><strong>表决</strong>：<code>__ballot_sync</code> 得到条件为真的线程位掩码，用于计数或生成参与掩码；<code>__all_sync</code> / <code>__any_sync</code> 用于 warp 内全/任一为真的集体判断。调用 ballot 时通常用 FULL_MASK，所有线程执行到该点得到一致掩码后再在分支内用该掩码调用洗牌。</li>
+<li><strong>活跃掩码与 warp 同步</strong>：<code>__activemask()</code> <strong>仅查询</strong>当前一起执行到该点的线程，<strong>不</strong>进行同步，<strong>不可</strong>在分化分支内替代 <code>__ballot_sync</code> 做归约参与掩码；<code>__syncwarp(mask)</code> 用于 warp 内细粒度同步与内存栅栏，<strong>不能替代</strong>块级 <code>__syncthreads()</code>。</li>
+<li><strong>循环展开</strong>：减少迭代与分支、增加独立指令，利于隐藏延迟与提高 ILP；注意寄存器压力与占用率权衡；可用 <code>#pragma unroll</code> 或手写展开。与第 3 章归约中的展开相呼应。</li>
+<li><strong>快速数学与精度</strong>：<code>--use_fast_math</code> 提高吞吐、降低部分精度；单精度相对双精度通常有更高指令吞吐，需按应用需求取舍。</li>
+</ul>
+<h3 id="8-2-zhong-nan-dian-su-cha" tabindex="-1" id="8-2-重难点速查">8.2 重难点速查</h3>
+<table>
+<thead>
+<tr>
+<th>重难点</th>
+<th>要点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>参与掩码</strong></td>
+<td>部分线程参与归约/洗牌时，必须在<strong>分支前</strong>用 <code>__ballot_sync(FULL_MASK, condition)</code> 得到参与掩码，再在分支内用该 mask 调用洗牌；<strong>不可</strong>在分化分支内用 <code>__activemask()</code> 作参与掩码，否则得到部分和或未定义行为。</td>
+</tr>
+<tr>
+<td><strong>_sync 与 mask</strong></td>
+<td>Volta 及以后必须使用带 <code>_sync</code> 的 warp 原语；mask 须与「实际参与该集体操作的线程」一致。</td>
+</tr>
+<tr>
+<td><strong>__activemask 误用</strong></td>
+<td>只查询、不同步；不保证与「逻辑上应参与的线程」一致；在分化分支内用作洗牌/归约掩码会出错。</td>
+</tr>
+<tr>
+<td><strong>__syncwarp 与 __syncthreads</strong></td>
+<td><code>__syncwarp</code> 只同步 mask 内同一 warp 的线程，不能替代块级 <code>__syncthreads()</code>；跨 warp 协作或共享内存读改写须用 <code>__syncthreads()</code>。</td>
+</tr>
+<tr>
+<td><strong>洗牌四变体</strong></td>
+<td>sync/down/up/xor 对应指定 lane、向下偏移、向上偏移、XOR lane；树形归约用 down，蝶形用 xor。</td>
+</tr>
+<tr>
+<td><strong>循环展开权衡</strong></td>
+<td>提高 ILP、减少分支；过度展开会增加寄存器、降低占用率，需权衡。</td>
+</tr>
+<tr>
+<td><strong>快速数学</strong></td>
+<td><code>--use_fast_math</code> 提高吞吐、略降精度；对精度敏感场景慎用。</td>
+</tr>
+</tbody>
+</table>
+<h3 id="8-3-xue-xi-si-kao" tabindex="-1" id="8-3-学习思考">8.3 学习思考</h3>
+<ul>
+<li><strong>与第 3 章的衔接</strong>：第 3 章讲延迟隐藏、归约中的循环展开与最后阶段去掉 __syncthreads；本章从指令级统一理解「展开」与「warp 内协作」——洗牌减少共享内存访问与同步、展开增加可调度指令，二者都在不增加线程数的前提下提高有效吞吐、更好隐藏延迟。</li>
+<li><strong>与第 5 章的关系</strong>：第 5 章引入线程束洗牌入门（__shfl_down_sync、warp 内求和）；本章系统展开四种洗牌变体、参与掩码的正确获取（ballot 而非 activemask）、表决与 warp 同步，形成「warp 内协作」的完整工具箱。归约类内核可先共享内存版，再在 warp 内用洗牌+正确 mask 做一层优化。</li>
+<li><strong>实践建议</strong>：写使用 warp 原语的内核时，(1) 凡有分支导致「部分线程参与集体操作」的，一律在分支前用 <code>__ballot_sync(FULL_MASK, condition)</code> 得到 mask，再在分支内用该 mask 调用洗牌；(2) 不要用 <code>__activemask()</code> 作为归约/洗牌的参与掩码；(3) 仅 warp 内协作用 <code>__syncwarp()</code>，跨 warp 或共享内存可见性用 <code>__syncthreads()</code>；(4) 展开与快速数学在确认正确性后再用，并注意寄存器与精度取舍。</li>
+</ul>
+<p>下表为本章<strong>自检要点</strong>（与书中描述一致）：</p>
+<table>
+<thead>
+<tr>
+<th>要点</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>洗牌四变体</td>
+<td><code>__shfl_sync</code> / <code>_down</code> / <code>_up</code> / <code>_xor_sync</code>；mask 与参与线程一致</td>
+</tr>
+<tr>
+<td>参与掩码</td>
+<td>部分线程参与时用 <code>__ballot_sync(FULL_MASK, condition)</code> 得 mask，再用于洗牌</td>
+</tr>
+<tr>
+<td>表决</td>
+<td><code>__ballot_sync</code> 得位图；<code>__all_sync</code> / <code>__any_sync</code> 得集体布尔结果</td>
+</tr>
+<tr>
+<td>__activemask</td>
+<td>仅查询，不同步；不可在分化分支内用作归约参与掩码</td>
+</tr>
+<tr>
+<td>__syncwarp</td>
+<td>warp 内同步+内存栅栏；不能替代 __syncthreads</td>
+</tr>
+<tr>
+<td>循环展开</td>
+<td>提高 ILP、减少分支；注意寄存器与占用率</td>
+</tr>
+<tr>
+<td>快速数学</td>
+<td>–use_fast_math；单/双精度吞吐差异</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="xia-yi-zhang-yu-gao" tabindex="-1" id="下一章预告">下一章预告</h2>
+<p>在下一篇博客中，我们将进入<strong>第 8 章：GPU 加速库和 OpenACC</strong>：</p>
+<ul>
+<li><strong>CUDA 库概览</strong>：cuBLAS、cuFFT、cuSPARSE、cuRAND 等域专用库的定位与选用</li>
+<li><strong>库的典型用法</strong>：密集/稀疏线性代数、FFT、随机数生成</li>
+<li><strong>OpenACC</strong>：指令式并行、<code>#pragma acc</code> 与数据/计算区域</li>
+</ul>
+<p>从「单设备上的指令级调优」到「用现成库与指令快速获得 GPU 加速」，是向工程化 CUDA 应用迈进的重要一步。</p>
+<hr>
+<h2 id="ben-zhang-zi-ce" tabindex="-1" id="本章自测">本章自测</h2>
+<ol>
+<li><strong>warp 洗牌（_<em>shfl</em>*_sync）与共享内存相比，在 warp 内归约时有何优势？</strong></li>
+<li><strong>循环展开如何帮助隐藏延迟？展开时需注意什么权衡？</strong></li>
+<li><strong><code>__ballot_sync</code> 与 <code>__activemask</code> 在归约中用作洗牌掩码时有何区别？应优先用哪个？</strong></li>
+</ol>
+<p><strong>答案与解析</strong></p>
+<ol>
+<li>洗牌在寄存器间直接交换数据，不经过共享内存，延迟更低、无 bank 冲突；warp 内归约用洗牌可减少共享内存访问与同步次数，提高指令吞吐。</li>
+<li>展开减少循环迭代次数与分支，同一迭代内更多独立指令便于调度器隐藏算术/内存延迟。需注意展开会增加每线程寄存器使用，可能降低占用率，需在 ILP 与占用率之间权衡。</li>
+<li><code>__activemask()</code> 只包含当前活跃的线程，在分支或提前退出时可能不包含整个 warp；<code>__ballot_sync(mask, 1)</code> 用参与线程的 mask 更可靠。做洗牌掩码时应优先用 <code>__ballot_sync</code> 得到的 mask，避免未参与线程影响结果。</li>
+</ol>
+<hr>
+<p><strong>系列导航</strong>：<a href="%E5%AF%BC%E8%AF%BB.md">导读</a> | 上一篇：<a href="%E7%AC%AC6%E7%AB%A0_%E6%B5%81%E5%92%8C%E5%B9%B6%E5%8F%91.md">第6章 流和并发</a> | 下一篇：<a href="%E7%AC%AC8%E7%AB%A0_GPU%E5%8A%A0%E9%80%9F%E5%BA%93%E5%92%8COpenACC.md">第8章 GPU加速库和OpenACC</a></p>
+<hr>
+<blockquote>
+<p><strong>本文为「CUDA C编程权威指南」系列博客第 7 篇，共 10 章。基于《Professional CUDA C Programming》by John Cheng, Max Grossman, Ty McKercher。</strong></p>
+</blockquote>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/1aaa52d4/">https://smarter.xin/posts/1aaa52d4/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/learning-path/">学习路线</a><a class="post-meta__tags" href="/tags/cuda/">CUDA</a><a class="post-meta__tags" href="/tags/gpu-programming/">GPU编程</a><a class="post-meta__tags" href="/tags/reading-notes/">读书笔记</a><a class="post-meta__tags" href="/tags/cuda-basics/">CUDA入门</a><a class="post-meta__tags" href="/tags/parallel-computing/">并行计算</a><a class="post-meta__tags" href="/tags/instruction-primitives/">指令级原语</a><a class="post-meta__tags" href="/tags/warp-shuffle/">warp洗牌</a><a class="post-meta__tags" href="/tags/loop-unrolling/">循环展开</a></div><div class="post-share"><div class="social-share" data-image="/img/Nvidia_CUDA_Logo.jpg" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/74667ea3/" title="常见数据结构-图"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Algorithm.svg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">常见数据结构-图</div></div></div></a><a class="pagination-related  no-desc" href="/posts/1f06d3bd/" title="UESTC校园网自动连接方案"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/UESTC.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">UESTC校园网自动连接方案</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/98c27a24/" title="CUDA C编程权威指南-第十章：程序实现的注意事项"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-02-10</div><div class="info-item-2">CUDA C编程权威指南-第十章：程序实现的注意事项</div></div></div></a><a class="pagination-related no-desc" href="/posts/2b2e171a/" title="CUDA C编程权威指南-第一章：基于CUDA的异构并行计算"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-23</div><div class="info-item-2">CUDA C编程权威指南-第一章：基于CUDA的异构并行计算</div></div></div></a><a class="pagination-related no-desc" href="/posts/bdd22b42/" title="CUDA C编程权威指南-第二章：CUDA编程模型"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-25</div><div class="info-item-2">CUDA C编程权威指南-第二章：CUDA编程模型</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">97</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">171</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">20</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#cuda-c-bian-cheng-quan-wei-zhi-nan-di-qi-zhang-diao-zheng-zhi-ling-ji-yuan-yu"><span class="toc-text">CUDA C编程权威指南-第七章：调整指令级原语</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#qian-yan-cong-nei-cun-yu-liu-dao-zhi-ling-ji"><span class="toc-text">前言：从内存与流到指令级</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#yi-ben-zhang-zai-quan-shu-zhong-de-wei-zhi-yu-xue-xi-mu-biao"><span class="toc-text">一、本章在全书中的位置与学习目标</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-1-wei-shi-yao-yao-xue-diao-zheng-zhi-ling-ji-yuan-yu"><span class="toc-text">1.1 为什么要学「调整指令级原语」</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#1-2-xue-wan-ben-zhang-ni-ying-gai-neng-hui-da"><span class="toc-text">1.2 学完本章，你应该能回答</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#1-3-bo-ke-yue-du-dao-tu-ben-zhang-jia-gou"><span class="toc-text">1.3 博客阅读导图（本章架构）</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#er-zhi-ling-ji-you-hua-yu-xian-cheng-shu-yuan-yu-gai-shu-shu-7-1-jie"><span class="toc-text">二、指令级优化与线程束原语概述（书 7.1 节）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#2-1-wei-shi-yao-xu-yao-zhi-ling-ji-diao-zheng"><span class="toc-text">2.1 为什么需要指令级调整</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-2-xian-cheng-shu-yuan-yu-de-fen-lei-yu-gua-yong-chang-jing"><span class="toc-text">2.2 线程束原语的分类与适用场景</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#san-xian-cheng-shu-xi-pai-zai-tan-shu-7-2-jie"><span class="toc-text">三、线程束洗牌再探（书 7.2 节）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#3-1-xi-pai-zhi-ling-de-si-chong-bian-ti"><span class="toc-text">3.1 洗牌指令的四种变体</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-2-ji-yu-xi-pai-de-warp-nei-gui-yue-wan-zheng-shi-xian"><span class="toc-text">3.2 基于洗牌的 warp 内归约（完整实现）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-3-shfl-xor-yu-die-xing-gui-yue"><span class="toc-text">3.3 __shfl_xor 与蝶形归约</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#si-xian-cheng-shu-biao-jue-han-shu-shu-7-3-jie"><span class="toc-text">四、线程束表决函数（书 7.3 节）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#4-1-ballot-sync-tiao-jian-wei-zhen-de-xian-cheng-wei-yan-ma"><span class="toc-text">4.1 __ballot_sync：条件为真的线程位掩码</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-2-all-sync-yu-any-sync"><span class="toc-text">4.2 __all_sync 与 __any_sync</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#wu-huo-yue-yan-ma-yu-warp-tong-bu-shu-7-4-jie"><span class="toc-text">五、活跃掩码与 warp 同步（书 7.4 节）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#5-1-activemask-de-yu-yi-yu-wu-yong-yi-cuo-dian"><span class="toc-text">5.1 __activemask 的语义与误用 ★ 易错点</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-2-syncwarp-warp-nei-tong-bu-yu-nei-cun-zha-lan"><span class="toc-text">5.2 __syncwarp：warp 内同步与内存栅栏</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#liu-xun-huan-zhan-kai-yu-zhi-ling-ji-bing-xing-shu-7-5-jie"><span class="toc-text">六、循环展开与指令级并行（书 7.5 节）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#6-1-wei-he-zhan-kai-neng-ti-sheng-zhi-ling-tun-tu"><span class="toc-text">6.1 为何展开能提升指令吞吐</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-2-pragma-unroll-yu-shou-xie-zhan-kai"><span class="toc-text">6.2 #pragma unroll 与手写展开</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#qi-kuai-su-shu-xue-yu-jing-du-qu-she-shu-7-6-jie"><span class="toc-text">七、快速数学与精度取舍（书 7.6 节）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#7-6-1-use-fast-math-yu-intrinsic-xing-wei"><span class="toc-text">7.6.1 --use_fast_math 与 intrinsic 行为</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#7-6-2-dan-jing-du-yu-shuang-jing-du-zhi-ling-tun-tu"><span class="toc-text">7.6.2 单精度与双精度指令吞吐</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#ba-ben-zhang-xiao-jie-yu-zhong-nan-dian-hui-gu"><span class="toc-text">八、本章小结与重难点回顾</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#8-1-zhi-shi-xiao-jie-yu-shu-zhong-dui-ying"><span class="toc-text">8.1 知识小结（与书中对应）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#8-2-zhong-nan-dian-su-cha"><span class="toc-text">8.2 重难点速查</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#8-3-xue-xi-si-kao"><span class="toc-text">8.3 学习思考</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xia-yi-zhang-yu-gao"><span class="toc-text">下一章预告</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#ben-zhang-zi-ce"><span class="toc-text">本章自测</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/98c27a24/" title="CUDA C编程权威指南-第十章：程序实现的注意事项"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA C编程权威指南-第十章：程序实现的注意事项"/></a><div class="content"><a class="title" href="/posts/98c27a24/" title="CUDA C编程权威指南-第十章：程序实现的注意事项">CUDA C编程权威指南-第十章：程序实现的注意事项</a><time datetime="2026-02-10T09:00:00.000Z" title="发表于 2026-02-10 17:00:00">2026-02-10</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/844cd057/" title="CUDA C编程权威指南-第九章：多GPU编程"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA C编程权威指南-第九章：多GPU编程"/></a><div class="content"><a class="title" href="/posts/844cd057/" title="CUDA C编程权威指南-第九章：多GPU编程">CUDA C编程权威指南-第九章：多GPU编程</a><time datetime="2026-02-08T02:30:00.000Z" title="发表于 2026-02-08 10:30:00">2026-02-08</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/e466b0a5/" title="CUDA C编程权威指南-第八章：GPU加速库和OpenACC"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA C编程权威指南-第八章：GPU加速库和OpenACC"/></a><div class="content"><a class="title" href="/posts/e466b0a5/" title="CUDA C编程权威指南-第八章：GPU加速库和OpenACC">CUDA C编程权威指南-第八章：GPU加速库和OpenACC</a><time datetime="2026-02-06T05:10:00.000Z" title="发表于 2026-02-06 13:10:00">2026-02-06</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>

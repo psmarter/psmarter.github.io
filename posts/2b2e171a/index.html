@@ -1,0 +1,861 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>CUDA C编程权威指南-第一章：基于CUDA的异构并行计算 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="CUDA C编程权威指南-第一章：基于CUDA的异构并行计算 系列导航：导读 | 下一篇：第2章 CUDA编程模型  本篇是《CUDA C编程权威指南》读书笔记系列的第 1 篇，从并行计算与异构架构讲起：为什么需要 GPU、什么是异构计算、CUDA 如何定位。先把「并行思维」和「CPU+GPU 分工」搞清楚，后面学编程模型、执行模型和内存优化会顺很多。   一、本章在全书中的位置与学习目标 第 1">
+<meta property="og:type" content="article">
+<meta property="og:title" content="CUDA C编程权威指南-第一章：基于CUDA的异构并行计算">
+<meta property="og:url" content="https://smarter.xin/posts/2b2e171a/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="CUDA C编程权威指南-第一章：基于CUDA的异构并行计算 系列导航：导读 | 下一篇：第2章 CUDA编程模型  本篇是《CUDA C编程权威指南》读书笔记系列的第 1 篇，从并行计算与异构架构讲起：为什么需要 GPU、什么是异构计算、CUDA 如何定位。先把「并行思维」和「CPU+GPU 分工」搞清楚，后面学编程模型、执行模型和内存优化会顺很多。   一、本章在全书中的位置与学习目标 第 1">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/Nvidia_CUDA_Logo.jpg">
+<meta property="article:published_time" content="2026-01-23T01:08:10.000Z">
+<meta property="article:modified_time" content="2026-03-16T03:38:42.111Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="学习路线">
+<meta property="article:tag" content="CUDA">
+<meta property="article:tag" content="GPU编程">
+<meta property="article:tag" content="读书笔记">
+<meta property="article:tag" content="CUDA入门">
+<meta property="article:tag" content="并行计算">
+<meta property="article:tag" content="异构计算">
+<meta property="article:tag" content="并行计算入门">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/Nvidia_CUDA_Logo.jpg"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "CUDA C编程权威指南-第一章：基于CUDA的异构并行计算",
+  "url": "https://smarter.xin/posts/2b2e171a/",
+  "image": "https://smarter.xin/img/Nvidia_CUDA_Logo.jpg",
+  "datePublished": "2026-01-23T01:08:10.000Z",
+  "dateModified": "2026-03-16T03:38:42.111Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/2b2e171a/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'CUDA C编程权威指南-第一章：基于CUDA的异构并行计算',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">97</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">171</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">20</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/Nvidia_CUDA_Logo.jpg);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">CUDA C编程权威指南-第一章：基于CUDA的异构并行计算</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">CUDA C编程权威指南-第一章：基于CUDA的异构并行计算</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-01-23T01:08:10.000Z" title="发表于 2026-01-23 09:08:10">2026-01-23</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-03-16T03:38:42.111Z" title="更新于 2026-03-16 11:38:42">2026-03-16</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/knowledge-sharing/">知识分享</a><i class="fas fa-angle-right post-meta-separator"></i><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/knowledge-sharing/cuda-c-programming-guide/">CUDA C编程权威指南</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">6.1k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>19分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="cuda-c-bian-cheng-quan-wei-zhi-nan-di-yi-zhang-ji-yu-cuda-de-yi-gou-bing-xing-ji-suan" tabindex="-1">CUDA C编程权威指南-第一章：基于CUDA的异构并行计算</h1>
+<p><strong>系列导航</strong>：<a href="%E5%AF%BC%E8%AF%BB.md">导读</a> | 下一篇：<a href="%E7%AC%AC2%E7%AB%A0_CUDA%E7%BC%96%E7%A8%8B%E6%A8%A1%E5%9E%8B.md">第2章 CUDA编程模型</a></p>
+<blockquote>
+<p>本篇是《CUDA C编程权威指南》读书笔记系列的第 1 篇，从并行计算与异构架构讲起：为什么需要 GPU、什么是异构计算、CUDA 如何定位。先把「并行思维」和「CPU+GPU 分工」搞清楚，后面学编程模型、执行模型和内存优化会顺很多。</p>
+</blockquote>
+<hr>
+<h2 id="yi-ben-zhang-zai-quan-shu-zhong-de-wei-zhi-yu-xue-xi-mu-biao" tabindex="-1" id="一、本章在全书中的位置与学习目标">一、本章在全书中的位置与学习目标</h2>
+<p>第 1 章不写复杂代码，主要解决<strong>观念与语境</strong>问题——先把「并行计算」和「异构计算」讲清楚，是因为：</p>
+<ul>
+<li>CUDA 编程的本质是<strong>数据并行</strong> + <strong>在 GPU 上执行</strong>，若不清楚并行性的类型和 CPU/GPU 的差异，后面学线程网格、共享内存时会缺少动机。</li>
+<li>主机（Host）与设备（Device）、主机代码与设备代码的区分将贯穿全书，第1章就必须建立清晰术语。</li>
+</ul>
+<p><strong>学完本章，你应该能回答：</strong></p>
+<table>
+<thead>
+<tr>
+<th>目标</th>
+<th>检验方式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>理解串行与并行的区别，以及<strong>数据相关性</strong>对并行性的约束</td>
+<td>能解释「为什么某段代码难以并行」</td>
+</tr>
+<tr>
+<td>区分任务并行与数据并行，并知道 CUDA 主攻哪一类</td>
+<td>能说出块划分与周期划分的大致思路</td>
+</tr>
+<tr>
+<td>理解弗林分类中的 SISD/SIMD/MIMD，以及 GPU 的 SIMT</td>
+<td>能简述 SIMT 与 SIMD 的联系与区别</td>
+</tr>
+<tr>
+<td>理解同构与异构、主机与设备、GPU 作为协处理器与硬件加速器</td>
+<td>能画出一个简单异构节点（CPU + GPU + PCIe）</td>
+</tr>
+<tr>
+<td>理解 CPU 与 GPU 的设计哲学差异（延迟 vs 吞吐量、线程轻重）</td>
+<td>能说明「为何 GPU 适合大规模数据并行」</td>
+</tr>
+<tr>
+<td>会编写、编译并运行一个最简单的核函数（Hello World）</td>
+<td>能解释 <code>__global__</code> 和 <code>&lt;&lt;&lt;1,10&gt;&gt;&gt;</code> 的含义</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="er-bing-xing-ji-suan-shu-1-1-jie" tabindex="-1" id="二、并行计算（书-1-1-节）">二、并行计算（书 1.1 节）</h2>
+<h3 id="2-1-chuan-xing-bian-cheng-yu-bing-xing-bian-cheng" tabindex="-1" id="2-1-串行编程与并行编程">2.1 串行编程与并行编程</h3>
+<p>这一节里把概念厘清一下：用程序解决问题时，我们会自然地把问题划分成许多<strong>运算块</strong>，每个块执行一个指定任务。若这些块<strong>按先后顺序依次执行</strong>，就是<strong>串行程序</strong>。</p>
+<p>两个计算块之间要么存在<strong>执行次序约束</strong>（必须串行），要么<strong>没有次序约束</strong>（可以并发）。<strong>所有包含并发执行任务的程序都是并行程序</strong>。尤其要注意的是：一个并行程序中<strong>可能既有并行部分也有串行部分</strong>（例如先串行初始化，再并行计算，再串行汇总）。</p>
+<blockquote>
+<p><strong>理解与体会</strong>：并行化不是「全盘同时执行」，而是找出<strong>可以同时执行</strong>的子集，其余部分仍保持顺序。这对后面理解「主机上串行、设备上并行」的分工很重要。</p>
+</blockquote>
+<p><strong>数据相关性</strong>（这一章会反复用到）：</p>
+<ul>
+<li>一个任务若<strong>依赖</strong>另一个任务的输出，则两者<strong>相关</strong>；否则<strong>独立</strong>。</li>
+<li><strong>在并行算法实现中，分析数据相关性是最基本的内容，因为相关性是限制并行性的主要因素。</strong></li>
+</ul>
+<blockquote>
+<p><strong>难点</strong>：很多性能问题源于「以为能并行、实则存在隐式依赖」。写 CUDA 时，要习惯先问：这段计算依赖哪些数据、是否被其他线程写入？</p>
+</blockquote>
+<p>并行计算涉及两个紧密相关的层面（书中 1.1 节）：</p>
+<table>
+<thead>
+<tr>
+<th>层面</th>
+<th>关注点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>计算机架构</strong>（硬件）</td>
+<td>在结构级别上支持并行执行</td>
+</tr>
+<tr>
+<td><strong>并行程序设计</strong>（软件）</td>
+<td>充分利用硬件能力并发地解决问题</td>
+</tr>
+</tbody>
+</table>
+<p>这里提到：编写串行程序时，未必需要深入理解计算机架构；但在多核/众核上编写并行程序时，<strong>对底层架构的基本认识就显得非常重要</strong>。现代处理器多采用<strong>哈佛体系结构</strong>：内存（指令与数据）、中央处理单元（控制单元与算术逻辑单元）、输入/输出接口。高性能计算的关键是 CPU；早期单芯片单 CPU 为单核，现在多核处理器将多个核心集成在同一芯片上，<strong>并行程序设计可以看作把问题的计算分配给可用核心以实现并行的过程</strong>。</p>
+<hr>
+<h3 id="2-2-bing-xing-xing-de-liang-chong-ji-ben-lei-xing-shu-1-1-2" tabindex="-1" id="2-2-并行性的两种基本类型（书-1-1-2）">2.2 并行性的两种基本类型（书 1.1.2）</h3>
+<p>并行性有两种基本类型：</p>
+<table>
+<thead>
+<tr>
+<th>类型</th>
+<th>含义</th>
+<th>重点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>任务并行</strong></td>
+<td>许多任务或函数可以<strong>独立地、大规模地</strong>并行执行</td>
+<td>利用多核系统<strong>对任务进行分配</strong></td>
+</tr>
+<tr>
+<td><strong>数据并行</strong></td>
+<td>可以<strong>同时处理许多数据</strong></td>
+<td>利用多核系统<strong>对数据进行分配</strong></td>
+</tr>
+</tbody>
+</table>
+<p><strong>CUDA 编程非常适合解决数据并行问题，本书的重点便是如何使用 CUDA 解决数据并行问题。</strong></p>
+<p>数据并行程序设计的第一步是<strong>把数据依据线程进行划分</strong>，使每个线程处理一部分数据。两种常见划分方式（对应书中图 1-4、1-5）：</p>
+<table>
+<thead>
+<tr>
+<th>划分方式</th>
+<th>做法</th>
+<th>特点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>块划分（block partitioning）</strong></td>
+<td>一组<strong>连续</strong>的数据被分到一个块内；每个数据块以任意次序分配给一个线程，线程通常<strong>同一时间只处理一个数据块</strong></td>
+<td>每个线程只处理数据的一部分</td>
+</tr>
+<tr>
+<td><strong>周期划分（cyclic partitioning）</strong></td>
+<td><strong>更少</strong>的数据被分到一个块内；<strong>相邻线程处理相邻数据块</strong>，每个线程可以处理<strong>多个数据块</strong>；选新块时相当于「跳过与现有线程数相同数量的数据块」</td>
+<td>每个线程处理数据的多个部分</td>
+</tr>
+</tbody>
+</table>
+<p>对<strong>二维数据</strong>，可以沿 x 轴、y 轴或两者做块划分或周期划分（书中图 1-5 给出了沿 y 轴块划分、沿 x 和 y 块划分、沿 x 轴周期划分等例子）。</p>
+<blockquote>
+<p><strong>注意</strong>：<strong>数据通常在物理上是一维存储的</strong>，即便逻辑上是多维，也要映射到一维地址空间。<strong>如何在线程中分配数据，不仅与数据的物理存储方式密切相关，而且与每个线程的执行次序也有很大关系；组织线程的方式对程序性能有很大影响。</strong> 这一点在第 2 章（网格与块）、第 4 章（全局内存访问模式）会反复出现。</p>
+</blockquote>
+<hr>
+<h3 id="2-3-ji-suan-ji-jia-gou-fen-lei-fu-lin-fen-lei-fa-shu-1-1-3" tabindex="-1" id="2-3-计算机架构分类：弗林分类法（书-1-1-3）">2.3 计算机架构分类：弗林分类法（书 1.1.3）</h3>
+<p>弗林分类法（Flynn’s Taxonomy）根据<strong>指令</strong>和<strong>数据</strong>进入 CPU 的方式，将计算机架构分为四类（书中图 1-6）：</p>
+<table>
+<thead>
+<tr>
+<th>类型</th>
+<th>全称</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>SISD</strong></td>
+<td>单指令单数据</td>
+<td>传统串行架构：一个核心，任一时刻只有一个指令流处理一个数据流</td>
+</tr>
+<tr>
+<td><strong>SIMD</strong></td>
+<td>单指令多数据</td>
+<td>多个核心，同一时刻<strong>所有核心只有一个指令流</strong>，处理<strong>不同数据流</strong>；向量机是典型代表；现代很多机器都采用 SIMD</td>
+</tr>
+<tr>
+<td><strong>MISD</strong></td>
+<td>多指令单数据</td>
+<td>多个指令流处理<strong>同一</strong>数据流，实际中较少见</td>
+</tr>
+<tr>
+<td><strong>MIMD</strong></td>
+<td>多指令多数据</td>
+<td>多个核心用多个指令流<strong>异步</strong>处理多个数据流，实现空间上的并行；许多 MIMD 架构还包含 SIMD 子组件</td>
+</tr>
+</tbody>
+</table>
+<p>这里提到：<strong>SIMD 的一大优势是，程序员可以继续按串行逻辑思考，而对并行数据的操作由编译器等实现并行加速。</strong></p>
+<p><strong>延迟、带宽与吞吐量</strong>（书中 1.1.3）：</p>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>含义</th>
+<th>常用单位</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>延迟（latency）</strong></td>
+<td>一个操作从开始到完成所需的时间</td>
+<td>微秒（μs）</td>
+</tr>
+<tr>
+<td><strong>带宽（bandwidth）</strong></td>
+<td>单位时间内可处理的数据量</td>
+<td>MB/s、GB/s</td>
+</tr>
+<tr>
+<td><strong>吞吐量（throughput）</strong></td>
+<td>单位时间内成功处理的运算数量</td>
+<td>GFlops（每秒十亿次浮点运算）等</td>
+</tr>
+</tbody>
+</table>
+<p><strong>延迟</strong>衡量完成<strong>单次</strong>操作的时间，<strong>吞吐量</strong>衡量<strong>单位时间内</strong>处理的操作量。<strong>架构设计会在降低延迟、提高带宽、提高吞吐量之间做权衡。</strong></p>
+<p><strong>按内存组织的分类</strong>（书中 1.1.3）：</p>
+<ul>
+<li><strong>分布式内存的多节点系统</strong>（集群）：多个处理器通过网络连接，各有本地内存。</li>
+<li><strong>共享内存的多处理器系统</strong>：多个处理器共享同一物理内存，或通过低延迟链路（如 <strong>PCIe</strong>）相连；共享内存指共享地址空间，不一定是单一物理内存。这类系统包括多核单片系统，以及多芯片、每芯片多核的系统。</li>
+</ul>
+<p><strong>从多核到众核</strong>：<strong>「众核」（many-core）</strong> 通常指具有很多核心（几十到几百个）的多核架构。近年来架构正从多核转向众核。<strong>GPU 代表众核架构</strong>，几乎包含前述所有并行结构：多线程、MIMD、SIMD 以及指令级并行。<strong>NVIDIA 将这种架构称为 SIMT（单指令多线程）。</strong></p>
+<blockquote>
+<p><strong>理解与体会</strong>：SIMT 可以理解为「在 GPU 上一条指令对应很多线程，每条线程处理自己的数据」，既保留「单指令」的编程简洁性，又实现大规模多线程与 MIMD 的灵活性。后续学到 warp、线程块时会再具体化。</p>
+</blockquote>
+<p><strong>CPU 核心与 GPU 核心</strong>（书中原意）：尽管可用多核与众核来区分 CPU 与 GPU，但两种「核心」本质不同。<strong>CPU 核心较重</strong>，用于处理非常复杂的控制逻辑，优化<strong>串行</strong>程序执行；<strong>GPU 核心较轻</strong>，用于优化具有<strong>简单控制逻辑</strong>的<strong>数据并行</strong>任务，注重<strong>吞吐量</strong>。</p>
+<hr>
+<h2 id="san-yi-gou-ji-suan-shu-1-2-jie" tabindex="-1" id="三、异构计算（书-1-2-节）">三、异构计算（书 1.2 节）</h2>
+<h3 id="3-1-cong-tong-gou-dao-yi-gou-shu-1-2-1" tabindex="-1" id="3-1-从同构到异构（书-1-2-1）">3.1 从同构到异构（书 1.2.1）</h3>
+<p>最初计算机只有 CPU；近年来，高性能计算主流机器不断加入其他处理单元，其中最主要的就是 <strong>GPU</strong>。GPU 最初为图形并行计算设计，现已演化为<strong>强大的、多用途的、完全可编程的</strong>处理器，适合<strong>任务与数据并行</strong>的大规模计算。</p>
+<p><strong>CPU 和 GPU 是两个独立的处理器，通过单个计算节点中的 PCI-Express 总线相连。</strong> 在这种典型架构中，GPU 作为<strong>离散设备</strong>存在。值得留意的是：<strong>从同构系统到异构系统的转变，是高性能计算史上的一个里程碑。</strong></p>
+<table>
+<thead>
+<tr>
+<th>概念</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>同构计算</strong></td>
+<td>使用<strong>同一架构</strong>下的一个或多个处理器执行应用</td>
+</tr>
+<tr>
+<td><strong>异构计算</strong></td>
+<td>使用<strong>不同架构</strong>的处理器（如 CPU + GPU）执行应用，<strong>为任务选择适合的架构</strong>，以改进性能</td>
+</tr>
+</tbody>
+</table>
+<p>书中也指出：异构系统虽能带来优势，但<strong>有效利用受限于应用程序设计的复杂性</strong>；若你已有并行编程基础，适应异构并行会相对容易。</p>
+<p><strong>典型异构计算节点</strong>：包含<strong>两个多核 CPU 插槽</strong>和<strong>两个或更多众核 GPU</strong>。<strong>GPU 不是独立运行平台，而是 CPU 的协处理器</strong>，必须通过 <strong>PCIe 总线</strong>与基于 CPU 的<strong>主机</strong>相连才能工作（书中图 1-9）。因此：</p>
+<ul>
+<li><strong>主机端（Host）</strong>：CPU 所在位置</li>
+<li><strong>设备端（Device）</strong>：GPU 所在位置</li>
+</ul>
+<p><strong>异构应用的组成</strong>：</p>
+<ul>
+<li><strong>主机代码</strong>：在 CPU 上运行</li>
+<li><strong>设备代码</strong>：在 GPU 上运行</li>
+</ul>
+<p>应用通常由 <strong>CPU 初始化</strong>；在把计算密集型任务加载到设备之前，<strong>CPU 负责管理设备端的环境、代码和数据</strong>。当使用与 CPU 物理上分离的硬件来加速应用中<strong>计算密集型</strong>部分时，该组件就称为<strong>硬件加速器</strong>；<strong>GPU 是最常见的硬件加速器之一</strong>。</p>
+<hr>
+<h3 id="3-2-gpu-chan-pin-xian-yu-xing-neng-zhi-biao-shu-1-2-1" tabindex="-1" id="3-2-GPU-产品线与性能指标（书-1-2-1）">3.2 GPU 产品线与性能指标（书 1.2.1）</h3>
+<p>书中简要列举了应用 NVIDIA GPU 计算平台的产品线：</p>
+<table>
+<thead>
+<tr>
+<th>产品线</th>
+<th>面向</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Tegra</strong></td>
+<td>移动与嵌入式（如平板、手机）</td>
+</tr>
+<tr>
+<td><strong>GeForce</strong></td>
+<td>消费级图形</td>
+</tr>
+<tr>
+<td><strong>Quadro</strong></td>
+<td>专业绘图与设计</td>
+</tr>
+<tr>
+<td><strong>Tesla</strong></td>
+<td>大规模并行计算（如 HPC 加速器）</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Fermi</strong> 是 Tesla 系列中的一种 GPU 加速器，在高性能计算中应用广泛。<strong>NVIDIA 于 2010 年发布的 Fermi 架构是世界上第一款完整的 GPU 计算架构</strong>；<strong>Kepler</strong> 于 2012 年发布，处理能力相比以往有较大提升。本书多数示例可在 Fermi 与 Kepler 上运行；部分示例需要 Kepler 中特殊架构支持。</p>
+<p>描述 GPU 能力的两个重要特征（书中 1.2.1）：</p>
+<ul>
+<li><strong>CUDA 核心数量</strong>：决定并行规模</li>
+<li><strong>内存大小</strong>：决定可处理的数据规模</li>
+</ul>
+<p>对应的两个性能指标：</p>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>含义</th>
+<th>单位</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>峰值计算性能</strong></td>
+<td>每秒能处理的单精度/双精度浮点运算数量</td>
+<td>GFlops、TFlops</td>
+</tr>
+<tr>
+<td><strong>内存带宽</strong></td>
+<td>从内存读取或写入数据的速率</td>
+<td>GB/s</td>
+</tr>
+</tbody>
+</table>
+<p><strong>计算能力（Compute Capability）</strong>：NVIDIA 用「计算能力」描述 Tesla 系列 GPU 的<strong>硬件版本</strong>。<strong>主版本号相同的设备具有相同的核心架构</strong>。例如：主版本号 3 对应 Kepler 类架构，主版本号 2 对应 Fermi 类架构，主版本号 1 对应早期 Tesla 类架构。<strong>本书所有示例都需要计算能力 2.0 及以上。</strong></p>
+<hr>
+<h3 id="3-3-yi-gou-ji-suan-fan-li-cpu-yu-gpu-de-fen-gong-shu-1-2-2" tabindex="-1" id="3-3-异构计算范例：CPU-与-GPU-的分工（书-1-2-2）">3.3 异构计算范例：CPU 与 GPU 的分工（书 1.2.2）</h3>
+<p>这里区分清楚：<strong>GPU 计算并不是要取代 CPU 计算。</strong> 对特定程序而言，各有适用场景；<strong>CPU 与 GPU 结合能有效提高大规模计算问题的处理速度与性能。</strong></p>
+<ul>
+<li><strong>CPU</strong>：针对<strong>动态工作负载</strong>优化——短序列计算、<strong>不可预测的控制流</strong>。</li>
+<li><strong>GPU</strong>：针对<strong>由计算主导、控制流简单</strong>的工作负载。</li>
+</ul>
+<p>可从<strong>并行级别</strong>和<strong>数据规模</strong>两方面区分（书中图 1-10）：</p>
+<table>
+<thead>
+<tr>
+<th>特征</th>
+<th>更适合 CPU</th>
+<th>更适合 GPU</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>数据规模</td>
+<td>较小</td>
+<td>较大</td>
+</tr>
+<tr>
+<td>控制逻辑</td>
+<td>复杂</td>
+<td>简单</td>
+</tr>
+<tr>
+<td>并行级别</td>
+<td>低（如指令级并行）</td>
+<td>高（大规模数据并行）</td>
+</tr>
+</tbody>
+</table>
+<p><strong>最佳实践</strong>（书中图 1-11）：<strong>为获得最佳性能，应同时使用 CPU 和 GPU</strong>——在 <strong>CPU</strong> 上执行<strong>串行部分或任务并行部分</strong>，在 <strong>GPU</strong> 上执行<strong>数据密集型并行部分</strong>。这种分工使 CPU + GPU 系统得以充分利用。</p>
+<p><strong>CPU 线程与 GPU 线程</strong>（书中 1.2.2 重要对比）：</p>
+<ul>
+<li><strong>CPU 上的线程</strong>：通常是<strong>重量级</strong>实体；操作系统需要切换线程以提供多线程能力，<strong>上下文切换缓慢且开销大</strong>。四核 CPU 上可同时运行约 16 个线程（若支持超线程则可达约 32 个）。</li>
+<li><strong>GPU 上的线程</strong>：<strong>高度轻量级</strong>；典型系统中有<strong>成千上万</strong>个线程在排队。若 GPU 需等待一组线程结束，可以转而执行另一组线程。</li>
+<li><strong>设计目标</strong>：<strong>CPU 核心</strong>旨在<strong>尽可能减少一个或少量线程的延迟</strong>；<strong>GPU 核心</strong>旨在<strong>处理大量并发、轻量级的线程，以最大化吞吐量</strong>。</li>
+<li><strong>数量对比</strong>：现代 NVIDIA GPU 每个多处理器最多可<strong>并发</strong>支持 <strong>1536</strong> 个活跃线程；一块有 16 个多处理器的 GPU 可<strong>同时</strong>支持<strong>超过 24000</strong> 个活跃线程。</li>
+</ul>
+<hr>
+<h3 id="3-4-cuda-yi-chong-yi-gou-ji-suan-ping-tai-shu-1-2-3" tabindex="-1" id="3-4-CUDA：一种异构计算平台（书-1-2-3）">3.4 CUDA：一种异构计算平台（书 1.2.3）</h3>
+<p><strong>CUDA</strong> 是 NVIDIA 推出的<strong>通用并行计算平台和编程模型</strong>，利用 GPU 中的并行计算引擎更有效地解决复杂计算问题。通过 CUDA，可以像在 CPU 上那样<strong>用 GPU 进行计算</strong>。</p>
+<p>CUDA 平台可通过多种方式使用（书中图 1-12）：</p>
+<ul>
+<li><strong>CUDA 加速库</strong>（如 cuBLAS、cuFFT 等）</li>
+<li><strong>编译器指令</strong>（如 OpenACC）</li>
+<li><strong>行业标准语言的扩展</strong>（C、C++、Fortran、Python 等）</li>
+</ul>
+<p><strong>本书重点介绍 CUDA C。</strong> <strong>CUDA C 是标准 ANSI C 的扩展</strong>，通过<strong>少量语言扩展</strong>使异构编程成为可能，并通过 <strong>API</strong> 管理设备、内存等。CUDA 还是<strong>可扩展的编程模型</strong>：程序能在具有不同数量核心的 GPU 上透明地扩展并行性，对熟悉 C 的程序员也较易上手。</p>
+<p>一个 CUDA 程序包含<strong>主机代码</strong>（在 CPU 上运行）与<strong>设备代码</strong>（在 GPU 上运行）的混合。<strong>NVIDIA 的 nvcc 编译器在编译过程中将设备代码从主机代码中分离出来</strong>（书中图 1-14）：</p>
+<ul>
+<li><strong>主机代码</strong>：标准 C，由 <strong>C 编译器</strong>编译。</li>
+<li><strong>设备代码</strong>（核函数）：用带有关键字标记的 <strong>CUDA C</strong> 编写，由 <strong>nvcc</strong> 编译。</li>
+<li><strong>链接阶段</strong>：在核函数调用与显式 GPU 操作中链接 <strong>CUDA 运行时库</strong>。</li>
+</ul>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">源代码(.cu)</span><br><span class="line">    │</span><br><span class="line">    ▼</span><br><span class="line">  nvcc ──→ 分离主机代码与设备代码</span><br><span class="line">    │              │</span><br><span class="line">    ▼              ▼</span><br><span class="line"> C 编译器      CUDA 编译器</span><br><span class="line"> (主机代码)    (设备代码/核函数)</span><br><span class="line">    │              │</span><br><span class="line">    ▼              ▼</span><br><span class="line">    链接 + CUDA 运行时库</span><br><span class="line">              │</span><br><span class="line">              ▼</span><br><span class="line">          可执行程序</span><br></pre></td></tr></table></figure>
+<hr>
+<h2 id="si-yong-gpu-shu-chu-hello-world-shu-1-3-jie" tabindex="-1" id="四、用-GPU-输出-Hello-World（书-1-3-节）">四、用 GPU 输出 Hello World（书 1.3 节）</h2>
+<p>下面是书中风格的第一个 CUDA 程序：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;stdio.h&gt;</span></span></span><br><span class="line"></span><br><span class="line">__global__ <span class="type">void</span> <span class="title function_">helloFromGPU</span><span class="params">(<span class="type">void</span>)</span> &#123;</span><br><span class="line">    <span class="built_in">printf</span>(<span class="string">&quot;Hello World from GPU!\n&quot;</span>);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="type">int</span> <span class="title function_">main</span><span class="params">(<span class="type">void</span>)</span> &#123;</span><br><span class="line">    <span class="built_in">printf</span>(<span class="string">&quot;Hello World from CPU!\n&quot;</span>);</span><br><span class="line"></span><br><span class="line">    helloFromGPU&lt;&lt;&lt;<span class="number">1</span>, <span class="number">10</span>&gt;&gt;&gt;();</span><br><span class="line"></span><br><span class="line">    cudaDeviceReset();</span><br><span class="line">    <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p><strong>要点说明</strong>：</p>
+<ul>
+<li><strong><code>__global__</code></strong>：修饰符，表示这是一个<strong>核函数（kernel）</strong>——在设备上执行，由主机<strong>调用</strong>。</li>
+<li><strong><code>&lt;&lt;&lt;1, 10&gt;&gt;&gt;</code></strong>：<strong>执行配置</strong>。第一个数 <strong>1</strong> 表示使用 <strong>1 个线程块</strong>，第二个数 <strong>10</strong> 表示<strong>每个块 10 个线程</strong>，因此共 <strong>10 个</strong> GPU 线程执行该核函数。每个线程都会执行一次 <code>helloFromGPU</code>，因此会打印 10 次 “Hello World from GPU!”。</li>
+<li><strong><code>cudaDeviceReset()</code></strong>：释放当前设备上的资源，并促使设备端输出缓冲区被刷新（便于在主机端看到 GPU 的 printf 输出）。</li>
+</ul>
+<p>编译与运行：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">nvcc hello.cu -o hello</span><br><span class="line">./hello</span><br></pre></td></tr></table></figure>
+<p>典型输出（顺序可能因线程调度略有差异）：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">Hello World from CPU!</span><br><span class="line">Hello World from GPU!</span><br><span class="line">Hello World from GPU!</span><br><span class="line">…（共 10 次）</span><br></pre></td></tr></table></figure>
+<blockquote>
+<p><strong>理解与体会</strong>：同一段核函数代码被 10 个线程「同时」执行，正是<strong>数据并行</strong>的直观体现——所有线程执行相同代码，区别仅在于线程索引（后续会用 <code>threadIdx</code> 等区分每个线程负责的数据）。</p>
+</blockquote>
+<hr>
+<h2 id="wu-shi-yong-cuda-c-bian-cheng-nan-ma-shu-1-4-jie" tabindex="-1" id="五、使用-CUDA-C-编程难吗？（书-1-4-节）">五、使用 CUDA C 编程难吗？（书 1.4 节）</h2>
+<p>书中给出的态度是：<strong>不难，但需要思维转换。</strong> 主要区别在于对 GPU 架构的熟悉程度；一旦学会<strong>用并行思维思考</strong>并对 GPU 架构有基本了解，编写面向众多核心的并行程序会变得自然。</p>
+<p><strong>数据局部性</strong>（书中 1.4）：高性能编程中的核心概念——通过<strong>数据重用</strong>降低内存访问延迟。</p>
+<ul>
+<li><strong>时间局部性</strong>：在较短时间内重复访问同一数据。</li>
+<li><strong>空间局部性</strong>：访问存储空间中相邻的数据。</li>
+</ul>
+<p>CPU 通过大容量缓存自动利用局部性；在 CUDA 中，程序员可通过<strong>共享内存</strong>等机制<strong>显式</strong>控制数据局部性，这是性能优化的关键之一。</p>
+<p><strong>CUDA 的三个核心抽象</strong>（书中 1.4）：</p>
+<ol>
+<li><strong>线程组的层次结构</strong>：线程 → 线程块 → 网格</li>
+<li><strong>内存的层次结构</strong>：寄存器、共享内存、全局内存等</li>
+<li><strong>同步机制</strong>：如屏障同步</li>
+</ol>
+<p>编写 CUDA 程序时，你主要编写<strong>被单个线程执行的一小段串行代码</strong>；GPU 负责启动大量线程并行执行这段代码。<strong>概念上，把串行代码中的循环「展开」成由不同线程执行，就得到核函数。</strong></p>
+<p><strong>开发工具链</strong>（书中 1.4）：NVIDIA 提供 Nsight 集成开发环境、CUDA-GDB 调试器、Visual Profiler 性能分析、CUDA-MEMCHECK 内存检查、nvidia-smi 设备管理等，后续章节会逐步用到。</p>
+<hr>
+<h2 id="liu-zhong-nan-dian-yu-xue-xi-ti-hui-xiao-jie" tabindex="-1" id="六、重难点与学习体会小结">六、重难点与学习体会小结</h2>
+<p>下表集中梳理本章容易混淆或需要反复强化的点，便于复习与后续章节衔接。</p>
+<table>
+<thead>
+<tr>
+<th>主题</th>
+<th>书中要点</th>
+<th>个人理解/易错点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>数据相关性</strong></td>
+<td>限制并行性的主要因素；分析数据相关性是并行算法实现的基本工作</td>
+<td>写核函数前先想清楚：每个线程读哪些数据、写哪些数据，是否有写冲突或未定义依赖</td>
+</tr>
+<tr>
+<td><strong>块划分 vs 周期划分</strong></td>
+<td>块划分：连续数据成块，每线程一块；周期划分：块更小，相邻线程处理相邻块，每线程多块</td>
+<td>与第 2 章 grid/block 对应：块划分更易对应「连续内存访问」，周期划分在某些负载均衡场景有用；数据物理上一维存储，分配方式影响访问模式与性能</td>
+</tr>
+<tr>
+<td><strong>SIMT</strong></td>
+<td>GPU 结合多线程、MIMD、SIMD 等，NVIDIA 称为单指令多线程</td>
+<td>与 SIMD 类似处是「一条指令、多份数据」；不同处在于 GPU 线程可有自己的分支、更灵活，后续会学到 warp 内的 SIMD 执行</td>
+</tr>
+<tr>
+<td><strong>主机 vs 设备</strong></td>
+<td>CPU=主机，GPU=设备；主机代码在 CPU 运行，设备代码在 GPU 运行；GPU 是协处理器，通过 PCIe 连接</td>
+<td>全书术语统一：分配设备内存、拷贝到设备、在设备上启动核函数；不要混淆主机指针与设备指针</td>
+</tr>
+<tr>
+<td><strong>CPU vs GPU 设计哲学</strong></td>
+<td>CPU：少线程、低延迟、复杂控制；GPU：海量轻量级线程、高吞吐、简单控制</td>
+<td>不要用「跑得快」笼统比较；要问「延迟敏感还是吞吐敏感」「数据规模与并行度如何」</td>
+</tr>
+<tr>
+<td><strong>计算能力</strong></td>
+<td>主版本号相同则核心架构相同；本书示例需 2.0+</td>
+<td>选 GPU 或写条件编译时要注意 Compute Capability</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="qi-ben-zhang-xiao-jie" tabindex="-1" id="七、本章小结">七、本章小结</h2>
+<p>第1章建立了三个层次的认知（对应书中全章结构）：</p>
+<table>
+<thead>
+<tr>
+<th>层次</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>计算思维</strong></td>
+<td>串行 vs 并行；数据相关性限制并行性；任务并行 vs 数据并行；块划分与周期划分；弗林分类与 SIMT；延迟、带宽、吞吐量；多核到众核</td>
+</tr>
+<tr>
+<td><strong>异构架构</strong></td>
+<td>同构→异构；主机/设备；主机代码/设备代码；GPU 为协处理器与硬件加速器；NVIDIA 产品线与计算能力；CPU 与 GPU 分工；CPU 线程与 GPU 线程的差异</td>
+</tr>
+<tr>
+<td><strong>CUDA 平台</strong></td>
+<td>CUDA 为异构计算平台与编程模型；CUDA C 为 C 的扩展；nvcc 分离主机/设备代码；第一个核函数与执行配置 <code>&lt;&lt;&lt;1,10&gt;&gt;&gt;</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>本章对我而言最重要的三点：</strong></p>
+<ol>
+<li><strong>数据相关性是并行性的天花板</strong>——能并行多少，首先取决于依赖关系，其次才是硬件核心数。</li>
+<li><strong>主机与设备、主机代码与设备代码</strong>——从第1章就要建立清晰概念，否则后面内存管理、拷贝、同步都会乱。</li>
+<li><strong>CPU 优化延迟、GPU 优化吞吐量；GPU 用海量轻量级线程换高吞吐</strong>——这决定了什么问题该放 CPU、什么问题该放 GPU，以及为什么 CUDA 适合数据并行。</li>
+</ol>
+<hr>
+<h2 id="ba-xia-yi-zhang-yu-gao" tabindex="-1" id="八、下一章预告">八、下一章预告</h2>
+<p>第 <strong>2 章：CUDA 编程模型</strong> 将把第1章的概念落地为可编写、可度量的程序。你将系统学习：</p>
+<ul>
+<li>CUDA 程序的生命周期：主机与设备内存、数据拷贝、核函数启动</li>
+<li>内存管理 API（<code>cudaMalloc</code>、<code>cudaMemcpy</code> 等）</li>
+<li>线程层次：网格、线程块、线程索引（<code>gridDim</code>、<code>blockIdx</code>、<code>blockDim</code>、<code>threadIdx</code>）</li>
+<li>如何给核函数计时、如何选择网格与块的大小</li>
+<li>设备查询与选择（为多 GPU 与正确性验证打基础）</li>
+</ul>
+<p>从「为什么用 GPU」到「怎么写、怎么测」——我们下一章见。</p>
+<hr>
+<h2 id="ben-zhang-zi-ce" tabindex="-1" id="本章自测">本章自测</h2>
+<ol>
+<li><strong>数据并行与任务并行的区别是什么？CUDA 主要针对哪一种？</strong></li>
+<li><strong>弗林分类中，SIMT 与 SIMD 各属哪一类？GPU 属于哪种？</strong></li>
+<li><strong>写出一个最简单的 <code>__global__</code> 核函数并在主机上用 <code>&lt;&lt;&lt;1, 10&gt;&gt;&gt;</code> 启动，说明两个数字的含义。</strong></li>
+</ol>
+<p><strong>答案与解析</strong></p>
+<ol>
+<li>数据并行是「同时处理多份数据」，任务并行是「同时执行多个不同任务」。CUDA 主要针对数据并行，通过大量线程对数据划分并行处理。</li>
+<li>SIMD 属「单指令多数据」，SIMT 是 NVIDIA 对「单指令多线程」的命名，本质也是单指令多数据的一种实现方式；GPU 采用 SIMT，每 32 线程为一 warp 执行相同指令。</li>
+<li>例如 <code>__global__ void hello() &#123; &#125;</code>，主机调用 <code>hello&lt;&lt;&lt;1, 10&gt;&gt;&gt;()</code>。<code>&lt;&lt;&lt;1, 10&gt;&gt;&gt;</code> 表示 1 个块、每块 10 个线程，即共 10 个线程执行该核函数。</li>
+</ol>
+<hr>
+<p><strong>系列导航</strong>：<a href="%E5%AF%BC%E8%AF%BB.md">导读</a> | 下一篇：<a href="%E7%AC%AC2%E7%AB%A0_CUDA%E7%BC%96%E7%A8%8B%E6%A8%A1%E5%9E%8B.md">第2章 CUDA编程模型</a></p>
+<hr>
+<blockquote>
+<p><strong>本文为「CUDA C编程权威指南」系列博客第 1 篇，共 10 章。基于《Professional CUDA C Programming》by John Cheng, Max Grossman, Ty McKercher。</strong></p>
+</blockquote>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/2b2e171a/">https://smarter.xin/posts/2b2e171a/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/learning-path/">学习路线</a><a class="post-meta__tags" href="/tags/cuda/">CUDA</a><a class="post-meta__tags" href="/tags/gpu-programming/">GPU编程</a><a class="post-meta__tags" href="/tags/reading-notes/">读书笔记</a><a class="post-meta__tags" href="/tags/cuda-basics/">CUDA入门</a><a class="post-meta__tags" href="/tags/parallel-computing/">并行计算</a><a class="post-meta__tags" href="/tags/heterogeneous-computing/">异构计算</a><a class="post-meta__tags" href="/tags/parallel-computing-basics/">并行计算入门</a></div><div class="post-share"><div class="social-share" data-image="/img/Nvidia_CUDA_Logo.jpg" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/fab0715b/" title="PMPP-第十七章：迭代式磁共振成像重建"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">PMPP-第十七章：迭代式磁共振成像重建</div></div></div></a><a class="pagination-related  no-desc" href="/posts/92dc1028/" title="CUDA C编程权威指南：导读"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">CUDA C编程权威指南：导读</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/98c27a24/" title="CUDA C编程权威指南-第十章：程序实现的注意事项"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-02-10</div><div class="info-item-2">CUDA C编程权威指南-第十章：程序实现的注意事项</div></div></div></a><a class="pagination-related no-desc" href="/posts/bdd22b42/" title="CUDA C编程权威指南-第二章：CUDA编程模型"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-25</div><div class="info-item-2">CUDA C编程权威指南-第二章：CUDA编程模型</div></div></div></a><a class="pagination-related no-desc" href="/posts/bf3e0449/" title="CUDA C编程权威指南-第三章：CUDA执行模型"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-27</div><div class="info-item-2">CUDA C编程权威指南-第三章：CUDA执行模型</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">97</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">171</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">20</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#cuda-c-bian-cheng-quan-wei-zhi-nan-di-yi-zhang-ji-yu-cuda-de-yi-gou-bing-xing-ji-suan"><span class="toc-text">CUDA C编程权威指南-第一章：基于CUDA的异构并行计算</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#yi-ben-zhang-zai-quan-shu-zhong-de-wei-zhi-yu-xue-xi-mu-biao"><span class="toc-text">一、本章在全书中的位置与学习目标</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#er-bing-xing-ji-suan-shu-1-1-jie"><span class="toc-text">二、并行计算（书 1.1 节）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#2-1-chuan-xing-bian-cheng-yu-bing-xing-bian-cheng"><span class="toc-text">2.1 串行编程与并行编程</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-2-bing-xing-xing-de-liang-chong-ji-ben-lei-xing-shu-1-1-2"><span class="toc-text">2.2 并行性的两种基本类型（书 1.1.2）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-3-ji-suan-ji-jia-gou-fen-lei-fu-lin-fen-lei-fa-shu-1-1-3"><span class="toc-text">2.3 计算机架构分类：弗林分类法（书 1.1.3）</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#san-yi-gou-ji-suan-shu-1-2-jie"><span class="toc-text">三、异构计算（书 1.2 节）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#3-1-cong-tong-gou-dao-yi-gou-shu-1-2-1"><span class="toc-text">3.1 从同构到异构（书 1.2.1）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-2-gpu-chan-pin-xian-yu-xing-neng-zhi-biao-shu-1-2-1"><span class="toc-text">3.2 GPU 产品线与性能指标（书 1.2.1）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-3-yi-gou-ji-suan-fan-li-cpu-yu-gpu-de-fen-gong-shu-1-2-2"><span class="toc-text">3.3 异构计算范例：CPU 与 GPU 的分工（书 1.2.2）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-4-cuda-yi-chong-yi-gou-ji-suan-ping-tai-shu-1-2-3"><span class="toc-text">3.4 CUDA：一种异构计算平台（书 1.2.3）</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#si-yong-gpu-shu-chu-hello-world-shu-1-3-jie"><span class="toc-text">四、用 GPU 输出 Hello World（书 1.3 节）</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#wu-shi-yong-cuda-c-bian-cheng-nan-ma-shu-1-4-jie"><span class="toc-text">五、使用 CUDA C 编程难吗？（书 1.4 节）</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#liu-zhong-nan-dian-yu-xue-xi-ti-hui-xiao-jie"><span class="toc-text">六、重难点与学习体会小结</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#qi-ben-zhang-xiao-jie"><span class="toc-text">七、本章小结</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#ba-xia-yi-zhang-yu-gao"><span class="toc-text">八、下一章预告</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#ben-zhang-zi-ce"><span class="toc-text">本章自测</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/98c27a24/" title="CUDA C编程权威指南-第十章：程序实现的注意事项"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA C编程权威指南-第十章：程序实现的注意事项"/></a><div class="content"><a class="title" href="/posts/98c27a24/" title="CUDA C编程权威指南-第十章：程序实现的注意事项">CUDA C编程权威指南-第十章：程序实现的注意事项</a><time datetime="2026-02-10T09:00:00.000Z" title="发表于 2026-02-10 17:00:00">2026-02-10</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/844cd057/" title="CUDA C编程权威指南-第九章：多GPU编程"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA C编程权威指南-第九章：多GPU编程"/></a><div class="content"><a class="title" href="/posts/844cd057/" title="CUDA C编程权威指南-第九章：多GPU编程">CUDA C编程权威指南-第九章：多GPU编程</a><time datetime="2026-02-08T02:30:00.000Z" title="发表于 2026-02-08 10:30:00">2026-02-08</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/e466b0a5/" title="CUDA C编程权威指南-第八章：GPU加速库和OpenACC"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA C编程权威指南-第八章：GPU加速库和OpenACC"/></a><div class="content"><a class="title" href="/posts/e466b0a5/" title="CUDA C编程权威指南-第八章：GPU加速库和OpenACC">CUDA C编程权威指南-第八章：GPU加速库和OpenACC</a><time datetime="2026-02-06T05:10:00.000Z" title="发表于 2026-02-06 13:10:00">2026-02-06</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>
