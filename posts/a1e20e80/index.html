@@ -1,0 +1,650 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>CUDA-Practice：12 cuBLAS、cuFFT 与 Thrust——站在巨人肩上的正确姿势 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="本文目标 读完本文，你将能够：  跨越 cuBLAS 中的行&#x2F;列主序历史断层及转置处理防雷死角 消除 cuBLAS 大批量同尺阵列时循环启动触发开销导致的极限拖慢挂载 避免 cuFFT cufftHandle 多频建联锁喉陷阱及探清多频挂带下的并发批加速极限 驾驭 Thrust 底层执行管辖系统与避免 device_vector 热分配造成的显存崩缺与隐秘同步停驻  对应代码路径  硬件环境：NV">
+<meta property="og:type" content="article">
+<meta property="og:title" content="CUDA-Practice：12 cuBLAS、cuFFT 与 Thrust——站在巨人肩上的正确姿势">
+<meta property="og:url" content="https://smarter.xin/posts/a1e20e80/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="本文目标 读完本文，你将能够：  跨越 cuBLAS 中的行&#x2F;列主序历史断层及转置处理防雷死角 消除 cuBLAS 大批量同尺阵列时循环启动触发开销导致的极限拖慢挂载 避免 cuFFT cufftHandle 多频建联锁喉陷阱及探清多频挂带下的并发批加速极限 驾驭 Thrust 底层执行管辖系统与避免 device_vector 热分配造成的显存崩缺与隐秘同步停驻  对应代码路径  硬件环境：NV">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/Nvidia_CUDA_Logo.jpg">
+<meta property="article:published_time" content="2026-03-12T07:30:00.000Z">
+<meta property="article:modified_time" content="2026-03-16T14:52:19.978Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="CUDA">
+<meta property="article:tag" content="GPU编程">
+<meta property="article:tag" content="并行计算">
+<meta property="article:tag" content="高性能计算">
+<meta property="article:tag" content="GEMM">
+<meta property="article:tag" content="cuBLAS">
+<meta property="article:tag" content="cuFFT">
+<meta property="article:tag" content="Thrust">
+<meta property="article:tag" content="标准库">
+<meta property="article:tag" content="FFT">
+<meta property="article:tag" content="并行算法">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/Nvidia_CUDA_Logo.jpg"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "CUDA-Practice：12 cuBLAS、cuFFT 与 Thrust——站在巨人肩上的正确姿势",
+  "url": "https://smarter.xin/posts/a1e20e80/",
+  "image": "https://smarter.xin/img/Nvidia_CUDA_Logo.jpg",
+  "datePublished": "2026-03-12T07:30:00.000Z",
+  "dateModified": "2026-03-16T14:52:19.978Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/a1e20e80/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'CUDA-Practice：12 cuBLAS、cuFFT 与 Thrust——站在巨人肩上的正确姿势',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">113</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">237</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">21</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/Nvidia_CUDA_Logo.jpg);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">CUDA-Practice：12 cuBLAS、cuFFT 与 Thrust——站在巨人肩上的正确姿势</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">CUDA-Practice：12 cuBLAS、cuFFT 与 Thrust——站在巨人肩上的正确姿势</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-03-12T07:30:00.000Z" title="发表于 2026-03-12 15:30:00">2026-03-12</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-03-16T14:52:19.978Z" title="更新于 2026-03-16 22:52:19">2026-03-16</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/cuda-practice/">CUDA-Practice</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">3.5k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>11分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h2 id="ben-wen-mu-biao" tabindex="-1" id="本文目标">本文目标</h2>
+<p>读完本文，你将能够：</p>
+<ul>
+<li>跨越 cuBLAS 中的行/列主序历史断层及转置处理防雷死角</li>
+<li>消除 cuBLAS 大批量同尺阵列时循环启动触发开销导致的极限拖慢挂载</li>
+<li>避免 cuFFT <code>cufftHandle</code> 多频建联锁喉陷阱及探清多频挂带下的并发批加速极限</li>
+<li>驾驭 Thrust 底层执行管辖系统与避免 <code>device_vector</code> 热分配造成的显存崩缺与隐秘同步停驻</li>
+</ul>
+<h2 id="dui-ying-dai-ma-lu-jing" tabindex="-1" id="对应代码路径">对应代码路径</h2>
+<blockquote>
+<p><strong>硬件环境</strong>：NVIDIA RTX 4090 (Ada Lovelace, sm_89)<br>
+128 SMs | FP32 82.6 TFLOPS | HBM 1008 GB/s | L2 72 MB | Roofline 拐点 81.9 FLOP/Byte</p>
+</blockquote>
+<table>
+<thead>
+<tr>
+<th>源文件</th>
+<th>Kernel / 接口</th>
+<th>核心技术</th>
+<th>测试规模</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>12_Standard_Libraries/01_cublas_gemm/cublas_gemm.cu</code></td>
+<td><code>cublasSgemm</code><br><code>cublasLtMatmul</code><br><code>cublasSgemmStridedBatched</code></td>
+<td>cuBLAS GEMM 基础/启发式/批处理接口</td>
+<td><code>1024×1024</code><br>(Batch 8)</td>
+</tr>
+<tr>
+<td><code>12_Standard_Libraries/02_cufft/cufft_example.cu</code></td>
+<td><code>cufftExecC2C</code></td>
+<td>cuFFT 1D FFT/IFFT、Batch 规划与带宽测评</td>
+<td><code>N=4096</code> 单次<br><code>Batch=65536,N=1024</code></td>
+</tr>
+<tr>
+<td><code>12_Standard_Libraries/03_thrust/thrust_algorithms.cu</code></td>
+<td><code>thrust::sort</code><br><code>thrust::reduce</code><br><code>thrust::transform</code></td>
+<td>Thrust 并行排序/归约/变换</td>
+<td><code>N=10M</code><br>(38.15 MB)</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>库接口名称及测试执行项完全依照 NVIDIA 官方原生 API 进行排置查验。</p>
+<p><strong>本篇在系列中的位置</strong>：承接 <a href="/posts/1a09f6f/">04 矩阵乘优化与寄存器分块</a> 与 <a href="/posts/78e375e8/">09 张量核心与混合精度</a> 对「手写 GEMM 极限」的探索，本篇给出工业界<strong>性能上限基准</strong>——cuBLAS/cuFFT/Thrust 等标准库，帮助你判断「何时该自己写 Kernel、何时该老老实实调库」。后续 <a href="/posts/f1b57921/">14 模板矩阵乘与代数布局</a> 展示如何在库与手写之间，用模板库生成接近 cuBLAS 的专用算子。</p>
+</blockquote>
+<h2 id="baseline" tabindex="-1" id="Baseline">Baseline</h2>
+<p><strong>问题陈述</strong>：手写高性能核心耗费大量极客工程力且极易触碰不可名状的编译器退化下坑。生产环境部署必须要切入官方重装武器系统（SASS 指令集高度绑定的人工定制最优算子），但这等重器同样充斥着如果胡闹便瞬间极度反噬性能的系统雷区（API 调用规范隔离墙）。</p>
+<table>
+<thead>
+<tr>
+<th>Baseline 类别</th>
+<th>测试场景</th>
+<th>指标</th>
+<th>值</th>
+<th>数据来源</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CPU DFT 基底测算</td>
+<td><code>N=4096</code> 步数</td>
+<td>CPU 完全计算时间</td>
+<td>395.07 ms</td>
+<td>[实测] Results/12_Standard_Libraries.md</td>
+</tr>
+<tr>
+<td>CPU 常规 Sort 测算</td>
+<td><code>N=10M</code> 浮点数</td>
+<td>标准库排列总时</td>
+<td>2124.06 ms</td>
+<td>[实测] Results/12_Standard_Libraries.md</td>
+</tr>
+<tr>
+<td>CPU std accumulate</td>
+<td><code>N=10M</code></td>
+<td>规约极限时</td>
+<td>28.35 ms</td>
+<td>[实测] Results/12_Standard_Libraries.md</td>
+</tr>
+</tbody>
+</table>
+<h2 id="ping-jing-fen-xi" tabindex="-1" id="瓶颈分析">瓶颈分析</h2>
+<p>如果认为仅仅只是把函数包给调起来万事顺就大错特错，真正的巨量时损往往深埋在库调用的前后接口地带：</p>
+<ol>
+<li><strong>主序翻转导致全盘皆输或巨额垫资 (Column-Major Mapping)</strong>
+<ul>
+<li>对于从 C/C++ 体系入场的开发栈，内存永远以行主序编列。但以 <code>cuBLAS</code> 为首的库深深刻录着老 FORTRAN 学派不可改写的列主序物理提取。若直接填入阵型而没加管束，不但输出计算阵列全部毁塌变形为不可解读的垃圾，如果进行强制内核态移序转置还会带来数十次全片全扫描的核战折损消耗，性能全部清空。</li>
+</ul>
+</li>
+<li><strong>Handle / Plan 极厚重的解析建构阻城墙</strong>
+<ul>
+<li>不论是 <code>cublasHandle_t</code> 还是 <code>cufftHandle</code>。在 API 对它们宣告发起 <code>Create</code> 和 <code>Plan</code> 这两个函数时，底层实际做出了查验全部系统运行态、加载针对性环境依赖并申请对应巨配工作缓冲池（Workspace）庞杂工作。它一次开拨可能慢到数毫秒以上！如果放任在循环推进内核中，哪怕它核心一帧只跑个位微秒也会被外部这个庞然大物拦腰拖死。</li>
+</ul>
+</li>
+<li><strong>Thrust 原装包装被黑盒锁表 (Implicit Synchronization &amp; Allocation)</strong>
+<ul>
+<li>图省事直接在主循环用 <code>thrust::device_vector</code>，代价是它每一次触发生命期新建都会极慢频唤醒底层分配链请求空表地址，并对后续代码全部阻滞逼退回极低限度 Default Stream，将本来并行重叠大环境硬全掐断并回落回强同步死城！</li>
+</ul>
+</li>
+</ol>
+<h2 id="you-hua-si-lu" tabindex="-1" id="优化思路">优化思路</h2>
+<h3 id="you-hua-1-qiao-qu-zhuan-zhi-shu-xue-deng-lu-po-bi-cu-blas-zu-duan" tabindex="-1" id="优化-1：巧取转置数学等律破壁-cuBLAS-阻断">优化 1：巧取转置数学等律破壁 cuBLAS 阻断</h3>
+<p><strong>解决的瓶颈</strong>：行主列主隔膜错位乱配与暴力强转税。<br>
+<strong>核心思想</strong>：直接使用最简易极强的数学特性代偿化解架构壁垒：<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mi>C</mi><mi>T</mi></msup><mo>=</mo><msup><mi>B</mi><mi>T</mi></msup><mo>×</mo><msup><mi>A</mi><mi>T</mi></msup></mrow><annotation encoding="application/x-tex">C^T = B^T \times A^T</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8413em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.07153em;">C</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8413em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.13889em;">T</span></span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.9247em;vertical-align:-0.0833em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.05017em;">B</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8413em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.13889em;">T</span></span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.8413em;"></span><span class="mord"><span class="mord mathnormal">A</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8413em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.13889em;">T</span></span></span></span></span></span></span></span></span></span></span>。因为一个原本行主序存储置排列的数组如果在没有受到搬移加工下，若向外宣布其按列序读，它提取面恰巧就是其原来的转置。故我们干脆反压将传入位置的矩阵 B 先置，再倒灌 A，最终拿到的阵列反制后刚好便正是符合主序不留任何波纹的 C！<br>
+<strong>预期收益</strong>：未写半个移形字直接无损对接出高达 50 TFLOPS 的满编算力阵盘 [实测]。</p>
+<h3 id="you-hua-2-chou-chi-ju-bing-kai-ba-bing-zai-ku-di-shi-shi-da-ju-he-pi-tui" tabindex="-1" id="优化-2：抽离句柄开拔并在库底实施大聚合批推">优化 2：抽离句柄开拔并在库底实施大聚合批推</h3>
+<p><strong>解决的瓶颈</strong>：过高启核建联发单耗竭期耗与 API 跳单死环。<br>
+<strong>核心思想</strong>：绝不在微时段核心触发级循环里唤醒任何关于库状态机的 <code>Create/Destroy/Plan</code> 语句；其二，对应对于多段同大小构型的切片流（如多源张量重聚计算），舍弃原本上万次的循环式 <code>for -&gt; cublasGemm</code>。一律切换切轨步入 <code>cublasSgemmBatched</code> 和 <code>cufftPlan1d(batch=8)</code> 巨型阵盘。<br>
+<strong>预期收益</strong>：在 8 连同批挂载下不但将调度期削薄近至零点，还强向填满剩余闲频并发将有效频率与纯算拔升逼至 53 倍上限 [实测]。</p>
+<h3 id="you-hua-3-thrust-bing-xing-tui-ru-kong-zhi-mian-ji-yuan-sheng-zhen-qiao-duan-jie" tabindex="-1" id="优化-3：Thrust-并行推入控制面及原生针桥断界">优化 3：Thrust 并行推入控制面及原生针桥断界</h3>
+<p><strong>解决的瓶颈</strong>：高装容器被框架底核暗暗分配和单线同步截断执行锁口。<br>
+<strong>核心思想</strong>：废掉 <code>device_vector</code> 此类重量壳。使用原生最快 <code>cudaMalloc</code> 建库。使用 <code>thrust::device_ptr</code> 对最裸核底层指针极轻包壳（0 开销）后，配合强制灌填流命令 <code>thrust::cuda::par.on(stream)</code> 强行在多流架构空挂出异步高低通道，并且能让后段用原初游标去直接合并并斩除任何隐写中间池缓存阵配给。<br>
+<strong>预期收益</strong>：由于其内核中封装极其刚健的规约算法引擎调度，对百万级序列求合并一枪打出 371.3x 的降维击杀局面和超越 480 GB/s 的逼顶下沿宽压段 [实测]。</p>
+<h2 id="guan-jian-dai-ma-jie-shi" tabindex="-1" id="关键代码解释">关键代码解释</h2>
+<h3 id="gui-bi-zhuan-zhi-xian-jing-de-deng-xiao-dai-chang" tabindex="-1" id="规避转置陷阱的等效代偿">规避转置陷阱的等效代偿</h3>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 来源：12_Standard_Libraries/01_cublas_gemm/cublas_gemm.cu : 局部片选简写</span></span><br><span class="line"><span class="comment">// 场景：在 CPU 端我们已经全部初始化成了横向长续存 C 源生的 Row-Major 形式 A、B</span></span><br><span class="line"><span class="comment">// 若求真实矩阵相乘下果子也是横向 Row-Major 的 C </span></span><br><span class="line"></span><br><span class="line">    <span class="built_in">cublasSgemm</span>(handle,</span><br><span class="line">        CUBLAS_OP_N, CUBLAS_OP_N, <span class="comment">// 依然通告库我两个都是原本不需要翻的面</span></span><br><span class="line">        N, M, K,                  <span class="comment">// 【大杀器】尺寸完全调位交换：N放首将B排在排头</span></span><br><span class="line">        &amp;alpha,</span><br><span class="line">        d_B, N,                   <span class="comment">// B 塞来当头位阵，底层库眼中的 &quot;B^T (也是它看作列序列形式正常)&quot;</span></span><br><span class="line">        d_A, K,                   <span class="comment">// A 为垫尾接敌</span></span><br><span class="line">        &amp;beta,</span><br><span class="line">        d_C, N                    <span class="comment">// 结果吐出来，完美重映接洽在 Row-Major 上全准对！</span></span><br><span class="line">    );</span><br></pre></td></tr></table></figure>
+<p><strong>要点解读</strong>：</p>
+<ul>
+<li>这个小把戏在目前各种深度推理中框架下早已是不照不宣的规则底座。这也是为何我们在对接许多模型顶层的 Cuda 算核时总是发现他们代码传 B 传 A 是在内部倒装甚至直接把维数翻底朝天的核心原委，零开销跨过异端列统！</li>
+</ul>
+<h3 id="bo-chu-xu-pang-fen-pei-rong-qi-shi-yong-shen-yu-zhong-ding-xiang" tabindex="-1" id="剥除虚胖分配容器使用神域重定向">剥除虚胖分配容器使用神域重定向</h3>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 来源：12_Standard_Libraries/03_thrust/thrust_algorithms.cu </span></span><br><span class="line"><span class="comment">// 【绝对避开】不要在这种热点内使用 thrust::device_vector&lt;float&gt; tmp(N); 这是在反复发起 cudaMalloc！</span></span><br><span class="line"></span><br><span class="line">    <span class="type">float</span>* d_raw;</span><br><span class="line">    <span class="built_in">cudaMalloc</span>(&amp;d_raw, N * <span class="built_in">sizeof</span>(<span class="type">float</span>));</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 使用 device_ptr 这个极其轻浮外显只用于让函数认路的游标包裹壳头对付！完全脱离内存调度魔抓控制 </span></span><br><span class="line">    <span class="function">thrust::device_ptr&lt;<span class="type">float</span>&gt; <span class="title">d_ptr</span><span class="params">(d_raw)</span></span>;</span><br><span class="line">    </span><br><span class="line">    <span class="comment">// 用 par.on 抢出非阻塞执行的底阵</span></span><br><span class="line">    thrust::<span class="built_in">sort</span>(thrust::cuda::par.<span class="built_in">on</span>(side_stream), d_ptr, d_ptr + N);</span><br><span class="line"></span><br><span class="line">    <span class="built_in">cudaFree</span>(d_raw);</span><br></pre></td></tr></table></figure>
+<p><strong>要点解读</strong>：</p>
+<ul>
+<li>只要把握住如何使用干净的原核内存并在发射时用 <code>par.on</code> 精准压入副主流管程，便彻底使这个有着顶尖单边调派计算速度库被老老实实训作配合大型深度网络的并发一小块精美积木齿，且再也不会发下意外堵挂的不可控卡顿。</li>
+</ul>
+<h2 id="jie-guo-yu-bian-jie" tabindex="-1" id="结果与边界">结果与边界</h2>
+<h3 id="xing-neng-dui-bi" tabindex="-1" id="性能对比">性能对比</h3>
+<blockquote>
+<p><strong>测试条件</strong>：双 RTX 4090 (<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>s</mi><mi>m</mi><mi mathvariant="normal">_</mi><mn>89</mn></mrow><annotation encoding="application/x-tex">sm\_89</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.9544em;vertical-align:-0.31em;"></span><span class="mord mathnormal">s</span><span class="mord mathnormal">m</span><span class="mord">_89</span></span></span></span>), nvcc -O3<br>
+<strong>数据来源</strong>：<code>Results/12_Standard_Libraries.md</code> 原始实机日志，均以多次重复取平均。</p>
+</blockquote>
+<p><strong>1. cuBLAS 天花板打底算力检算 (1024 方块形核矩阵，CPU 侧为“跳过/占位”)</strong></p>
+<table>
+<thead>
+<tr>
+<th>装配模式调用口</th>
+<th>单次极微核期内跨量</th>
+<th>核定峰值暴发界 (TFLOPS)</th>
+<th>数据性质</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>纯版 <code>cublasSgemm</code></td>
+<td>0.04 ms</td>
+<td><strong>49.91 TFLOPS</strong></td>
+<td>[实测]</td>
+</tr>
+<tr>
+<td>Tensor级 <code>cublasLt</code></td>
+<td>0.04 ms</td>
+<td><strong>50.10 TFLOPS</strong></td>
+<td>[实测]</td>
+</tr>
+</tbody>
+</table>
+<p>对 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>1024</mn><mo>×</mo><mn>1024</mn></mrow><annotation encoding="application/x-tex">1024 \times 1024</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7278em;vertical-align:-0.0833em;"></span><span class="mord">1024</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">1024</span></span></span></span> 型格在极其极其缩端的微毫下（只花 0.04 毫秒）库就已经稳定将有效计算打达 50T（其在更大规模甚至将逼触到封底线 82T 顶峰）。而手刻在极致的瓦片拼花调配压榨也只是勉强能碰到其约一半车尾端。不与神作对是绝对定律。需要特别指出的是：在 <code>Results/12_Standard_Libraries.md</code> 对应的日志中，CPU 端为了避免 1024 规模下的长时间运行被<strong>刻意跳过</strong>，因此出现了 <code>CPU 单算例执行时间：0.00 ms / CPU vs GPU 加速比：0.00x</code> 这类<strong>占位字段</strong>——这些数字仅表示“未测 / SKIPPED”，不能被当作真实 CPU 性能或加速比来引用。</p>
+<p><strong>2. cuFFT 并法下发提批增量极限 (N=4096 / Batch 下挂测)</strong></p>
+<table>
+<thead>
+<tr>
+<th>载体发接渠道</th>
+<th>真实演化发击均时</th>
+<th>折扣增压加速底池比率</th>
+<th>数据性质</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CPU 高速频环</td>
+<td>395.078 ms</td>
+<td>1.00x</td>
+<td>[实测]</td>
+</tr>
+<tr>
+<td>GPU 1D (点发单跑)</td>
+<td>0.0035 ms</td>
+<td>&gt;十一万倍极差 (非同量算度基线)</td>
+<td>[实测]</td>
+</tr>
+<tr>
+<td>满铺 65536 宗批量下挂</td>
+<td>1.17 ms /批</td>
+<td>激顶压逼 <strong>457.46 GB/s</strong></td>
+<td>[实测]</td>
+</tr>
+</tbody>
+</table>
+<p>此段并非为看夸张虚表（计算深度和公式皆不是一个层次维网无法比拟）。极其惊世骇俗在于它仅仅只用了毫秒下浮游标的时间就在大批挂带阵列中硬卷逼走了高达 457 G 的主存流线运力，由于频代本身的极跳点乱跃访局限，这个表现展现了不可动及的极其深厚且隐晦底层的步长交错排列平展化调派内蕴。</p>
+<p><strong>3. Thrust 全体系全压杀穿基池 (1 千万项数据规模)</strong></p>
+<table>
+<thead>
+<tr>
+<th>运筹推列手段</th>
+<th>GPU 单算底核平均期段</th>
+<th>有效打底宽线吞吐</th>
+<th>与原生标杆对比倍速</th>
+<th>数据性质</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Sort</td>
+<td>1.30 ms</td>
+<td>-</td>
+<td><strong>1634.06x</strong></td>
+<td>[实测]</td>
+</tr>
+<tr>
+<td>Reduce (求全汇)</td>
+<td><strong>0.08 ms</strong></td>
+<td><strong>487.88 GB/s</strong></td>
+<td><strong>371.31x</strong></td>
+<td>[实测]</td>
+</tr>
+<tr>
+<td>Transform (元素发单)</td>
+<td><strong>0.13 ms</strong></td>
+<td><strong>849.73 GB/s</strong></td>
+<td>222.01x</td>
+<td>[实测]</td>
+</tr>
+</tbody>
+</table>
+<p>对于这些已经极其纯粹到近乎直接触及全表显存单流下切拉到底沿线的粗重活；无论是合并全表求和跑进连 0.1毫秒都查探不到的恐怖时间域（371 倍爆穿击拔底座表）还是硬拉 849G 单元素强袭阵；直接调出该封装底层游标在现代架构直接宣告了所有原生手搓该类泛式将失去绝大部署面层意义地底板全输局势！</p>
+<h3 id="bian-jie-tiao-jian-yu-ju-xian" tabindex="-1" id="边界条件与局限">边界条件与局限</h3>
+<ul>
+<li><strong>官方闭源底层的黑核死域壁</strong>：一旦使用了全封装如上系统，也就断掉了你在其运转期内夹带私货的绝望念头。例如你想在这个核战之中趁机顺路加减个非线激活，那就没法办（因为里面纯封闭不可入库）。要打磨极具个性的网络自定义复合巨合核版需要走后续更为深层且能提供算符可置换的泛式高阶打发框架（CUTLASS 路线）。</li>
+</ul>
+<h2 id="chang-jian-wu-qu" tabindex="-1" id="常见误区">常见误区</h2>
+<ol>
+<li><strong>误区</strong>：库都很快所以所有的框架一旦全调原生接口那就是没有性能衰降期！<br>
+<strong>实际</strong>：绝不！最大的衰弱期出在了极易忽视的对各种 <code>Handle / Plan</code> 无下限的大重复高频次创立引发。一定要做静态单类驻车预创并在生命区端重调！</li>
+<li><strong>误区</strong>：但凡见着要聚合的数据就在循环外设拉一个大的 <code>device_vector</code> 来装并抛它玩去解决这档事。<br>
+<strong>实际</strong>：绝对不可以使用包装繁重到包含对环境池重新检测回收隐机制的对象直接挂到你的底层。要拥抱只有地址的赤裸 <code>device_ptr</code> 套着最为纯净的一层虚体壳发进副管程里面去以保卫架构中高速计算流片期全无干扰和异步无缺。</li>
+</ol>
+<h2 id="xi-lie-dao-hang" tabindex="-1" id="系列导航">系列导航</h2>
+<h3 id="qian-zhi-yue-du" tabindex="-1" id="前置阅读">前置阅读</h3>
+<table>
+<thead>
+<tr>
+<th>文章</th>
+<th>与本篇的衔接</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="/posts/1a09f6f/">04 矩阵乘优化与寄存器分块</a></td>
+<td>手写 GEMM 的极致优化与 28.79 TFLOPS 上限，帮助你理解 cuBLAS 50 TFLOPS 是什么量级</td>
+</tr>
+<tr>
+<td><a href="/posts/78e375e8/">09 张量核心与混合精度</a></td>
+<td>了解 Tensor Core/WMMA 能力，再对比 cuBLAS 背后自动利用 Tensor Core 的工业实现</td>
+</tr>
+</tbody>
+</table>
+<h3 id="tui-jian-hou-xu" tabindex="-1" id="推荐后续">推荐后续</h3>
+<table>
+<thead>
+<tr>
+<th>文章</th>
+<th>与本篇的衔接</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="/posts/9729c03f/">11 推理优化、融合与键值缓存</a></td>
+<td>在推理系统中，把 cuBLAS/cuFFT/Thrust 作为基础算子调用，与 Kernel Fusion / KV Cache / Batching 结合</td>
+</tr>
+<tr>
+<td><a href="/posts/f1b57921/">14 模板矩阵乘与代数布局</a></td>
+<td>当标准库无法满足算子融合/特殊布局时，用 CUTLASS/CuTe 生成类似 cuBLAS 水平的专用内核</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="shun-xu-dao-hang" tabindex="-1" id="顺序导航">顺序导航</h2>
+<ul>
+<li>上一篇：<a href="/posts/9729c03f/">CUDA实践-11-推理优化融合与键值缓存</a></li>
+<li>下一篇：<a href="/posts/803b94d6/">CUDA实践-13-性能分析屋顶线与占用率</a></li>
+</ul>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/a1e20e80/">https://smarter.xin/posts/a1e20e80/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/cuda/">CUDA</a><a class="post-meta__tags" href="/tags/gpu-programming/">GPU编程</a><a class="post-meta__tags" href="/tags/parallel-computing/">并行计算</a><a class="post-meta__tags" href="/tags/high-performance-computing/">高性能计算</a><a class="post-meta__tags" href="/tags/gemm/">GEMM</a><a class="post-meta__tags" href="/tags/cublas/">cuBLAS</a><a class="post-meta__tags" href="/tags/cufft/">cuFFT</a><a class="post-meta__tags" href="/tags/thrust/">Thrust</a><a class="post-meta__tags" href="/tags/standard-library/">标准库</a><a class="post-meta__tags" href="/tags/fft/">FFT</a><a class="post-meta__tags" href="/tags/parallel-algorithm/">并行算法</a></div><div class="post-share"><div class="social-share" data-image="/img/Nvidia_CUDA_Logo.jpg" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/f1b57921/" title="CUDA-Practice：14 从双缓冲流水线到 CuTe 纯代数引擎的工业级抽象"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">CUDA-Practice：14 从双缓冲流水线到 CuTe 纯代数引擎的工业级抽象</div></div></div></a><a class="pagination-related  no-desc" href="/posts/5b6f891d/" title="CUDA-Practice：10 合并访存、Bank Conflict 与异步流水线的三维解构"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">CUDA-Practice：10 合并访存、Bank Conflict 与异步流水线的三维解构</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/1a09f6f/" title="CUDA-Practice：04 从 Shared Memory Tiling 到寄存器外积——逼近计算瓶颈"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-11</div><div class="info-item-2">CUDA-Practice：04 从 Shared Memory Tiling 到寄存器外积——逼近计算瓶颈</div></div></div></a><a class="pagination-related no-desc" href="/posts/7608f1b0/" title="CUDA-Practice：01 从 Vector Add 到 Tiled GEMM——带宽墙与数据复用"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-10</div><div class="info-item-2">CUDA-Practice：01 从 Vector Add 到 Tiled GEMM——带宽墙与数据复用</div></div></div></a><a class="pagination-related no-desc" href="/posts/ef325d2f/" title="CUDA-Practice：07 FP16 带宽翻倍、INT8 dp4a 指令与混合精度工程学"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-12</div><div class="info-item-2">CUDA-Practice：07 FP16 带宽翻倍、INT8 dp4a 指令与混合精度工程学</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">113</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">237</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">21</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#ben-wen-mu-biao"><span class="toc-text">本文目标</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#dui-ying-dai-ma-lu-jing"><span class="toc-text">对应代码路径</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#baseline"><span class="toc-text">Baseline</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#ping-jing-fen-xi"><span class="toc-text">瓶颈分析</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#you-hua-si-lu"><span class="toc-text">优化思路</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#you-hua-1-qiao-qu-zhuan-zhi-shu-xue-deng-lu-po-bi-cu-blas-zu-duan"><span class="toc-text">优化 1：巧取转置数学等律破壁 cuBLAS 阻断</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#you-hua-2-chou-chi-ju-bing-kai-ba-bing-zai-ku-di-shi-shi-da-ju-he-pi-tui"><span class="toc-text">优化 2：抽离句柄开拔并在库底实施大聚合批推</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#you-hua-3-thrust-bing-xing-tui-ru-kong-zhi-mian-ji-yuan-sheng-zhen-qiao-duan-jie"><span class="toc-text">优化 3：Thrust 并行推入控制面及原生针桥断界</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#guan-jian-dai-ma-jie-shi"><span class="toc-text">关键代码解释</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#gui-bi-zhuan-zhi-xian-jing-de-deng-xiao-dai-chang"><span class="toc-text">规避转置陷阱的等效代偿</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#bo-chu-xu-pang-fen-pei-rong-qi-shi-yong-shen-yu-zhong-ding-xiang"><span class="toc-text">剥除虚胖分配容器使用神域重定向</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#jie-guo-yu-bian-jie"><span class="toc-text">结果与边界</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#xing-neng-dui-bi"><span class="toc-text">性能对比</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#bian-jie-tiao-jian-yu-ju-xian"><span class="toc-text">边界条件与局限</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#chang-jian-wu-qu"><span class="toc-text">常见误区</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xi-lie-dao-hang"><span class="toc-text">系列导航</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#qian-zhi-yue-du"><span class="toc-text">前置阅读</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#tui-jian-hou-xu"><span class="toc-text">推荐后续</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shun-xu-dao-hang"><span class="toc-text">顺序导航</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/d6fa227a/" title="CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线"/></a><div class="content"><a class="title" href="/posts/d6fa227a/" title="CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</a><time datetime="2026-03-16T02:00:00.000Z" title="发表于 2026-03-16 10:00:00">2026-03-16</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/f1b57921/" title="CUDA-Practice：14 从双缓冲流水线到 CuTe 纯代数引擎的工业级抽象"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA-Practice：14 从双缓冲流水线到 CuTe 纯代数引擎的工业级抽象"/></a><div class="content"><a class="title" href="/posts/f1b57921/" title="CUDA-Practice：14 从双缓冲流水线到 CuTe 纯代数引擎的工业级抽象">CUDA-Practice：14 从双缓冲流水线到 CuTe 纯代数引擎的工业级抽象</a><time datetime="2026-03-12T08:00:00.000Z" title="发表于 2026-03-12 16:00:00">2026-03-12</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/a1e20e80/" title="CUDA-Practice：12 cuBLAS、cuFFT 与 Thrust——站在巨人肩上的正确姿势"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA-Practice：12 cuBLAS、cuFFT 与 Thrust——站在巨人肩上的正确姿势"/></a><div class="content"><a class="title" href="/posts/a1e20e80/" title="CUDA-Practice：12 cuBLAS、cuFFT 与 Thrust——站在巨人肩上的正确姿势">CUDA-Practice：12 cuBLAS、cuFFT 与 Thrust——站在巨人肩上的正确姿势</a><time datetime="2026-03-12T07:30:00.000Z" title="发表于 2026-03-12 15:30:00">2026-03-12</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>

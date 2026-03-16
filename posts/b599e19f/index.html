@@ -1,0 +1,612 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>CUDA-Practice：15 Ring AllReduce 数学推导与 NCCL 实现 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="本文目标 读完本文，你将能够：  理解参数服务器 (Parameter Server) 在分布式训练中的可扩展性瓶颈 掌握 Ring AllReduce 的两阶段（Reduce-Scatter 与 All-Gather）数学推导 了解如何在 CUDA C++ 中使用 NCCL 库执行设备间的数据归约 分析显卡互联拓扑（PCIe 与 NVLink）对通信延迟和吞吐量的实际影响  对应代码路径  硬件">
+<meta property="og:type" content="article">
+<meta property="og:title" content="CUDA-Practice：15 Ring AllReduce 数学推导与 NCCL 实现">
+<meta property="og:url" content="https://smarter.xin/posts/b599e19f/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="本文目标 读完本文，你将能够：  理解参数服务器 (Parameter Server) 在分布式训练中的可扩展性瓶颈 掌握 Ring AllReduce 的两阶段（Reduce-Scatter 与 All-Gather）数学推导 了解如何在 CUDA C++ 中使用 NCCL 库执行设备间的数据归约 分析显卡互联拓扑（PCIe 与 NVLink）对通信延迟和吞吐量的实际影响  对应代码路径  硬件">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/Nvidia_CUDA_Logo.jpg">
+<meta property="article:published_time" content="2026-03-12T03:30:00.000Z">
+<meta property="article:modified_time" content="2026-03-16T14:52:19.978Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="CUDA">
+<meta property="article:tag" content="GPU编程">
+<meta property="article:tag" content="并行计算">
+<meta property="article:tag" content="高性能计算">
+<meta property="article:tag" content="Multi-GPU">
+<meta property="article:tag" content="NCCL">
+<meta property="article:tag" content="AllReduce">
+<meta property="article:tag" content="Ring Topology">
+<meta property="article:tag" content="分布式训练">
+<meta property="article:tag" content="梯度同步">
+<meta property="article:tag" content="PCIe">
+<meta property="article:tag" content="NVLink">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/Nvidia_CUDA_Logo.jpg"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "CUDA-Practice：15 Ring AllReduce 数学推导与 NCCL 实现",
+  "url": "https://smarter.xin/posts/b599e19f/",
+  "image": "https://smarter.xin/img/Nvidia_CUDA_Logo.jpg",
+  "datePublished": "2026-03-12T03:30:00.000Z",
+  "dateModified": "2026-03-16T14:52:19.978Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/b599e19f/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'CUDA-Practice：15 Ring AllReduce 数学推导与 NCCL 实现',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">113</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">237</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">21</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/Nvidia_CUDA_Logo.jpg);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">CUDA-Practice：15 Ring AllReduce 数学推导与 NCCL 实现</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">CUDA-Practice：15 Ring AllReduce 数学推导与 NCCL 实现</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-03-12T03:30:00.000Z" title="发表于 2026-03-12 11:30:00">2026-03-12</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-03-16T14:52:19.978Z" title="更新于 2026-03-16 22:52:19">2026-03-16</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/cuda-practice/">CUDA-Practice</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">2.9k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>10分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h2 id="ben-wen-mu-biao" tabindex="-1" id="本文目标">本文目标</h2>
+<p>读完本文，你将能够：</p>
+<ul>
+<li>理解参数服务器 (Parameter Server) 在分布式训练中的可扩展性瓶颈</li>
+<li>掌握 Ring AllReduce 的两阶段（Reduce-Scatter 与 All-Gather）数学推导</li>
+<li>了解如何在 CUDA C++ 中使用 NCCL 库执行设备间的数据归约</li>
+<li>分析显卡互联拓扑（PCIe 与 NVLink）对通信延迟和吞吐量的实际影响</li>
+</ul>
+<h2 id="dui-ying-dai-ma-lu-jing" tabindex="-1" id="对应代码路径">对应代码路径</h2>
+<blockquote>
+<p><strong>硬件环境</strong>：2 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>×</mo></mrow><annotation encoding="application/x-tex">\times</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6667em;vertical-align:-0.0833em;"></span><span class="mord">×</span></span></span></span> NVIDIA RTX 4090 (AdaLovlace, sm_89)<br>
+单卡 FP32 半精度理论算力：82.6 TFLOPS | 全局显存：24 GB | 总线拓扑：PCIe Gen4 x16</p>
+</blockquote>
+<table>
+<thead>
+<tr>
+<th>源文件</th>
+<th>API 类型</th>
+<th>核心执行逻辑 / 并行范式</th>
+<th>测试规模</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>15_Multi_GPU/01_nccl_allreduce/nccl_allreduce.cu</code></td>
+<td>CUDA/NCCL API</td>
+<td><code>ncclAllReduce</code> 多卡梯度求和同步</td>
+<td><code>size=1024*1024</code><br><code>Type=Float</code></td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>API 名称与源码中的调用保持一致。</p>
+<p><strong>本篇在系列中的位置</strong>：承接 <a href="/posts/b1c0c6a3/">08 多流、图执行与扩展开发</a>、<a href="/posts/9729c03f/">11 推理优化、融合与键值缓存</a>、<a href="/posts/a1e20e80/">12 标准库与工程实践</a>、<a href="/posts/803b94d6/">13 性能分析、屋顶线与占用率</a> 中单机/单卡调度、算子优化与性能建模的内容，本篇将视角扩展到 <strong>多 GPU 通信拓扑与 AllReduce 算法本身</strong>，回答「当单卡 Kernel 已跑满后，多卡训练/推理还卡在哪里，以及 Ring AllReduce / NCCL 如何在物理拓扑上逼近极限」。</p>
+</blockquote>
+<h2 id="baseline" tabindex="-1" id="Baseline">Baseline</h2>
+<p><strong>问题陈述</strong>：在传统的分布式训练 Parameter Server 架构中，随着工作节点 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>N</mi></mrow><annotation encoding="application/x-tex">N</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.10903em;">N</span></span></span></span> 增加，主节点的通信负载呈现 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>O</mi><mo stretchy="false">(</mo><mi>N</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">O(N)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.02778em;">O</span><span class="mopen">(</span><span class="mord mathnormal" style="margin-right:0.10903em;">N</span><span class="mclose">)</span></span></span></span> 线性爆炸。导致非对称通信严重，单点成为整个分布式架构的瓶颈。本实验以此物理限制构建极限测跑对比。</p>
+<table>
+<thead>
+<tr>
+<th>Baseline 类别</th>
+<th>测试场景</th>
+<th>指标</th>
+<th>值</th>
+<th>数据来源</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>数据量预估</td>
+<td><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>1024</mn><mo>×</mo><mn>1024</mn></mrow><annotation encoding="application/x-tex">1024 \times 1024</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7278em;vertical-align:-0.0833em;"></span><span class="mord">1024</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">1024</span></span></span></span> 个 Float</td>
+<td>Payload Size</td>
+<td>4.00 MB</td>
+<td>[理论]</td>
+</tr>
+<tr>
+<td>Parameter Server (理论)</td>
+<td><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>N</mi><mo>→</mo><mi mathvariant="normal">∞</mi></mrow><annotation encoding="application/x-tex">N \to \infty</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.10903em;">N</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">→</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.4306em;"></span><span class="mord">∞</span></span></span></span></td>
+<td>单主节点进出带宽需求</td>
+<td><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>O</mi><mo stretchy="false">(</mo><mi>N</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">O(N)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.02778em;">O</span><span class="mopen">(</span><span class="mord mathnormal" style="margin-right:0.10903em;">N</span><span class="mclose">)</span></span></span></span> 增长</td>
+<td>[理论]</td>
+</tr>
+<tr>
+<td>Ring AllReduce (理论)</td>
+<td><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>N</mi><mo>→</mo><mi mathvariant="normal">∞</mi></mrow><annotation encoding="application/x-tex">N \to \infty</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.10903em;">N</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">→</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.4306em;"></span><span class="mord">∞</span></span></span></span></td>
+<td>单节点进出带宽上限</td>
+<td><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>2</mn><mo>×</mo><mi>D</mi></mrow><annotation encoding="application/x-tex">2 \times D</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7278em;vertical-align:-0.0833em;"></span><span class="mord">2</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.02778em;">D</span></span></span></span> (常数)</td>
+<td>[理论]</td>
+</tr>
+<tr>
+<td>NCCL 本地物理执行</td>
+<td>冷启动、PCIe Gen4</td>
+<td>AllReduce 耗时</td>
+<td>28.20 ms</td>
+<td>[实测] Results/15_Multi_GPU.md</td>
+</tr>
+</tbody>
+</table>
+<h2 id="ping-jing-fen-xi" tabindex="-1" id="瓶颈分析">瓶颈分析</h2>
+<p>在多显卡张量通信时，存在以下几点核心约束：</p>
+<ol>
+<li><strong>Parameter Server 的物理总线瓶颈</strong>
+<ul>
+<li>假设梯度总量为 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>D</mi></mrow><annotation encoding="application/x-tex">D</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.02778em;">D</span></span></span></span>，总共 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>N</mi></mrow><annotation encoding="application/x-tex">N</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.10903em;">N</span></span></span></span> 张卡。在上行同步时，主节点设备对应的以太网卡/PCIe 控制器将瞬间承受 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo stretchy="false">(</mo><mi>N</mi><mo>−</mo><mn>1</mn><mo stretchy="false">)</mo><mo>×</mo><mi>D</mi></mrow><annotation encoding="application/x-tex">(N-1) \times D</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">(</span><span class="mord mathnormal" style="margin-right:0.10903em;">N</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">−</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord">1</span><span class="mclose">)</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.02778em;">D</span></span></span></span> 字节吞吐量。除了主节点外，其余 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo stretchy="false">(</mo><mi>N</mi><mo>−</mo><mn>1</mn><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">(N-1)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">(</span><span class="mord mathnormal" style="margin-right:0.10903em;">N</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">−</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord">1</span><span class="mclose">)</span></span></span></span> 张卡的带宽资源大部分时间处于闲置状态，整体硬件利用率极低。</li>
+</ul>
+</li>
+<li><strong>底层总线物理限制 (PCIe VS NVLink)</strong>
+<ul>
+<li>在缺乏 NVLink (<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>&gt;</mo><mn>300</mn><mtext> GB/s</mtext></mrow><annotation encoding="application/x-tex">&gt; 300\text{ GB/s}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.5782em;vertical-align:-0.0391em;"></span><span class="mrel">&gt;</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord">300</span><span class="mord text"><span class="mord"> GB/s</span></span></span></span></span>) 硬件直连通道的消费级/工作站主板上，多卡通信被迫降级到 PCIe Gen4 x16 (<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>26</mn><mtext> GB/s</mtext></mrow><annotation encoding="application/x-tex">26\text{ GB/s}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord">26</span><span class="mord text"><span class="mord"> GB/s</span></span></span></span></span> 理论双向瓶颈上限)。大量通信需要将显存内容借道 System Memory (RAM) 与 CPU 北桥枢纽进行反射。在这条物理通路下，即使是极小数据量（如本实验的 4MB）传输也会遭遇不可逾越的延迟屏障。</li>
+</ul>
+</li>
+<li><strong>隐式的上下文（Context）绑定错误</strong>
+<ul>
+<li>与原生 <code>cudaMalloc</code> 类似，NCCL 的设备调度同样深度依赖隐式的执行图资源句柄。如果多卡循环初始化时不及时插入 <code>cudaSetDevice(i)</code> 锚定上下文，所有的队列请求将会被发送到畸形的单 GPU 状态机环境上，引发死锁或总线无效错误（SegFault）。</li>
+</ul>
+</li>
+</ol>
+<h2 id="you-hua-si-lu" tabindex="-1" id="优化思路">优化思路</h2>
+<h3 id="you-hua-1-tuo-bu-ti-huan-ring-all-reduce" tabindex="-1" id="优化-1：拓扑替换-Ring-AllReduce">优化 1：拓扑替换 (Ring AllReduce)</h3>
+<p><strong>解决的瓶颈</strong>：消除中央节点 (Parameter Server) ，避免 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>O</mi><mo stretchy="false">(</mo><mi>N</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">O(N)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.02778em;">O</span><span class="mopen">(</span><span class="mord mathnormal" style="margin-right:0.10903em;">N</span><span class="mclose">)</span></span></span></span> 伸展负载。<br>
+<strong>核心思想</strong>：所有的 GPU <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>N</mi></mrow><annotation encoding="application/x-tex">N</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.10903em;">N</span></span></span></span> 在逻辑上形成一个带有方向的单向数据环 (Ring Topology)。每个节点独立只和环上的左右相邻节点通信。切分总体数据 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>D</mi></mrow><annotation encoding="application/x-tex">D</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.02778em;">D</span></span></span></span> 为 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>N</mi></mrow><annotation encoding="application/x-tex">N</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.10903em;">N</span></span></span></span> 块小块，通过 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>N</mi><mo>−</mo><mn>1</mn></mrow><annotation encoding="application/x-tex">N-1</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7667em;vertical-align:-0.0833em;"></span><span class="mord mathnormal" style="margin-right:0.10903em;">N</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">−</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">1</span></span></span></span> 步递推将数据片段传播累加（Reduce-Scatter），再通过 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>N</mi><mo>−</mo><mn>1</mn></mrow><annotation encoding="application/x-tex">N-1</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7667em;vertical-align:-0.0833em;"></span><span class="mord mathnormal" style="margin-right:0.10903em;">N</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">−</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">1</span></span></span></span> 步将计算完毕的结果镜像覆盖分发（All-Gather）。<br>
+<strong>预期收益</strong>：数学上讲，每张卡只需要发出 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>2</mn><mo>×</mo><mfrac><mrow><mi>N</mi><mo>−</mo><mn>1</mn></mrow><mi>N</mi></mfrac><mo>×</mo><mi>D</mi></mrow><annotation encoding="application/x-tex">2 \times \frac{N-1}{N} \times D</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7278em;vertical-align:-0.0833em;"></span><span class="mord">2</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1.2173em;vertical-align:-0.345em;"></span><span class="mord"><span class="mopen nulldelimiter"></span><span class="mfrac"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.8723em;"><span style="top:-2.655em;"><span class="pstrut" style="height:3em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight" style="margin-right:0.10903em;">N</span></span></span></span><span style="top:-3.23em;"><span class="pstrut" style="height:3em;"></span><span class="frac-line" style="border-bottom-width:0.04em;"></span></span><span style="top:-3.394em;"><span class="pstrut" style="height:3em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight" style="margin-right:0.10903em;">N</span><span class="mbin mtight">−</span><span class="mord mtight">1</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.345em;"><span></span></span></span></span></span><span class="mclose nulldelimiter"></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.02778em;">D</span></span></span></span> 的数据。在 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>N</mi><mo>→</mo><mi mathvariant="normal">∞</mi></mrow><annotation encoding="application/x-tex">N \to \infty</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.10903em;">N</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">→</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.4306em;"></span><span class="mord">∞</span></span></span></span> 极限下，单网卡数据收发极值恒定收敛于 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>2</mn><mi>D</mi></mrow><annotation encoding="application/x-tex">2D</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord">2</span><span class="mord mathnormal" style="margin-right:0.02778em;">D</span></span></span></span> 常数界 [理论]。</p>
+<h3 id="you-hua-2-ju-he-ti-jiao-nccl-group-api-api" tabindex="-1" id="优化-2：聚合提交-NCCL-Group-API-API">优化 2：聚合提交 (NCCL Group API API)</h3>
+<p><strong>解决的瓶颈</strong>：主机侧循环下发单卡通讯时产生的指令级互相阻塞死锁。<br>
+<strong>核心思想</strong>：避免主线程因为等待设备 0 的同步而在设备 1 上无法继续下发指令。调用 <code>ncclGroupStart()</code> 和 <code>ncclGroupEnd()</code> 进行指令打包，将底层所有拓扑请求统一排队在缓冲区，再利用 NCCL Proxy 守护线程于 Group 闭合后一并下发异步拉起。</p>
+<h3 id="you-hua-3-tong-xin-yu-ji-suan-yan-gai-zhong-die-pipeline-overlap" tabindex="-1" id="优化-3：通信与计算掩盖重叠-Pipeline-Overlap">优化 3：通信与计算掩盖重叠 (Pipeline Overlap)</h3>
+<p><strong>解决的瓶颈</strong>：长达数十毫秒的通信延迟造成 Tensor Core 算力真空。<br>
+<strong>核心思想</strong>：此优化大量运用于 PyTorch DDP。在神经网络计算图中越浅层的权重通常产生反向梯度的时刻越晚，而越靠近输出端的最早获得。将已产出的梯度分桶 (Bucket)。桶满即刻抛弃到完全不依赖物理 SM Core 的纯 DMA Channel 流 (<code>cudaMemcpyAsync</code>) 进行数据网络发送通信。<br>
+<strong>预期收益</strong>：令通信网络接口被独占的同时，主运算 SM 继续计算剩余的深层前向与残差，利用异步执行将延迟时间被高密度计算掩盖。</p>
+<h2 id="guan-jian-dai-ma-jie-shi" tabindex="-1" id="关键代码解释">关键代码解释</h2>
+<h3 id="nccl-zhi-xing-huan-jing-bang-ding-yu-chu-shi-hua" tabindex="-1" id="NCCL-执行环境绑定与初始化">NCCL 执行环境绑定与初始化</h3>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 来源：15_Multi_GPU/01_nccl_allreduce/nccl_allreduce.cu : L80-L94</span></span><br><span class="line">    <span class="comment">// [1] 起始宣告一个事务打包集合，防止串行引发通讯挂起死锁</span></span><br><span class="line">    <span class="built_in">NCCLCHECK</span>(<span class="built_in">ncclGroupStart</span>());</span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> i = <span class="number">0</span>; i &lt; nDev; ++i) &#123;</span><br><span class="line">        <span class="comment">// [2] 极端重要的上下文切换锁定操作</span></span><br><span class="line">        <span class="built_in">CUDA_CHECK</span>(<span class="built_in">cudaSetDevice</span>(i));</span><br><span class="line">        <span class="built_in">CUDA_CHECK</span>(<span class="built_in">cudaMalloc</span>((<span class="type">void</span>**)&amp;d_sendbuffs[i], size_bytes));</span><br><span class="line">        <span class="built_in">CUDA_CHECK</span>(<span class="built_in">cudaMalloc</span>((<span class="type">void</span>**)&amp;d_recvbuffs[i], size_bytes));</span><br><span class="line">        <span class="built_in">CUDA_CHECK</span>(<span class="built_in">cudaStreamCreate</span>(&amp;streams[i]));</span><br><span class="line">        </span><br><span class="line">        <span class="comment">// ... (数据初始化逻辑部分略)</span></span><br><span class="line">        </span><br><span class="line">        <span class="comment">// [3] 使用唯一 ID 和全局 rank i 将当前设备强注册入此全局通信族内</span></span><br><span class="line">        <span class="built_in">NCCLCHECK</span>(<span class="built_in">ncclCommInitRank</span>(&amp;comms[i], nDev, id, i));</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="comment">// [4] 将之前循环挂载配置一并落盘提交，拉起通讯后端</span></span><br><span class="line">    <span class="built_in">NCCLCHECK</span>(<span class="built_in">ncclGroupEnd</span>());</span><br></pre></td></tr></table></figure>
+<p><strong>要点解读</strong>：</p>
+<ul>
+<li>NCCL 中凡是牵涉跨越多卡的宏指令操作，都必须处在 <code>ncclGroupStart()</code> 和 <code>ncclGroupEnd()</code> 被包裹的区域内，这与数据库 Transaction 并发提交类似。未正确包裹的调用将会令卡相互死等 (Rank 0 等待 Rank 1 启动收信，而主线程则堵在 Rank 0 之上无法让卡 1 运行下一步)。</li>
+</ul>
+<h3 id="all-reduce-liu-zhi-xing" tabindex="-1" id="All-Reduce-流执行">All-Reduce 流执行</h3>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 来源：15_Multi_GPU/01_nccl_allreduce/nccl_allreduce.cu : L102-L109</span></span><br><span class="line">    <span class="built_in">NCCLCHECK</span>(<span class="built_in">ncclGroupStart</span>());</span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> i = <span class="number">0</span>; i &lt; nDev; ++i) &#123;</span><br><span class="line">        <span class="built_in">CUDA_CHECK</span>(<span class="built_in">cudaSetDevice</span>(i));</span><br><span class="line">        <span class="comment">// 将所有设备的 d_sendbuffs 中的浮点数进行跨卡加总求解，落入每个自身的 d_recvbuffs</span></span><br><span class="line">        <span class="built_in">NCCLCHECK</span>(<span class="built_in">ncclAllReduce</span>((<span class="type">const</span> <span class="type">void</span>*)d_sendbuffs[i], (<span class="type">void</span>*)d_recvbuffs[i], </span><br><span class="line">                                num_elements, ncclFloat, ncclSum, comms[i], streams[i]));</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="built_in">NCCLCHECK</span>(<span class="built_in">ncclGroupEnd</span>());</span><br></pre></td></tr></table></figure>
+<p><strong>要点解读</strong>：</p>
+<ul>
+<li><code>ncclAllReduce</code> 在执行时将自动判断最佳的拓扑算法（Ring 或者 Tree 等）。由于传入了专用的 <code>streams[i]</code>，此操作是被挂载在完全异步指令流中的，主线程 CPU 获取提交反馈后可直接后退。</li>
+</ul>
+<h2 id="jie-guo-yu-bian-jie" tabindex="-1" id="结果与边界">结果与边界</h2>
+<h3 id="xing-neng-dui-bi" tabindex="-1" id="性能对比">性能对比</h3>
+<blockquote>
+<p><strong>测试条件</strong>：2 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>×</mo></mrow><annotation encoding="application/x-tex">\times</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6667em;vertical-align:-0.0833em;"></span><span class="mord">×</span></span></span></span> NVIDIA RTX 4090 (<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>s</mi><mi>m</mi><mi mathvariant="normal">_</mi><mn>89</mn></mrow><annotation encoding="application/x-tex">sm\_89</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.9544em;vertical-align:-0.31em;"></span><span class="mord mathnormal">s</span><span class="mord mathnormal">m</span><span class="mord">_89</span></span></span></span>) , NCCL, Pytorch Native 环境变量<br>
+<strong>数据来源</strong>：<code>Results/15_Multi_GPU.md</code> 原始日志</p>
+</blockquote>
+<p><strong>1. 基本 NCCL 通信耗时测试</strong></p>
+<p><em>测试数据规模 1024x1024 C++ Float (<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>4</mn><mtext>MB</mtext></mrow><annotation encoding="application/x-tex">4\text{MB}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord">4</span><span class="mord text"><span class="mord">MB</span></span></span></span></span> 数据量)</em>。</p>
+<table>
+<thead>
+<tr>
+<th>实现平台</th>
+<th>测试场景层级</th>
+<th>AllReduce 执行耗时</th>
+<th>测试数据性质</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Multi-GPU NCCL</td>
+<td>C++ 裸调 (未包含 Warmup)</td>
+<td><strong>28.20 ms</strong></td>
+<td>[实测]</td>
+</tr>
+<tr>
+<td>Tensor Core</td>
+<td>前向矩阵计算对标参考</td>
+<td>几乎数微秒</td>
+<td>[推导对标]</td>
+</tr>
+</tbody>
+</table>
+<p><strong>数据解析与幻象拆解</strong>：<br>
+实测一个极小的 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>4</mn><mtext> MB</mtext></mrow><annotation encoding="application/x-tex">4\text{ MB}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord">4</span><span class="mord text"><span class="mord"> MB</span></span></span></span></span> Tensor 需要耗费夸张的 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>28.20</mn><mtext> ms</mtext></mrow><annotation encoding="application/x-tex">28.20\text{ ms}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">28.20</span><span class="mord text"><span class="mord"> ms</span></span></span></span></span> (相当于仅跑出百兆量级带宽)。在工程实践中，由于属于极冷态启动测例，近乎 90% 以上时间实则是抛在了首次调用必须强行探明主板硬件网络连接路线图，建树 Token 共享通信以及在驱动层锁定资源句柄所需的冷启动上。</p>
+<p><strong>2. Ring 拓扑的单卡通信负荷常数极值边界验证</strong></p>
+<p><em>假设 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>D</mi><mo>=</mo><mn>100</mn><mtext> MB</mtext></mrow><annotation encoding="application/x-tex">D = 100\text{ MB}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.02778em;">D</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord">100</span><span class="mord text"><span class="mord"> MB</span></span></span></span></span> 梯度。</em></p>
+<table>
+<thead>
+<tr>
+<th>集群节点总数 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>N</mi></mrow><annotation encoding="application/x-tex">N</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.10903em;">N</span></span></span></span></th>
+<th>原生 Parameter Server 中心节点负载</th>
+<th>Ring AllReduce 节点理论通信发送负载</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>N</mi><mo>=</mo><mn>4</mn></mrow><annotation encoding="application/x-tex">N = 4</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.10903em;">N</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">4</span></span></span></span></td>
+<td><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>300</mn><mtext> MB</mtext></mrow><annotation encoding="application/x-tex">300\text{ MB}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord">300</span><span class="mord text"><span class="mord"> MB</span></span></span></span></span></td>
+<td><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>2</mn><mo>×</mo><mfrac><mn>3</mn><mn>4</mn></mfrac><mo>×</mo><mn>100</mn><mtext> MB</mtext><mo>=</mo><mrow><mn mathvariant="bold">150</mn><mtext> MB</mtext></mrow></mrow><annotation encoding="application/x-tex">2 \times \frac{3}{4} \times 100 \text{ MB} = \mathbf{150\text{ MB}}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7278em;vertical-align:-0.0833em;"></span><span class="mord">2</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1.1901em;vertical-align:-0.345em;"></span><span class="mord"><span class="mopen nulldelimiter"></span><span class="mfrac"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.8451em;"><span style="top:-2.655em;"><span class="pstrut" style="height:3em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">4</span></span></span></span><span style="top:-3.23em;"><span class="pstrut" style="height:3em;"></span><span class="frac-line" style="border-bottom-width:0.04em;"></span></span><span style="top:-3.394em;"><span class="pstrut" style="height:3em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">3</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.345em;"><span></span></span></span></span></span><span class="mclose nulldelimiter"></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord">100</span><span class="mord text"><span class="mord"> MB</span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord"><span class="mord mathbf">150</span><span class="mord text"><span class="mord"> MB</span></span></span></span></span></span></td>
+</tr>
+<tr>
+<td><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>N</mi><mo>=</mo><mn>64</mn></mrow><annotation encoding="application/x-tex">N = 64</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.10903em;">N</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">64</span></span></span></span></td>
+<td><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>6300</mn><mtext> MB</mtext></mrow><annotation encoding="application/x-tex">6300\text{ MB}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord">6300</span><span class="mord text"><span class="mord"> MB</span></span></span></span></span></td>
+<td><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>2</mn><mo>×</mo><mfrac><mn>63</mn><mn>64</mn></mfrac><mo>×</mo><mn>100</mn><mtext> MB</mtext><mo>=</mo><mrow><mn mathvariant="bold">196.8</mn><mtext> MB</mtext></mrow></mrow><annotation encoding="application/x-tex">2 \times \frac{63}{64} \times 100 \text{ MB} = \mathbf{196.8\text{ MB}}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7278em;vertical-align:-0.0833em;"></span><span class="mord">2</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1.1901em;vertical-align:-0.345em;"></span><span class="mord"><span class="mopen nulldelimiter"></span><span class="mfrac"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.8451em;"><span style="top:-2.655em;"><span class="pstrut" style="height:3em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">64</span></span></span></span><span style="top:-3.23em;"><span class="pstrut" style="height:3em;"></span><span class="frac-line" style="border-bottom-width:0.04em;"></span></span><span style="top:-3.394em;"><span class="pstrut" style="height:3em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">63</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.345em;"><span></span></span></span></span></span><span class="mclose nulldelimiter"></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord">100</span><span class="mord text"><span class="mord"> MB</span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord"><span class="mord mathbf">196.8</span><span class="mord text"><span class="mord"> MB</span></span></span></span></span></span></td>
+</tr>
+<tr>
+<td><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>N</mi><mo>→</mo><mi mathvariant="normal">∞</mi></mrow><annotation encoding="application/x-tex">N \to \infty</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.10903em;">N</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">→</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.4306em;"></span><span class="mord">∞</span></span></span></span></td>
+<td><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi mathvariant="bold">O</mi><mo stretchy="false">(</mo><mi mathvariant="bold">N</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">\mathbf{O(N)}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord"><span class="mord mathbf">O</span><span class="mopen">(</span><span class="mord mathbf">N</span><span class="mclose">)</span></span></span></span></span> 瘫痪</td>
+<td><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>→</mo><mrow><mn mathvariant="bold">200</mn><mtext> MB</mtext></mrow><mtext> </mtext><mo stretchy="false">(</mo><mn>2</mn><mi>D</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">\to \mathbf{200 \text{ MB}}\ (2D)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.3669em;"></span><span class="mrel">→</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord"><span class="mord mathbf">200</span><span class="mord text"><span class="mord"> MB</span></span></span><span class="mspace"> </span><span class="mopen">(</span><span class="mord">2</span><span class="mord mathnormal" style="margin-right:0.02778em;">D</span><span class="mclose">)</span></span></span></span></td>
+</tr>
+</tbody>
+</table>
+<p>在无限增加芯片时，网络负担最终将会逼近且不可超越 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn mathvariant="bold">2</mn><mo>×</mo><mi mathvariant="bold">D</mi></mrow><annotation encoding="application/x-tex">\mathbf{2 \times D}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7694em;vertical-align:-0.0833em;"></span><span class="mord"><span class="mord mathbf">2</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mord mathbf">D</span></span></span></span></span> 这个基座极值。</p>
+<h3 id="bian-jie-tiao-jian-yu-ju-xian" tabindex="-1" id="边界条件与局限">边界条件与局限</h3>
+<ul>
+<li><strong>缺乏 NVLink 的降维惩罚</strong>: 4090 并无直接多卡物理背叛桥接。数据在转移通信期间全必须卸载离开 VRAM 走显卡 PCI 物理接口落后到 RAM 等慢级节点，再走 PCI 上传对侧网卡，形成严重的系统颠簸与内存开辟延迟。这也是大语言模型机房硬件往往会花数百万堆建带 NVSwitch 机柜集群的核心屏障壁垒所在。当节点过多引发全环网络过于冗长后，库底层可能会直接切盘走成通信包被二叉树式聚合的 <strong>Tree AllReduce</strong> 模式。</li>
+</ul>
+<h2 id="chang-jian-wu-qu" tabindex="-1" id="常见误区">常见误区</h2>
+<ol>
+<li><strong>误区</strong>：多卡训练之所以慢，是因为网卡需要把上百 GB 的结果统统计算起来。<br>
+<strong>实际</strong>：CPU/网卡侧对于这点规模的向量数学按值相加完全游刃有余。多卡通信之所以产生大量死等（卡计算核休眠空转），实质是因为 PCIe 等低级长途互联协议产生的超高微观物理传送延迟未被异步算法管辖和掩盖掉所致。</li>
+<li><strong>误区</strong>：无论何种硬件堆砌，只要代码按照 Ring 把卡串联好就能解决性能问题。<br>
+<strong>实际</strong>：在不同节点、甚至是交换机机房的混合层级结构中如果继续无脑 Ring 将引起最慢木桶短板拖慢总体环路时间。工业部署上需强依赖类似 <code>NCCL_ALGO=Tree</code> 此类按层级折叠的多级分块通讯控制策略。</li>
+</ol>
+<h2 id="xi-lie-dao-hang" tabindex="-1" id="系列导航">系列导航</h2>
+<h3 id="qian-zhi-yue-du" tabindex="-1" id="前置阅读">前置阅读</h3>
+<table>
+<thead>
+<tr>
+<th>文章</th>
+<th>与本篇的衔接</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="/posts/b1c0c6a3/">08 多流、图执行与扩展开发</a></td>
+<td>理解单机上如何用 Stream / CUDA Graphs 做通信与计算重叠，是扩展到多机/多卡 Pipeline Overlap 的基础</td>
+</tr>
+<tr>
+<td><a href="/posts/9729c03f/">11 推理优化、融合与键值缓存</a></td>
+<td>先看单机 LLM 推理/训练中如何榨干算力与显存，再在本篇基础上思考多卡训练中 AllReduce 带来的新瓶颈</td>
+</tr>
+<tr>
+<td><a href="/posts/803b94d6/">13 性能分析、屋顶线与占用率</a></td>
+<td>用 Roofline/带宽模型理解 Parameter Server 与 Ring AllReduce 在通信带宽上的理论差异</td>
+</tr>
+</tbody>
+</table>
+<h3 id="tui-jian-hou-xu" tabindex="-1" id="推荐后续">推荐后续</h3>
+<table>
+<thead>
+<tr>
+<th>文章</th>
+<th>与本篇的衔接</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="/posts/a1e20e80/">12 标准库与工程实践</a></td>
+<td>多卡训练中局部算子仍依赖高性能标准库，需要与通信优化一起综合考虑整体吞吐</td>
+</tr>
+<tr>
+<td><a href="/posts/f1b57921/">14 模板矩阵乘与代数布局</a></td>
+<td>当 AllReduce 开销被压缩后，局部 GEMM/Attention 内核将重新成为瓶颈，需依赖 CUTLASS/CuTe 构建接近 cuBLAS 的自定义核</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="shun-xu-dao-hang" tabindex="-1" id="顺序导航">顺序导航</h2>
+<ul>
+<li>上一篇：<a href="/posts/f1b57921/">CUDA实践-14-模板矩阵乘与代数布局</a></li>
+<li>下一篇：无，建议返回<a href="/posts/d6fa227a/">CUDA实践-00-系列导读与学习路线</a>重新选择学习路线。</li>
+</ul>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/b599e19f/">https://smarter.xin/posts/b599e19f/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/cuda/">CUDA</a><a class="post-meta__tags" href="/tags/gpu-programming/">GPU编程</a><a class="post-meta__tags" href="/tags/parallel-computing/">并行计算</a><a class="post-meta__tags" href="/tags/high-performance-computing/">高性能计算</a><a class="post-meta__tags" href="/tags/multi-gpu-en/">Multi-GPU</a><a class="post-meta__tags" href="/tags/nccl/">NCCL</a><a class="post-meta__tags" href="/tags/all-reduce/">AllReduce</a><a class="post-meta__tags" href="/tags/ring-topology/">Ring Topology</a><a class="post-meta__tags" href="/tags/distributed-training/">分布式训练</a><a class="post-meta__tags" href="/tags/gradient-synchronization/">梯度同步</a><a class="post-meta__tags" href="/tags/pcie/">PCIe</a><a class="post-meta__tags" href="/tags/nvlink/">NVLink</a></div><div class="post-share"><div class="social-share" data-image="/img/Nvidia_CUDA_Logo.jpg" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/cb29461c/" title="CUDA-Practice：05 Transformer 核心算子——Softmax、Norm、RoPE 与 FlashAttention"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">CUDA-Practice：05 Transformer 核心算子——Softmax、Norm、RoPE 与 FlashAttention</div></div></div></a><a class="pagination-related  no-desc" href="/posts/9729c03f/" title="CUDA-Practice：11 算子融合、PagedAttention 与 Continuous Batching"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">CUDA-Practice：11 算子融合、PagedAttention 与 Continuous Batching</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/7608f1b0/" title="CUDA-Practice：01 从 Vector Add 到 Tiled GEMM——带宽墙与数据复用"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-10</div><div class="info-item-2">CUDA-Practice：01 从 Vector Add 到 Tiled GEMM——带宽墙与数据复用</div></div></div></a><a class="pagination-related no-desc" href="/posts/1a09f6f/" title="CUDA-Practice：04 从 Shared Memory Tiling 到寄存器外积——逼近计算瓶颈"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-11</div><div class="info-item-2">CUDA-Practice：04 从 Shared Memory Tiling 到寄存器外积——逼近计算瓶颈</div></div></div></a><a class="pagination-related no-desc" href="/posts/cb29461c/" title="CUDA-Practice：05 Transformer 核心算子——Softmax、Norm、RoPE 与 FlashAttention"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-12</div><div class="info-item-2">CUDA-Practice：05 Transformer 核心算子——Softmax、Norm、RoPE 与 FlashAttention</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">113</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">237</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">21</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#ben-wen-mu-biao"><span class="toc-text">本文目标</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#dui-ying-dai-ma-lu-jing"><span class="toc-text">对应代码路径</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#baseline"><span class="toc-text">Baseline</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#ping-jing-fen-xi"><span class="toc-text">瓶颈分析</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#you-hua-si-lu"><span class="toc-text">优化思路</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#you-hua-1-tuo-bu-ti-huan-ring-all-reduce"><span class="toc-text">优化 1：拓扑替换 (Ring AllReduce)</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#you-hua-2-ju-he-ti-jiao-nccl-group-api-api"><span class="toc-text">优化 2：聚合提交 (NCCL Group API API)</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#you-hua-3-tong-xin-yu-ji-suan-yan-gai-zhong-die-pipeline-overlap"><span class="toc-text">优化 3：通信与计算掩盖重叠 (Pipeline Overlap)</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#guan-jian-dai-ma-jie-shi"><span class="toc-text">关键代码解释</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#nccl-zhi-xing-huan-jing-bang-ding-yu-chu-shi-hua"><span class="toc-text">NCCL 执行环境绑定与初始化</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#all-reduce-liu-zhi-xing"><span class="toc-text">All-Reduce 流执行</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#jie-guo-yu-bian-jie"><span class="toc-text">结果与边界</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#xing-neng-dui-bi"><span class="toc-text">性能对比</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#bian-jie-tiao-jian-yu-ju-xian"><span class="toc-text">边界条件与局限</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#chang-jian-wu-qu"><span class="toc-text">常见误区</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xi-lie-dao-hang"><span class="toc-text">系列导航</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#qian-zhi-yue-du"><span class="toc-text">前置阅读</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#tui-jian-hou-xu"><span class="toc-text">推荐后续</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shun-xu-dao-hang"><span class="toc-text">顺序导航</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/d6fa227a/" title="CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线"/></a><div class="content"><a class="title" href="/posts/d6fa227a/" title="CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</a><time datetime="2026-03-16T02:00:00.000Z" title="发表于 2026-03-16 10:00:00">2026-03-16</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/f1b57921/" title="CUDA-Practice：14 从双缓冲流水线到 CuTe 纯代数引擎的工业级抽象"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA-Practice：14 从双缓冲流水线到 CuTe 纯代数引擎的工业级抽象"/></a><div class="content"><a class="title" href="/posts/f1b57921/" title="CUDA-Practice：14 从双缓冲流水线到 CuTe 纯代数引擎的工业级抽象">CUDA-Practice：14 从双缓冲流水线到 CuTe 纯代数引擎的工业级抽象</a><time datetime="2026-03-12T08:00:00.000Z" title="发表于 2026-03-12 16:00:00">2026-03-12</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/a1e20e80/" title="CUDA-Practice：12 cuBLAS、cuFFT 与 Thrust——站在巨人肩上的正确姿势"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA-Practice：12 cuBLAS、cuFFT 与 Thrust——站在巨人肩上的正确姿势"/></a><div class="content"><a class="title" href="/posts/a1e20e80/" title="CUDA-Practice：12 cuBLAS、cuFFT 与 Thrust——站在巨人肩上的正确姿势">CUDA-Practice：12 cuBLAS、cuFFT 与 Thrust——站在巨人肩上的正确姿势</a><time datetime="2026-03-12T07:30:00.000Z" title="发表于 2026-03-12 15:30:00">2026-03-12</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>

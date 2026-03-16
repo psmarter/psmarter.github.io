@@ -1,0 +1,617 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>CUDA-Practice：10 合并访存、Bank Conflict 与异步流水线的三维解构 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="本文目标 读完本文，你将能够：  判断并修正破坏总线事务打包（Memory Coalescing）的糟糕寻址步长 利用 Nsight Compute 量化证明 L2 Cache 对所谓 AoS 阵型伪劣势的遮蔽效应 精确计算对齐 Padding 量以摧毁 Shared Memory 中的严重 Bank 冲撞 接入 sm_80 硬件级 cp.async 管线彻底掩掉 Global 搬入 Shared">
+<meta property="og:type" content="article">
+<meta property="og:title" content="CUDA-Practice：10 合并访存、Bank Conflict 与异步流水线的三维解构">
+<meta property="og:url" content="https://smarter.xin/posts/5b6f891d/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="本文目标 读完本文，你将能够：  判断并修正破坏总线事务打包（Memory Coalescing）的糟糕寻址步长 利用 Nsight Compute 量化证明 L2 Cache 对所谓 AoS 阵型伪劣势的遮蔽效应 精确计算对齐 Padding 量以摧毁 Shared Memory 中的严重 Bank 冲撞 接入 sm_80 硬件级 cp.async 管线彻底掩掉 Global 搬入 Shared">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/Nvidia_CUDA_Logo.jpg">
+<meta property="article:published_time" content="2026-03-12T07:00:00.000Z">
+<meta property="article:modified_time" content="2026-03-16T14:52:19.978Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="CUDA">
+<meta property="article:tag" content="GPU编程">
+<meta property="article:tag" content="并行计算">
+<meta property="article:tag" content="高性能计算">
+<meta property="article:tag" content="Coalesced Access">
+<meta property="article:tag" content="Bank Conflict">
+<meta property="article:tag" content="Async Copy">
+<meta property="article:tag" content="AoS">
+<meta property="article:tag" content="SoA">
+<meta property="article:tag" content="Padding">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/Nvidia_CUDA_Logo.jpg"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "CUDA-Practice：10 合并访存、Bank Conflict 与异步流水线的三维解构",
+  "url": "https://smarter.xin/posts/5b6f891d/",
+  "image": "https://smarter.xin/img/Nvidia_CUDA_Logo.jpg",
+  "datePublished": "2026-03-12T07:00:00.000Z",
+  "dateModified": "2026-03-16T14:52:19.978Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/5b6f891d/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'CUDA-Practice：10 合并访存、Bank Conflict 与异步流水线的三维解构',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">113</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">237</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">21</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/Nvidia_CUDA_Logo.jpg);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">CUDA-Practice：10 合并访存、Bank Conflict 与异步流水线的三维解构</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">CUDA-Practice：10 合并访存、Bank Conflict 与异步流水线的三维解构</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-03-12T07:00:00.000Z" title="发表于 2026-03-12 15:00:00">2026-03-12</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-03-16T14:52:19.978Z" title="更新于 2026-03-16 22:52:19">2026-03-16</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/cuda-practice/">CUDA-Practice</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">3.1k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>10分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h2 id="ben-wen-mu-biao" tabindex="-1" id="本文目标">本文目标</h2>
+<p>读完本文，你将能够：</p>
+<ul>
+<li>判断并修正破坏总线事务打包（Memory Coalescing）的糟糕寻址步长</li>
+<li>利用 Nsight Compute 量化证明 L2 Cache 对所谓 AoS 阵型伪劣势的遮蔽效应</li>
+<li>精确计算对齐 Padding 量以摧毁 Shared Memory 中的严重 Bank 冲撞</li>
+<li>接入 sm_80 硬件级 <code>cp.async</code> 管线彻底掩掉 Global 搬入 Shared 时的 LSU 等待泡</li>
+</ul>
+<h2 id="dui-ying-dai-ma-lu-jing" tabindex="-1" id="对应代码路径">对应代码路径</h2>
+<blockquote>
+<p><strong>硬件环境</strong>：NVIDIA RTX 4090 (Ada Lovelace, sm_89)<br>
+128 SMs | FP32 82.6 TFLOPS | HBM 1008 GB/s | L2 72 MB | Roofline 拐点 81.9 FLOP/Byte</p>
+</blockquote>
+<table>
+<thead>
+<tr>
+<th>源文件</th>
+<th>Kernel 名称</th>
+<th>核心技术</th>
+<th>测试规模</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>10_Memory_Optimization/01_coalesced_access/coalesced_access.cu</code></td>
+<td><code>coalesced_access</code><br><code>strided_access</code><br><code>aos_access</code><br><code>soa_access</code></td>
+<td>Global 合并访存 Stride=1 vs 2、AoS vs SoA 布局</td>
+<td><code>N=16.7M</code><br>(单数组 64 MB)</td>
+</tr>
+<tr>
+<td><code>10_Memory_Optimization/02_bank_conflict/bank_conflict.cu</code></td>
+<td><code>no_bank_conflict</code><br><code>with_bank_conflict</code><br><code>padded_no_conflict</code><br><code>analyze_bank_patterns</code></td>
+<td>Shared 行/列访问、32-way 冲突、Padding+1 消除</td>
+<td><code>4096×4096</code><br>(64 MB)</td>
+</tr>
+<tr>
+<td><code>10_Memory_Optimization/03_async_copy/async_copy.cu</code></td>
+<td><code>sync_copy_kernel</code><br><code>async_copy_kernel</code><br><code>pipeline_kernel</code></td>
+<td>同步拷贝、<code>cg::memcpy_async</code>、<code>cuda::pipeline</code> 多阶流水</td>
+<td><code>N=67M</code><br>(256 MB)</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>Kernel 名称与源码中 <code>__global__</code> 函数签名完全一致。</p>
+<p><strong>本篇在系列中的位置</strong>：承接 <a href="/posts/7608f1b0/">01 基础概念与分块</a> 的合并访存与 Tiling、<a href="/posts/fec051fc/">06 线程束原语与寄存器通信</a> 的寄存器通信（避免 Shared 的 Bank 冲突），本篇系统拆解<strong>三层访存瓶颈</strong>：Global 合并（Coalescing）、Shared Bank Conflict 与 Padding、Global↔Shared 的 Async Copy。后续 <a href="/posts/b1c0c6a3/">08 多流、图执行与扩展开发</a> 用 Multi-Stream 掩盖 H2D/D2H、<a href="/posts/9729c03f/">11 推理优化、融合与键值缓存</a> 在推理链路中复用本篇的合并与 Bank 优化；<a href="/posts/803b94d6/">13 性能分析、屋顶线与占用率</a> 用 Nsight 量化 Bank 冲突与带宽。</p>
+</blockquote>
+<h2 id="baseline" tabindex="-1" id="Baseline">Baseline</h2>
+<p><strong>问题陈述</strong>：在 GPU 端，“Memory Bound”不仅仅代表主存带宽打满，由于内存分层的断崖式延迟特性，它可细分崩坏为外围显存物理跨距（Uncoalesced）、片上缓存阵列列撞车（Bank Conflict）和单纯的同步拷贝浪费时间片（Stall）。</p>
+<table>
+<thead>
+<tr>
+<th>Baseline 类别</th>
+<th>测试场景</th>
+<th>指标</th>
+<th>值</th>
+<th>数据来源</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>合并访问 (Stride=1)</td>
+<td><code>N=16.7M</code> (64 MB)</td>
+<td>Kernel 时间</td>
+<td>0.15 ms</td>
+<td>[实测] Results/10_Memory_Optimization.md</td>
+</tr>
+<tr>
+<td>无 Bank 冲突</td>
+<td><code>4096×4096</code> (64 MB)</td>
+<td>Kernel 时间</td>
+<td>0.15 ms</td>
+<td>[实测] Results/10_Memory_Optimization.md</td>
+</tr>
+<tr>
+<td>同步拷贝 (Sync Copy)</td>
+<td><code>N=67M</code> (256 MB)</td>
+<td>Kernel 时间</td>
+<td>0.60 ms</td>
+<td>[实测] Results/10_Memory_Optimization.md</td>
+</tr>
+</tbody>
+</table>
+<h2 id="ping-jing-fen-xi" tabindex="-1" id="瓶颈分析">瓶颈分析</h2>
+<p>为何 GPU 看似吞吐巨大，一旦内存访问凌乱其实力就会极速跌落十分之一？</p>
+<ol>
+<li><strong>未按 32 字节扇区齐平拉取（Global Memory Uncoalesced）</strong>
+<ul>
+<li>L2 至全局存取的底层是 32 字节的事务包 (Sector)。当 Warp 中 32 个工作线程去拿完全随机的地址时，硬件的最优解瞬间沦丧，它不得不为这群散兵发起高达 32 次的独立捞取信令。即便只有 <code>stride=2</code>，也将有一半抽上来的缓存直接作废，硬生生削去一半带宽下限。</li>
+</ul>
+</li>
+<li><strong>高速缓存网段冲关单行道（Shared Bank Conflict）</strong>
+<ul>
+<li>极速的 Shared Memory 其实是被横向斩为 32 管名为 Bank 的流水口（单管 32-bit 列宽）组装起的阵列。每当同一个 Warp 内部有超过数名线程非常不走运地正好卡向具有相同偏移余数 <code>(addr) % 32</code> 的通道提取不同数据，底座将无情锁死将其拉平成串行处理。</li>
+</ul>
+</li>
+<li><strong>计算核被长载波空停（Pipeline Bubbles）</strong>
+<ul>
+<li>诸如 GEMM 或者迭代核心通常会有“拉取外层数据 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>→</mo></mrow><annotation encoding="application/x-tex">\rightarrow</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.3669em;"></span><span class="mrel">→</span></span></span></span> 同步落入 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>→</mo></mrow><annotation encoding="application/x-tex">\rightarrow</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.3669em;"></span><span class="mrel">→</span></span></span></span> 计算”的三段死循环。在未启动流水线前，读取进行时整个强大昂贵的浮点矩阵列被强行停机发呆（Data Dependency Stall）。</li>
+</ul>
+</li>
+</ol>
+<h2 id="you-hua-si-lu" tabindex="-1" id="优化思路">优化思路</h2>
+<h3 id="you-hua-1-bao-zheng-warp-ti-qu-jue-dui-lian-xu-jin-cou-coalescing-pattern" tabindex="-1" id="优化-1：保证-Warp-提取绝对连续紧凑-Coalescing-Pattern">优化 1：保证 Warp 提取绝对连续紧凑 (Coalescing Pattern)</h3>
+<p><strong>解决的瓶颈</strong>：浪费显存扇区读取动作带宽。<br>
+<strong>核心思想</strong>：无论多复杂的坐标网格运算，最底层负责映射回 Memory Array 时，必须保证在 <code>threadIdx.x</code> 与 <code>threadIdx.x + 1</code> 之间，他们索取的数据内存物理字节偏移量恰好绝对并接相连不留缝隙（或者全部指向同一格引发 Broadcast），确保汇编底层的一笔扇区指令一次性带出最多有效元。<br>
+<strong>预期收益</strong>：相比于 <code>stride=2</code> 强行折损降速的版本，连续对齐提取跑出 <strong>925.31 GB/s</strong> 的压榨级宽带满水表现 [实测]。</p>
+<h3 id="you-hua-2-ju-zhen-er-wei-pu-she-de-bian-jie-padding-xian-jing" tabindex="-1" id="优化-2：矩阵二维铺设的边界-Padding-陷阱">优化 2：矩阵二维铺设的边界 Padding 陷阱</h3>
+<p><strong>解决的瓶颈</strong>：同一列抽取引发的 32-Way Serialized Stall。<br>
+<strong>核心思想</strong>：尤其在 GEMM 这类取块缓存（Shared Memory Tile）动作里，对于大小设定常常是 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo stretchy="false">[</mo><mn>32</mn><mo stretchy="false">]</mo><mo stretchy="false">[</mo><mn>32</mn><mo stretchy="false">]</mo></mrow><annotation encoding="application/x-tex">[32][32]</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">[</span><span class="mord">32</span><span class="mclose">]</span><span class="mopen">[</span><span class="mord">32</span><span class="mclose">]</span></span></span></span> 正态方块。由于列访问时所有的跨距恰好均为 32 从而一击撞在死巷孔。解决手段极其简单巧妙，人为给这块 Shared 布置多塞一列废物位：<code>Smem[32][33]</code>。所有的错位使得同一行的内存列偏移错开了一道，把所有的撞击在数学同余圈上完美错落抹平。<br>
+<strong>预期收益</strong>：消灭极度夸张的延迟，将性能由劣化版的拉回到了与绝对无冲状态极其接近贴合的 <strong>0.16 ms</strong> 满血点 [实测]。</p>
+<h3 id="you-hua-3-qi-yong-code-cp-async-code-zai-ying-jian-duan-zuo-shi-kong-ping-yi" tabindex="-1" id="优化-3：启用-cp-async-在硬件端做时空平移">优化 3：启用 <code>cp.async</code> 在硬件端做时空平移</h3>
+<p><strong>解决的瓶颈</strong>：拉内存与计算时必须非此即彼。<br>
+<strong>核心思想</strong>：彻底摈弃手写用本地寄存器充当过客双缓冲的陋习。自 Ampere (SM 8.0) 架构后，CUDA 打开了硬件级别的 DMA 跨接令。它允许我们在内核中使用底层 API 并置数道 Stage。由控制器在底端默默搬数据进共享墙，并在此同时释放原管程允许 ALU（算术器）径直继续在旧池里疯狂啃算上个周期的遗留数。<br>
+<strong>预期收益</strong>：此种真正的全隐藏使得该流程中 256 MB 级大型运转不仅在有效带宽逼平了传统做法，更是将计算死角填补缝合。[实测注：本测试用例由于整体吞吐极快被带宽墙反卡导致无算术重核下的微涨幅 0.95x 效应；但在重计算矩阵类下将迎来质变。]</p>
+<h2 id="guan-jian-dai-ma-jie-shi" tabindex="-1" id="关键代码解释">关键代码解释</h2>
+<h3 id="gui-bi-bank-conflict-da-sha-qi-padding-offset" tabindex="-1" id="规避-Bank-Conflict-大杀器：Padding-Offset">规避 Bank Conflict 大杀器：Padding Offset</h3>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 来源：10_Memory_Optimization/02_bank_conflict/bank_conflict.cu</span></span><br><span class="line"><span class="comment">// 场景：需要在 Shared Mem 中放入一整块巨大的 Tile 用于后续高频倒取</span></span><br><span class="line"><span class="meta">#<span class="keyword">define</span> TILE_DIM 32</span></span><br><span class="line"></span><br><span class="line"><span class="comment">// 【灾祸版】：极其方正，导致若有 threadIdx.x=0 取 [0][0], threadIdx.x=1 取 [1][0]</span></span><br><span class="line"><span class="comment">// 此时 (0*32 + 0) % 32 == 0 ; (1*32 + 0) % 32 == 0 完形全撞同车道</span></span><br><span class="line">__shared__ <span class="type">float</span> bad_tile[TILE_DIM][TILE_DIM]; </span><br><span class="line"></span><br><span class="line"><span class="comment">// 【救赎版】：仅仅加了1 （PADDING=1），空间占比几可不察</span></span><br><span class="line">__shared__ <span class="type">float</span> good_tile[TILE_DIM][TILE_DIM + <span class="number">1</span>];</span><br><span class="line"></span><br><span class="line"><span class="comment">// 此时访问：</span></span><br><span class="line"><span class="type">float</span> val = good_tile[threadIdx.x][col];</span><br></pre></td></tr></table></figure>
+<p><strong>要点解读</strong>：</p>
+<ul>
+<li>将二维方块打入连续一维的展平函数是 <code>Row * Stride + Col</code>。对于 <code>good_tile</code>，此时 <code>Stride = 33</code>。那么原本同一列中行距为 1 的两个元素：<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>R</mi><mrow><mi>n</mi><mo>+</mo><mn>1</mn></mrow></msub><mo>×</mo><mn>33</mn><mo>+</mo><mi>C</mi><mo>−</mo><mo stretchy="false">(</mo><msub><mi>R</mi><mi>n</mi></msub><mo>×</mo><mn>33</mn><mo>+</mo><mi>C</mi><mo stretchy="false">)</mo><mo>≡</mo><mn>1</mn><mspace></mspace><mspace width="0.4444em"/><mo stretchy="false">(</mo><mrow><mi mathvariant="normal">m</mi><mi mathvariant="normal">o</mi><mi mathvariant="normal">d</mi></mrow><mspace width="0.3333em"/><mn>32</mn><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">R_{n+1} \times 33 + C - (R_n \times 33 + C) \equiv 1 \pmod{32}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8917em;vertical-align:-0.2083em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.00773em;">R</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:-0.0077em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight">n</span><span class="mbin mtight">+</span><span class="mord mtight">1</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.2083em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.7278em;vertical-align:-0.0833em;"></span><span class="mord">33</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.7667em;vertical-align:-0.0833em;"></span><span class="mord mathnormal" style="margin-right:0.07153em;">C</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">−</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">(</span><span class="mord"><span class="mord mathnormal" style="margin-right:0.00773em;">R</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:-0.0077em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">n</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.7278em;vertical-align:-0.0833em;"></span><span class="mord">33</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.07153em;">C</span><span class="mclose">)</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">≡</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">1</span><span class="mspace allowbreak"></span><span class="mspace" style="margin-right:0.4444em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">(</span><span class="mord"><span class="mord"><span class="mord mathrm">mod</span></span></span><span class="mspace" style="margin-right:0.3333em;"></span><span class="mord">32</span><span class="mclose">)</span></span></span></span>。这意味着每一个往下的成员其通道门牌号自动平移了一格错在不同 Bank 上了！这是代价最小的最硬质解决方针。</li>
+</ul>
+<h3 id="xian-dai-hua-code-cp-async-code-guan-xian-da-jian" tabindex="-1" id="现代化-cp-async-管线搭建">现代化 <code>cp.async</code> 管线搭建</h3>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 来源：10_Memory_Optimization/03_async_copy/async_copy.cu (cuda::pipeline + cuda::memcpy_async)</span></span><br><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;cuda/pipeline.h&gt;</span></span></span><br><span class="line"></span><br><span class="line"><span class="function">__global__ <span class="type">void</span> <span class="title">pipeline_kernel</span><span class="params">(...)</span> </span>&#123;</span><br><span class="line">    <span class="comment">// 搭建阶段深度为 3 的流水软管管道</span></span><br><span class="line">    __shared__ <span class="type">float</span> stage_buffers[<span class="number">3</span>][BLOCK_SIZE];</span><br><span class="line">    <span class="keyword">auto</span> pipeline = cuda::<span class="built_in">make_pipeline</span>();</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 先导热车拉灌阶段 0 和阶段 1</span></span><br><span class="line">    ... pipeline.<span class="built_in">producer_acquire</span>();</span><br><span class="line">    cuda::<span class="built_in">memcpy_async</span>(stage_buffers[<span class="number">0</span>], global_ptr, ... , pipeline);</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 主环线发进</span></span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> i = <span class="number">2</span>; i &lt; num_tiles; ++i) &#123;</span><br><span class="line">        ... <span class="comment">// 放进下一班发车货令</span></span><br><span class="line">        cuda::<span class="built_in">memcpy_async</span>(stage_buffers[i%<span class="number">3</span>], global_ptr, ... , pipeline);</span><br><span class="line">        pipeline.<span class="built_in">producer_commit</span>();</span><br><span class="line">        </span><br><span class="line">        <span class="comment">// 【关键】：阻塞点后移！只截停并等待极其老旧早应搬完的最末序列（i-2）完成</span></span><br><span class="line">        pipeline.<span class="built_in">consumer_wait</span>(); </span><br><span class="line">        </span><br><span class="line">        ... <span class="comment">// 对 stage_buffers[(i-2)%3] 大量发起数学处理轰炸 ...</span></span><br><span class="line">        </span><br><span class="line">        pipeline.<span class="built_in">consumer_release</span>(); <span class="comment">// 释空这个老站牌留作下一轮接新货</span></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p><strong>要点解读</strong>：</p>
+<ul>
+<li>这个库级别的封装底层调用到了直抵汇编的专有 DMA <code>cp.async</code> 指式。它的精妙在于你调下函数那一刻代码丝毫未在此停留分毫；只有当你在极长周转步下踩实那脚 <code>pipeline.consumer_wait()</code>，只要传输已经在那几千次算术周期内被后台搞定完结了，这就是真正的零阻塞满速穿透。</li>
+</ul>
+<h2 id="jie-guo-yu-bian-jie" tabindex="-1" id="结果与边界">结果与边界</h2>
+<h3 id="xing-neng-dui-bi" tabindex="-1" id="性能对比">性能对比</h3>
+<blockquote>
+<p><strong>测试条件</strong>：双 RTX 4090 (<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>s</mi><mi>m</mi><mi mathvariant="normal">_</mi><mn>89</mn></mrow><annotation encoding="application/x-tex">sm\_89</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.9544em;vertical-align:-0.31em;"></span><span class="mord mathnormal">s</span><span class="mord mathnormal">m</span><span class="mord">_89</span></span></span></span>), nvcc -O3<br>
+<strong>数据来源</strong>：<code>Results/10_Memory_Optimization.md</code> 原始实机日志，均以 100 次求均值</p>
+</blockquote>
+<p><strong>1. 极端带宽绞杀局：合并失效下沿探测（64 MB体量）</strong></p>
+<table>
+<thead>
+<tr>
+<th>内存拉取模式</th>
+<th>实机运行期跨</th>
+<th>有效吸吞带宽</th>
+<th>较基线倍比</th>
+<th>数据性质</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>完全连缀读取 (Stride=1)</td>
+<td>0.15 ms</td>
+<td><strong>925.31 GB/s</strong></td>
+<td>1.00x 基期</td>
+<td>[实测]</td>
+</tr>
+<tr>
+<td>断裂点状单步 (Stride=2)</td>
+<td>0.16 ms</td>
+<td><strong>427.34 GB/s</strong></td>
+<td>耗时约 1.08×，带宽约折半</td>
+<td>[实测]</td>
+</tr>
+</tbody>
+</table>
+<p>极其残酷：在仅发生一步偏移拉接失效，由于被物理抓头强行补足垃圾位块数据，有效运力轰塌至原先 46%。</p>
+<p><strong>2. 不可原谅的结构编排虚谎：AoS vs SoA 物理界翻转</strong></p>
+<table>
+<thead>
+<tr>
+<th>组织结构形式</th>
+<th>实机执行总间</th>
+<th>榨取有效总宽</th>
+<th>缓存穿梭效能比</th>
+<th>数据性质</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SoA (连续聚合群拉)</td>
+<td>0.59 ms</td>
+<td>912.82 GB/s</td>
+<td>1.00x 基数</td>
+<td>[实测]</td>
+</tr>
+<tr>
+<td>AoS (跳步结构抽取)</td>
+<td>0.58 ms</td>
+<td>922.31 GB/s</td>
+<td>全等位持平</td>
+<td>[实测]</td>
+</tr>
+</tbody>
+</table>
+<p>本实验中 <strong>AoS kernel 同时读写 x/y/z/w 四字段</strong>，访问模式仍是合并的，故 AoS 与 SoA 带宽接近（922 vs 913 GB/s）。若只读单字段的 AoS 会呈非合并，未在本测试中单独跑。数据量 64 MB 落在 L2（72 MB）内，也会抬高有效带宽；更大体量抛向 HBM 时合并与否的差距会更明显。</p>
+<h3 id="bian-jie-tiao-jian-yu-ju-xian" tabindex="-1" id="边界条件与局限">边界条件与局限</h3>
+<ul>
+<li><strong>多阶段 Pipeline 的算率强倒置雷区</strong>：引入异步管架（Async Copy）是有极为昂贵的寄存器维持和指令维护大税的！在该算本极速轻任务内，流水段居然相比起传统硬取法在跑频段出现了 0.95x 下阻退缩。这就是典型的 <code>T_compute &lt;&lt; T_copy</code> 被完全封死在存取口的绝境（Compute 压根没耗时不够填传输的深沟）。它只有在大型 GEMMs 内挂置方可见暴发。</li>
+</ul>
+<h2 id="chang-jian-wu-qu" tabindex="-1" id="常见误区">常见误区</h2>
+<ol>
+<li><strong>误区</strong>：一旦报出了 Bank Conflict 用 <code>Padding</code> 无论多大垫就完事。<br>
+<strong>实际</strong>：如果在 16x16 甚至奇数阶阵格中根本不涉猎 32 进制撞面循环节时加填充不但是作死还会额外废掉极为可怜的仅限单块的内存口。只在确信产生基于 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>N</mi><mi mathvariant="normal">%</mi><mn>32</mn></mrow><annotation encoding="application/x-tex">N\%32</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8056em;vertical-align:-0.0556em;"></span><span class="mord mathnormal" style="margin-right:0.10903em;">N</span><span class="mord">%32</span></span></span></span> 倍乘周波折返碰撞上方可用大。</li>
+<li><strong>误区</strong>：看见代码有乱步飞跃只要加 L1 Cache / Texture Cache 锁住就能高枕。<br>
+<strong>实际</strong>：即便你锁死在小粒面缓存阵中，Warp 内无法凑出完整一线的提取操作仍然会令处理调度分发器发起复数次 <code>requests</code>。总线被切斩为几十分之一的极其破碎的事物（Transactions）极速拉高了整个发接排程管线的负重直到被其直接冲挂。必须去源码重排算法逻辑才是真正清障。</li>
+</ol>
+<h2 id="xi-lie-dao-hang" tabindex="-1" id="系列导航">系列导航</h2>
+<h3 id="qian-zhi-yue-du" tabindex="-1" id="前置阅读">前置阅读</h3>
+<table>
+<thead>
+<tr>
+<th>文章</th>
+<th>与本篇的衔接</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="/posts/7608f1b0/">01 基础概念与分块</a></td>
+<td>先建立 Grid/Block/Warp、合并访存与 Shared Tiling 的直观，再在本篇深入 Coalescing 与 Bank 的定量分析</td>
+</tr>
+<tr>
+<td><a href="/posts/fec051fc/">06 线程束原语与寄存器通信</a></td>
+<td>Warp Shuffle 用寄存器通信规避 Shared 的 Bank 冲突与 __syncthreads 开销；本篇从 Shared 侧讲清冲突成因与 Padding 解法</td>
+</tr>
+</tbody>
+</table>
+<h3 id="tui-jian-hou-xu" tabindex="-1" id="推荐后续">推荐后续</h3>
+<table>
+<thead>
+<tr>
+<th>文章</th>
+<th>与本篇的衔接</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="/posts/b1c0c6a3/">08 多流、图执行与扩展开发</a></td>
+<td>用 Multi-Stream 掩盖 H2D/D2H，与本篇的「单 Kernel 内合并 + Async Copy」形成系统级与内核级两层访存优化</td>
+</tr>
+<tr>
+<td><a href="/posts/9729c03f/">11 推理优化、融合与键值缓存</a></td>
+<td>推理链路中合并访存、Bank 优化与 Async Copy 的落地场景</td>
+</tr>
+<tr>
+<td><a href="/posts/803b94d6/">13 性能分析、屋顶线与占用率</a></td>
+<td>用 Nsight Compute 量化 Bank 冲突、带宽与 Roofline 拐点，验证本篇优化效果</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="shun-xu-dao-hang" tabindex="-1" id="顺序导航">顺序导航</h2>
+<ul>
+<li>上一篇：<a href="/posts/78e375e8/">CUDA实践-09-张量核心与混合精度</a></li>
+<li>下一篇：<a href="/posts/9729c03f/">CUDA实践-11-推理优化融合与键值缓存</a></li>
+</ul>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/5b6f891d/">https://smarter.xin/posts/5b6f891d/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/cuda/">CUDA</a><a class="post-meta__tags" href="/tags/gpu-programming/">GPU编程</a><a class="post-meta__tags" href="/tags/parallel-computing/">并行计算</a><a class="post-meta__tags" href="/tags/high-performance-computing/">高性能计算</a><a class="post-meta__tags" href="/tags/coalesced-access-en/">Coalesced Access</a><a class="post-meta__tags" href="/tags/bank-conflict-en/">Bank Conflict</a><a class="post-meta__tags" href="/tags/async-copy/">Async Copy</a><a class="post-meta__tags" href="/tags/aos/">AoS</a><a class="post-meta__tags" href="/tags/soa/">SoA</a><a class="post-meta__tags" href="/tags/padding/">Padding</a></div><div class="post-share"><div class="social-share" data-image="/img/Nvidia_CUDA_Logo.jpg" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/a1e20e80/" title="CUDA-Practice：12 cuBLAS、cuFFT 与 Thrust——站在巨人肩上的正确姿势"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">CUDA-Practice：12 cuBLAS、cuFFT 与 Thrust——站在巨人肩上的正确姿势</div></div></div></a><a class="pagination-related  no-desc" href="/posts/b1c0c6a3/" title="CUDA-Practice：08 多流并发、CUDA Graphs 与 PyTorch 扩展解析"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">CUDA-Practice：08 多流并发、CUDA Graphs 与 PyTorch 扩展解析</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/7608f1b0/" title="CUDA-Practice：01 从 Vector Add 到 Tiled GEMM——带宽墙与数据复用"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-10</div><div class="info-item-2">CUDA-Practice：01 从 Vector Add 到 Tiled GEMM——带宽墙与数据复用</div></div></div></a><a class="pagination-related no-desc" href="/posts/1a09f6f/" title="CUDA-Practice：04 从 Shared Memory Tiling 到寄存器外积——逼近计算瓶颈"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-11</div><div class="info-item-2">CUDA-Practice：04 从 Shared Memory Tiling 到寄存器外积——逼近计算瓶颈</div></div></div></a><a class="pagination-related no-desc" href="/posts/cb29461c/" title="CUDA-Practice：05 Transformer 核心算子——Softmax、Norm、RoPE 与 FlashAttention"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-12</div><div class="info-item-2">CUDA-Practice：05 Transformer 核心算子——Softmax、Norm、RoPE 与 FlashAttention</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">113</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">237</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">21</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#ben-wen-mu-biao"><span class="toc-text">本文目标</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#dui-ying-dai-ma-lu-jing"><span class="toc-text">对应代码路径</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#baseline"><span class="toc-text">Baseline</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#ping-jing-fen-xi"><span class="toc-text">瓶颈分析</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#you-hua-si-lu"><span class="toc-text">优化思路</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#you-hua-1-bao-zheng-warp-ti-qu-jue-dui-lian-xu-jin-cou-coalescing-pattern"><span class="toc-text">优化 1：保证 Warp 提取绝对连续紧凑 (Coalescing Pattern)</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#you-hua-2-ju-zhen-er-wei-pu-she-de-bian-jie-padding-xian-jing"><span class="toc-text">优化 2：矩阵二维铺设的边界 Padding 陷阱</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#you-hua-3-qi-yong-code-cp-async-code-zai-ying-jian-duan-zuo-shi-kong-ping-yi"><span class="toc-text">优化 3：启用 cp.async 在硬件端做时空平移</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#guan-jian-dai-ma-jie-shi"><span class="toc-text">关键代码解释</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#gui-bi-bank-conflict-da-sha-qi-padding-offset"><span class="toc-text">规避 Bank Conflict 大杀器：Padding Offset</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#xian-dai-hua-code-cp-async-code-guan-xian-da-jian"><span class="toc-text">现代化 cp.async 管线搭建</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#jie-guo-yu-bian-jie"><span class="toc-text">结果与边界</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#xing-neng-dui-bi"><span class="toc-text">性能对比</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#bian-jie-tiao-jian-yu-ju-xian"><span class="toc-text">边界条件与局限</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#chang-jian-wu-qu"><span class="toc-text">常见误区</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xi-lie-dao-hang"><span class="toc-text">系列导航</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#qian-zhi-yue-du"><span class="toc-text">前置阅读</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#tui-jian-hou-xu"><span class="toc-text">推荐后续</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shun-xu-dao-hang"><span class="toc-text">顺序导航</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/d6fa227a/" title="CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线"/></a><div class="content"><a class="title" href="/posts/d6fa227a/" title="CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</a><time datetime="2026-03-16T02:00:00.000Z" title="发表于 2026-03-16 10:00:00">2026-03-16</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/f1b57921/" title="CUDA-Practice：14 从双缓冲流水线到 CuTe 纯代数引擎的工业级抽象"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA-Practice：14 从双缓冲流水线到 CuTe 纯代数引擎的工业级抽象"/></a><div class="content"><a class="title" href="/posts/f1b57921/" title="CUDA-Practice：14 从双缓冲流水线到 CuTe 纯代数引擎的工业级抽象">CUDA-Practice：14 从双缓冲流水线到 CuTe 纯代数引擎的工业级抽象</a><time datetime="2026-03-12T08:00:00.000Z" title="发表于 2026-03-12 16:00:00">2026-03-12</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/a1e20e80/" title="CUDA-Practice：12 cuBLAS、cuFFT 与 Thrust——站在巨人肩上的正确姿势"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA-Practice：12 cuBLAS、cuFFT 与 Thrust——站在巨人肩上的正确姿势"/></a><div class="content"><a class="title" href="/posts/a1e20e80/" title="CUDA-Practice：12 cuBLAS、cuFFT 与 Thrust——站在巨人肩上的正确姿势">CUDA-Practice：12 cuBLAS、cuFFT 与 Thrust——站在巨人肩上的正确姿势</a><time datetime="2026-03-12T07:30:00.000Z" title="发表于 2026-03-12 15:30:00">2026-03-12</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">再怎么看我也不知道怎么描述它的啦！</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>
