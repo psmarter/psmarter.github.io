@@ -1,13 +1,13 @@
-<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>CUDA-Practice：11 算子融合、PagedAttention 与 Continuous Batching | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="本文目标 读完本文，你将能够：  理解推理 Decoding 阶段 Memory Bound 的微观成因 掌握 Kernel Fusion（算子融合）降低无效数据搬运的原理 理解 KV Cache 管理中 PagedAttention 解决显存碎片的逻辑 了解 Continuous Batching 如何消除 Padding 带来的无效计算与存储开销   配套仓库：psmarter&#x2F;CUDA-Pr">
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>CUDA-Practice：11 推理优化、融合与键值缓存——算子融合、PagedAttention 与连续批处理 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="本文目标 读完本文，你将能够：  理解 LLM Decoding 阶段为何从 GEMM 退化为 GEMV &#x2F; Gather，在 Roofline 下变成典型的 Memory Bound（乃至 Capacity Bound） 用一条最小链路「Add → ReLU → Scale」看清中间变量落盘如何吞噬带宽，并用 Kernel Fusion 把有效带宽推到接近硬件极限 理解 KV Cache 的两类">
 <meta property="og:type" content="article">
-<meta property="og:title" content="CUDA-Practice：11 算子融合、PagedAttention 与 Continuous Batching">
+<meta property="og:title" content="CUDA-Practice：11 推理优化、融合与键值缓存——算子融合、PagedAttention 与连续批处理">
 <meta property="og:url" content="https://smarter.xin/posts/9729c03f/">
 <meta property="og:site_name" content="Smarter&#39;s blog">
-<meta property="og:description" content="本文目标 读完本文，你将能够：  理解推理 Decoding 阶段 Memory Bound 的微观成因 掌握 Kernel Fusion（算子融合）降低无效数据搬运的原理 理解 KV Cache 管理中 PagedAttention 解决显存碎片的逻辑 了解 Continuous Batching 如何消除 Padding 带来的无效计算与存储开销   配套仓库：psmarter&#x2F;CUDA-Pr">
+<meta property="og:description" content="本文目标 读完本文，你将能够：  理解 LLM Decoding 阶段为何从 GEMM 退化为 GEMV &#x2F; Gather，在 Roofline 下变成典型的 Memory Bound（乃至 Capacity Bound） 用一条最小链路「Add → ReLU → Scale」看清中间变量落盘如何吞噬带宽，并用 Kernel Fusion 把有效带宽推到接近硬件极限 理解 KV Cache 的两类">
 <meta property="og:locale" content="zh_CN">
 <meta property="og:image" content="https://smarter.xin/img/Nvidia_CUDA_Logo.jpg">
 <meta property="article:published_time" content="2026-03-12T02:00:00.000Z">
-<meta property="article:modified_time" content="2026-03-16T23:57:12.730Z">
+<meta property="article:modified_time" content="2026-03-17T11:41:53.667Z">
 <meta property="article:author" content="Smarter">
 <meta property="article:tag" content="LLM">
 <meta property="article:tag" content="PagedAttention">
@@ -23,11 +23,11 @@
 <meta name="twitter:image" content="https://smarter.xin/img/Nvidia_CUDA_Logo.jpg"><script type="application/ld+json">{
   "@context": "https://schema.org",
   "@type": "BlogPosting",
-  "headline": "CUDA-Practice：11 算子融合、PagedAttention 与 Continuous Batching",
+  "headline": "CUDA-Practice：11 推理优化、融合与键值缓存——算子融合、PagedAttention 与连续批处理",
   "url": "https://smarter.xin/posts/9729c03f/",
   "image": "https://smarter.xin/img/Nvidia_CUDA_Logo.jpg",
   "datePublished": "2026-03-12T02:00:00.000Z",
-  "dateModified": "2026-03-16T23:57:12.730Z",
+  "dateModified": "2026-03-17T11:41:53.667Z",
   "author": [
     {
       "@type": "Person",
@@ -171,7 +171,7 @@ btf.addGlobalFn('pjaxComplete', () => {
   },
   autoDarkmode: false
 }</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
-  title: 'CUDA-Practice：11 算子融合、PagedAttention 与 Continuous Batching',
+  title: 'CUDA-Practice：11 推理优化、融合与键值缓存——算子融合、PagedAttention 与连续批处理',
   isHighlightShrink: false,
   isToc: true,
   pageType: 'post'
@@ -206,18 +206,14 @@ btf.addGlobalFn('pjaxComplete', () => {
     btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
     btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
   }
-})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">113</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">237</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">21</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/Nvidia_CUDA_Logo.jpg);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">CUDA-Practice：11 算子融合、PagedAttention 与 Continuous Batching</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">CUDA-Practice：11 算子融合、PagedAttention 与 Continuous Batching</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-03-12T02:00:00.000Z" title="发表于 2026-03-12 10:00:00">2026-03-12</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-03-16T23:57:12.730Z" title="更新于 2026-03-17 07:57:12">2026-03-17</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/cuda-practice/">CUDA-Practice</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">3.2k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>11分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h2 id="ben-wen-mu-biao" tabindex="-1" id="本文目标">本文目标</h2>
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">113</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">237</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">21</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/Nvidia_CUDA_Logo.jpg);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">CUDA-Practice：11 推理优化、融合与键值缓存——算子融合、PagedAttention 与连续批处理</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">CUDA-Practice：11 推理优化、融合与键值缓存——算子融合、PagedAttention 与连续批处理</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-03-12T02:00:00.000Z" title="发表于 2026-03-12 10:00:00">2026-03-12</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-03-17T11:41:53.667Z" title="更新于 2026-03-17 19:41:53">2026-03-17</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/cuda-practice/">CUDA-Practice</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">3.3k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>13分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h2 id="ben-wen-mu-biao" tabindex="-1" id="本文目标">本文目标</h2>
 <p>读完本文，你将能够：</p>
 <ul>
-<li>理解推理 Decoding 阶段 Memory Bound 的微观成因</li>
-<li>掌握 Kernel Fusion（算子融合）降低无效数据搬运的原理</li>
-<li>理解 KV Cache 管理中 PagedAttention 解决显存碎片的逻辑</li>
-<li>了解 Continuous Batching 如何消除 Padding 带来的无效计算与存储开销</li>
+<li>理解 LLM Decoding 阶段为何从 GEMM 退化为 GEMV / Gather，在 Roofline 下变成典型的 Memory Bound（乃至 Capacity Bound）</li>
+<li>用一条最小链路「Add → ReLU → Scale」看清中间变量落盘如何吞噬带宽，并用 Kernel Fusion 把有效带宽推到接近硬件极限</li>
+<li>理解 KV Cache 的两类瓶颈：<strong>吞吐</strong>（读写模式）与 <strong>容量</strong>（碎片/预留），掌握 PagedAttention 用分页块表换容量的寻址逻辑</li>
+<li>理解 Continuous Batching 的核心：让显存与计算量随真实 token 数增长，用 Packed Tensor + <code>seq_starts</code> 消除 Padding 的存储与无效计算</li>
 </ul>
-<blockquote>
-<p>配套仓库：<a target="_blank" rel="noopener" href="https://github.com/psmarter/CUDA-Practice"><code>psmarter/CUDA-Practice</code></a><br>
-本系列文章与仓库中的源码、实验结果、目录结构相互对应；建议阅读文章时同步对照仓库中的实现。</p>
-</blockquote>
 <h2 id="dui-ying-dai-ma-lu-jing" tabindex="-1" id="对应代码路径">对应代码路径</h2>
 <blockquote>
 <p><strong>硬件环境</strong>：NVIDIA RTX 4090 (Ada Lovelace, sm_89)<br>
@@ -235,222 +231,316 @@ btf.addGlobalFn('pjaxComplete', () => {
 <tbody>
 <tr>
 <td><code>11_Inference_Optimization/02_kernel_fusion/kernel_fusion.cu</code></td>
-<td><code>add_kernel</code><br><code>relu_kernel</code><br><code>scale_kernel</code><br><code>fused_add_relu_scale</code></td>
+<td><code>add_kernel</code>、<code>relu_kernel</code>、<code>scale_kernel</code>、<code>fused_add_relu_scale</code></td>
 <td>算子融合 (Kernel Fusion)</td>
-<td><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>N</mi><mo>=</mo><mn>134</mn><mo separator="true">,</mo><mn>217</mn><mo separator="true">,</mo><mn>728</mn></mrow><annotation encoding="application/x-tex">N=134,217,728</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.10903em;">N</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8389em;vertical-align:-0.1944em;"></span><span class="mord">134</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord">217</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord">728</span></span></span></span></td>
+<td>N = 134,217,728</td>
 </tr>
 <tr>
 <td><code>11_Inference_Optimization/01_kv_cache/kv_cache.cu</code></td>
-<td><code>naive_attention_kernel</code><br><code>paged_attention_kernel</code></td>
-<td>分页注意力 (PagedAttention) 与 KV Cache</td>
-<td><code>seq_len</code> <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mo>≤</mo><mn>2048</mn></mrow><annotation encoding="application/x-tex">\le 2048</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7719em;vertical-align:-0.136em;"></span><span class="mrel">≤</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">2048</span></span></span></span><br><code>block_size=16</code></td>
+<td><code>naive_attention_kernel</code>、<code>paged_attention_kernel</code></td>
+<td>分页 KV Cache (PagedAttention)</td>
+<td>batch=32，max_seq=2048，block_size=16</td>
 </tr>
 <tr>
 <td><code>11_Inference_Optimization/03_dynamic_batching/dynamic_batching.cu</code></td>
-<td><code>batched_attention_fixed</code><br><code>batched_attention_varlen</code></td>
-<td>连续/动态批处理 (Continuous Batching)<br>消除 Padding</td>
-<td><code>batch=128</code><br><code>max_seq=1024</code></td>
+<td><code>batched_attention_fixed</code>、<code>batched_attention_varlen</code></td>
+<td>Continuous Batching（Packed Tensor）</td>
+<td>batch=128，max_seq=1024</td>
 </tr>
 </tbody>
 </table>
 <blockquote>
-<p>Kernel 名称与源码中 <code>__global__</code> 函数签名完全一致。</p>
-<p><strong>本篇在系列中的位置</strong>：承接 <a href="/posts/cb29461c/">05 大模型算子与注意力归一化</a> 与 <a href="/posts/ef325d2f/">07 量化、半精度与整数推理</a>、<a href="/posts/5b6f891d/">10 访存优化与共享内存冲突</a> 关于「单算子算力/带宽」的优化，本篇站在 <strong>LLM 推理系统视角</strong>，回答「当算子本身已很快时，如何通过 KV Cache、算子融合和批处理策略，把整个服务端吞吐拉满」。后续 <a href="/posts/b1c0c6a3/">08 多流、图执行与扩展开发</a> 的 Multi-Stream / CUDA Graphs、<a href="/posts/b599e19f/">15 多卡通信与全归约</a> 的跨卡通信，会把这些内核/系统优化扩展到多流、多卡级别。</p>
+<p>本篇承接 <a href="/posts/cb29461c/">05 大模型算子与注意力归一化</a>、<a href="/posts/ef325d2f/">07 量化半精度与整数推理</a>、<a href="/posts/5b6f891d/">10 访存优化与共享内存冲突</a> 的单算子优化，站在 <strong>LLM 推理系统</strong> 视角：当单算子已足够快时，如何通过 KV Cache 管理、算子融合与批处理策略把服务端吞吐与并发拉满。后续 <a href="/posts/b1c0c6a3/">08 多流图执行与扩展开发</a> 的 Multi-Stream / CUDA Graphs、<a href="/posts/b599e19f/">15 多卡通信与全归约</a> 的跨卡通信，会把这些内核与系统优化扩展到多流、多卡。</p>
 </blockquote>
-<h2 id="baseline" tabindex="-1" id="Baseline">Baseline</h2>
-<p><strong>问题陈述</strong>：在千亿参数大语言模型（LLM）的自回归生成（Decoding）阶段，由于每次仅生成 1 个 Token，运算模式从适合并行的高算术强度 GEMM 退化为了 GEMV（矩阵乘向量）。</p>
-<p>按照 Roofline 模型计算，此时的算术强度 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>I</mi></mrow><annotation encoding="application/x-tex">I</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.07847em;">I</span></span></span></span> 极低（接近 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>1.0</mn><mtext> FLOP/Byte</mtext></mrow><annotation encoding="application/x-tex">1.0\text{ FLOP/Byte}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord">1.0</span><span class="mord text"><span class="mord"> FLOP/Byte</span></span></span></span></span>），远低于 RTX 4090 的拐点 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>81.9</mn><mtext> FLOP/Byte</mtext></mrow><annotation encoding="application/x-tex">81.9\text{ FLOP/Byte}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord">81.9</span><span class="mord text"><span class="mord"> FLOP/Byte</span></span></span></span></span>。系统陷入极其严重的 Memory Bound。我们用原生的序列操作（Unfused）、朴素显存分配（Naive KV Cache）和静态对齐批处理（Static Padding）作为这三个维度的 Baseline。</p>
+<hr>
+<h2 id="san-ge-shi-xian-fen-bie-zuo-liao-shi-yao" tabindex="-1" id="三个实现分别做了什么">三个实现分别做了什么</h2>
+<h3 id="1-kernel-fusion-ba-zhong-jian-bian-liang-luo-pan-cong-7-ci-fang-cun-ya-dao-3-ci" tabindex="-1" id="1-Kernel-Fusion：把「中间变量落盘」从-7-次访存压到-3-次">1. Kernel Fusion：把「中间变量落盘」从 7 次访存压到 3 次</h3>
+<p><code>kernel_fusion.cu</code> 构造了一条最小但典型的推理链路：<strong>Add → ReLU → Scale</strong>。</p>
+<p>非融合版本需要三次 Kernel 调用，每一步都把中间结果写回 Global Memory：</p>
+<ul>
+<li>Add：读 A、读 B、写 T1</li>
+<li>ReLU：读 T1、写 T2</li>
+<li>Scale：读 T2、写 O</li>
+</ul>
+<p>合计 <strong>读 4 次 + 写 3 次</strong>，共 7 次全局访存。融合版本 <code>fused_add_relu_scale</code> 把三步串在一个 Kernel 内：<code>sum</code>、<code>activated</code> 留在寄存器，最终只写回一次 Output，合计 <strong>读 2 次 + 写 1 次</strong>。</p>
+<p>它的价值在于建立一个<strong>中间落盘吞噬带宽</strong>的对照——在 Memory Bound 链路上，减少 round-trip 直接转化为有效带宽与耗时提升。</p>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 来源：11_Inference_Optimization/02_kernel_fusion/kernel_fusion.cu : L9-L55</span></span><br><span class="line"><span class="function">__global__ <span class="type">void</span> <span class="title">add_kernel</span><span class="params">(CPFloat a, CPFloat b, PFloat output, CInt n)</span> </span>&#123;</span><br><span class="line">    <span class="type">int</span> idx = blockIdx.x * blockDim.x + threadIdx.x;</span><br><span class="line">    <span class="keyword">if</span> (idx &lt; n) &#123;</span><br><span class="line">        output[idx] = a[idx] + b[idx];</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function">__global__ <span class="type">void</span> <span class="title">relu_kernel</span><span class="params">(CPFloat input, PFloat output, CInt n)</span> </span>&#123;</span><br><span class="line">    <span class="type">int</span> idx = blockIdx.x * blockDim.x + threadIdx.x;</span><br><span class="line">    <span class="keyword">if</span> (idx &lt; n) &#123;</span><br><span class="line">        output[idx] = <span class="built_in">fmaxf</span>(input[idx], <span class="number">0.0f</span>);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function">__global__ <span class="type">void</span> <span class="title">scale_kernel</span><span class="params">(CPFloat input, PFloat output, CFloat scale, CInt n)</span> </span>&#123;</span><br><span class="line">    <span class="type">int</span> idx = blockIdx.x * blockDim.x + threadIdx.x;</span><br><span class="line">    <span class="keyword">if</span> (idx &lt; n) &#123;</span><br><span class="line">        output[idx] = input[idx] * scale;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function">__global__ <span class="type">void</span> <span class="title">fused_add_relu_scale</span><span class="params">(CPFloat a, CPFloat b, PFloat output,</span></span></span><br><span class="line"><span class="params"><span class="function">                                    CFloat scale, CInt n)</span> </span>&#123;</span><br><span class="line">    <span class="type">int</span> idx = blockIdx.x * blockDim.x + threadIdx.x;</span><br><span class="line">    <span class="keyword">if</span> (idx &lt; n) &#123;</span><br><span class="line">        <span class="type">float</span> sum = a[idx] + b[idx];</span><br><span class="line">        <span class="type">float</span> activated = <span class="built_in">fmaxf</span>(sum, <span class="number">0.0f</span>);</span><br><span class="line">        output[idx] = activated * scale;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>Block 配置为 256 或 1024 线程（依实现），Grid 覆盖全部 N 元素。融合版将有效带宽从约 397 GB/s 提升至约 933 GB/s [实测]，接近 RTX 4090 理论 1008 GB/s。</p>
+<h3 id="2-naive-kv-cache-vs-paged-attention-yong-cha-biao-huan-rong-liang" tabindex="-1" id="2-Naive-KV-Cache-vs-PagedAttention：用「查表」换容量">2. Naive KV Cache vs PagedAttention：用「查表」换容量</h3>
+<p><code>kv_cache.cu</code> 用简化 Attention 访问模式代表 Decoding 阶段的核心访存：对每个 token 读 K/V 并做轻量计算（本实现用 <code>acc += (q*k)*v</code> 示意）。</p>
+<ul>
+<li><strong>naive_attention_kernel</strong>：KV Cache 按 <code>[batch, head, max_seq_len, head_dim]</code> 连续存放。寻址简单、读访问易合并；代价是按 <code>max_seq_len</code> 预留连续空间，短请求产生大量内部碎片。</li>
+<li><strong>paged_attention_kernel</strong>：将 KV 切成定长块（block_size=16 token），每序列持有一个 <code>block_table</code>，把「逻辑块号 → 物理块号」映射；Kernel 内层循环做整除/取模与指针解引用，把逻辑 token 位置翻译到分散的物理块。</li>
+</ul>
+<p>分页会让读访问更碎、吞吐略降；但显著降低预留与碎片，提升并发上限。</p>
+<h3 id="3-static-padding-vs-continuous-batching-ba-token-wei-du-ya-bian" tabindex="-1" id="3-Static-Padding-vs-Continuous-Batching：把-token-维度「压扁」">3. Static Padding vs Continuous Batching：把 token 维度「压扁」</h3>
+<p><code>dynamic_batching.cu</code> 对比两种批处理：</p>
+<ul>
+<li><strong>batched_attention_fixed</strong>：按 <code>max_seq_len</code> 组织张量，短序列用 Padding 对齐；Kernel 内用 <code>if (i &lt; actual_len)</code> 跳过 padding 部分计算。</li>
+<li><strong>batched_attention_varlen</strong>：把所有序列的有效 token 拼成 Packed Tensor：key/value 的第一维是 <code>total_tokens</code>；每条序列用 <code>seq_starts</code> 给出 <code>[start, end)</code>，Kernel 只遍历真实 token 区间。</li>
+</ul>
+<p>优化目标首先是<strong>显存与系统吞吐</strong>随真实 token 数线性增长，而不是被最大长度绑死；kernel 时间是否更快取决于 fixed 方案是否已用分支跳过 padding。</p>
+<hr>
+<h2 id="baseline-yu-ping-jing-fen-xi" tabindex="-1" id="Baseline-与瓶颈分析">Baseline 与瓶颈分析</h2>
+<h3 id="decoding-wei-he-tian-ran-memory-bound-capacity-bound" tabindex="-1" id="Decoding-为何天然-Memory-Bound-Capacity-Bound">Decoding 为何天然 Memory Bound / Capacity Bound</h3>
+<p>自回归 Decoding 每步只产出 1 个 token：大量算子从「矩阵乘矩阵（GEMM）」退化为「矩阵乘向量（GEMV）/ Gather + 逐元素」，算术强度大幅下降。在 Roofline 下：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>I</mi><mo>=</mo><mfrac><mtext>FLOPs</mtext><mtext>Bytes</mtext></mfrac><mspace width="1em"/><mo>⇒</mo><mspace width="1em"/><mi>P</mi><mo>≈</mo><mi>I</mi><mo>×</mo><mi>B</mi><mi>W</mi><mspace width="1em"/><mo stretchy="false">[</mo><mtext>Memory Bound</mtext><mo stretchy="false">]</mo></mrow><annotation encoding="application/x-tex">I = \frac{\text{FLOPs}}{\text{Bytes}} \quad \Rightarrow \quad P \approx I \times BW \quad [\text{Memory Bound}]
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.07847em;">I</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:2.2408em;vertical-align:-0.8804em;"></span><span class="mord"><span class="mopen nulldelimiter"></span><span class="mfrac"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:1.3603em;"><span style="top:-2.314em;"><span class="pstrut" style="height:3em;"></span><span class="mord"><span class="mord text"><span class="mord">Bytes</span></span></span></span><span style="top:-3.23em;"><span class="pstrut" style="height:3em;"></span><span class="frac-line" style="border-bottom-width:0.04em;"></span></span><span style="top:-3.677em;"><span class="pstrut" style="height:3em;"></span><span class="mord"><span class="mord text"><span class="mord">FLOPs</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.8804em;"><span></span></span></span></span></span><span class="mclose nulldelimiter"></span></span><span class="mspace" style="margin-right:1em;"></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">⇒</span><span class="mspace" style="margin-right:1em;"></span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">P</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">≈</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.7667em;vertical-align:-0.0833em;"></span><span class="mord mathnormal" style="margin-right:0.07847em;">I</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.05017em;">B</span><span class="mord mathnormal" style="margin-right:0.13889em;">W</span><span class="mspace" style="margin-right:1em;"></span><span class="mopen">[</span><span class="mord text"><span class="mord">Memory Bound</span></span><span class="mclose">]</span></span></span></span></span></p>
+<p>即更接近带宽天花板而非算力天花板。更进一步，KV Cache 还会出现 <strong>Capacity Bound</strong>：不是带宽不够，而是必须按最大长度预留，导致可服务并发被显存碎片与预留直接限制。</p>
+<h3 id="san-lei-ping-jing-yu-dui-ying-gong-cheng-shou-duan" tabindex="-1" id="三类瓶颈与对应工程手段">三类瓶颈与对应工程手段</h3>
 <table>
 <thead>
 <tr>
-<th>Baseline 类别</th>
-<th>测试场景</th>
-<th>指标</th>
-<th>值</th>
-<th>数据来源</th>
+<th>瓶颈类型</th>
+<th>表现</th>
+<th>工程手段</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>未融合 (Unfused)</td>
-<td>Add+ReLU+Scale</td>
-<td>Kernel 耗时</td>
-<td>4.06 ms</td>
-<td>[实测] Results/11_Inference_Optimization.md</td>
+<td><strong>带宽瓶颈（无效 round-trip）</strong></td>
+<td>非融合链路反复把中间变量写回 HBM，业务有效带宽远低于物理带宽</td>
+<td>Kernel Fusion：把多次访存压成一次读入、一次写回</td>
 </tr>
 <tr>
-<td>未融合 (Unfused)</td>
-<td>Add+ReLU+Scale</td>
-<td>业务有效带宽</td>
-<td>396.79 GB/s</td>
-<td>[实测] Results/11_Inference_Optimization.md</td>
+<td><strong>容量瓶颈（KV 碎片/预留）</strong></td>
+<td>连续 KV 按 max_seq_len 预留，短请求浪费巨大</td>
+<td>PagedAttention：分块映射，逻辑→物理查表，以吞吐税换容量</td>
 </tr>
 <tr>
-<td>朴素 KV Cache</td>
-<td>预分配最大长度</td>
-<td>预估显存占用</td>
-<td>512.00 MB</td>
-<td>[实测] Results/11_Inference_Optimization.md</td>
-</tr>
-<tr>
-<td>静态 Padding</td>
-<td>对齐到最大长度</td>
-<td>无效计算量占比</td>
-<td>67.99%</td>
-<td>[实测] Results/11_Inference_Optimization.md</td>
+<td><strong>Padding 瓶颈（死算与死存）</strong></td>
+<td>静态对齐把 batch 绑到最长序列，显存与循环随 max_len 增长</td>
+<td>Continuous Batching：Packed Tensor + seq_starts，只遍历有效 token</td>
 </tr>
 </tbody>
 </table>
-<h2 id="ping-jing-fen-xi" tabindex="-1" id="瓶颈分析">瓶颈分析</h2>
-<p>在推理引擎的瓶颈定位中，必须将计算效率低下与显存浪费分离分析：</p>
-<ol>
-<li><strong>中间变量落盘导致带宽利用率低 (Kernel Fusion 优化点)</strong>
+<hr>
+<h2 id="you-hua-si-lu-rong-he-fen-ye-yu-lian-xu-pi-chu-li-ru-he-luo-di" tabindex="-1" id="优化思路：融合、分页与连续批处理如何落地">优化思路：融合、分页与连续批处理如何落地</h2>
+<h3 id="he-xin-si-xiang" tabindex="-1" id="核心思想">核心思想</h3>
 <ul>
-<li>在 <code>Add -&gt; ReLU -&gt; Scale</code> 的序列调用中，即便是极其简单的逐元素操作，框架也需要多次将数据从 HBM 读入 SM，再写回 HBM 作为中间变量（如 <code>tmp1</code>, <code>tmp2</code>）。这些 Memory Round-trip 占用了宝贵的带宽，导致实际有效带宽仅跑出 396.79 GB/s [实测]。</li>
+<li><strong>Kernel Fusion</strong>：把多次 Kernel 调度与中间落盘合并为一次 Kernel，把「必需搬运」从 7 次访存压到 3 次（读 A、读 B、写 O）。</li>
+<li><strong>PagedAttention</strong>：允许 KV Cache 在物理显存上不连续，用 <code>block_table</code> + 块指针数组把逻辑 token 位置翻译到物理块，以吞吐税换容量与并发。</li>
+<li><strong>Continuous Batching</strong>：把有效 token 压成 1D packed 维度，用 <code>seq_starts</code> 描述边界，避免 Padding 参与任何存储与计算。</li>
 </ul>
-</li>
-<li><strong>静态连续预分配导致的显存碎片 (PagedAttention 优化点)</strong>
-<ul>
-<li>传统的 Attention 实现要求 KV Cache 在内存中必须地址连续。由于无法预测用户实际回答的总长度，系统必须按 <code>max_seq_len</code>（如 2048）进行完整预留。对于大量短请求而言，未使用的预留块形成了夸张的内部碎片，极大限制了系统的并发上限。</li>
-</ul>
-</li>
-<li><strong>Padding 带来的死算与死存 (Continuous Batching 优化点)</strong>
-<ul>
-<li>为了以 Batch 形式下发 GEMV 任务，原始架构会将不同长度的请求使用 <code>&lt;PAD&gt;</code> 强制拉长到批次内的最大长度（例如 1024）。这产生了占比高达 67.99% [实测] 的占位符气泡，不仅浪费显存空间，还令总线上塞满了无意义的内存读写请求。</li>
-</ul>
-</li>
-</ol>
-<h2 id="you-hua-si-lu" tabindex="-1" id="优化思路">优化思路</h2>
-<p>针对上述三个维度的瓶颈，推理侧给出了对应的工程化系统解法。</p>
-<h3 id="you-hua-1-kernel-fusion-suan-zi-rong-he" tabindex="-1" id="优化-1：Kernel-Fusion-算子融合">优化 1：Kernel Fusion 算子融合</h3>
-<p><strong>解决的瓶颈</strong>：无效的中间变量落盘拖垮了极度稀缺的 HBM 带宽。<br>
-<strong>核心思想</strong>：利用 CUDA 线程内部的高速 Registers。打破框架原本模块化的三次 Kernel 调用限制，强行将逻辑串联合并在一个 <code>__global__</code> 函数内。使数据直接在 Registers 内流转完成所有操作后，仅进行最后一次全局回写。<br>
-<strong>预期收益</strong>：大幅减少 <code>LDG</code> 和 <code>STG</code> 数量，大幅降低 Kernel 耗时 [理论]。</p>
-<h3 id="you-hua-2-paged-attention-nei-cun-fen-ye-ji-zhi" tabindex="-1" id="优化-2：PagedAttention-内存分页机制">优化 2：PagedAttention 内存分页机制</h3>
-<p><strong>解决的瓶颈</strong>：显存内部碎片导致批次并发量上不去（Capacity Bound）。<br>
-<strong>核心思想</strong>：打破要求 KV 张量在物理显存上连续存放的铁律。将总容量切分为定长的小 Block（例如每块 16 个 Token）。在 Kernel 寻址侧，引入 <code>block_table</code> 映射表机制；在需要读取指定位置数据时，进行即时的逻辑索引到物理指针的多重解引用转换。<br>
-<strong>预期收益</strong>：以微小的解引用算力开销和访存迟延，换回海量的可用显存空间 [理论]。</p>
-<h3 id="you-hua-3-continuous-batching-lian-xu-dong-tai-pi-da-ping" tabindex="-1" id="优化-3：Continuous-Batching-连续动态批打平">优化 3：Continuous Batching 连续动态批打平</h3>
-<p><strong>解决的瓶颈</strong>：长短不一的请求合并计算时， Padding 补齐产生的死算与显存浪费。<br>
-<strong>核心思想</strong>：彻底摧毁 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>3</mn><mi>D</mi></mrow><annotation encoding="application/x-tex">3D</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord">3</span><span class="mord mathnormal" style="margin-right:0.02778em;">D</span></span></span></span> 的 Batch 维度概念。将所有不同长度的请求内的有效 Token 全部首尾相连，压扁重构为紧凑的 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>1</mn><mi>D</mi></mrow><annotation encoding="application/x-tex">1D</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord">1</span><span class="mord mathnormal" style="margin-right:0.02778em;">D</span></span></span></span> 长数组（Packed Tensor <code>[total_actual_tokens, ...] </code>）。在 CUDA Kernel 中传入 <code>seq_starts</code> 锚点数组供线程划界并自行解算坐标。<br>
-<strong>预期收益</strong>：杜绝一切无效的 PAD 参数计算，根据真实验证负载严格节省计算量和显存底座厚度 [理论]。</p>
-<h2 id="guan-jian-dai-ma-jie-shi" tabindex="-1" id="关键代码解释">关键代码解释</h2>
-<h3 id="nei-cun-fen-ye-zhuan-huan-paged-attention" tabindex="-1" id="内存分页转换-PagedAttention">内存分页转换 (PagedAttention)</h3>
-<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 来源：11_Inference_Optimization/01_kv_cache/kv_cache.cu : L73-L93</span></span><br><span class="line">    <span class="type">float</span> acc = <span class="number">0.0f</span>;</span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> i = <span class="number">0</span>; i &lt; seq_len; ++i) &#123;</span><br><span class="line">        <span class="comment">// [1] 在最内侧循环对 Logical 的词位置解算出逻辑 Block 编号及偏移量</span></span><br><span class="line">        <span class="type">int</span> logical_block_idx = i / block_size;</span><br><span class="line">        <span class="type">int</span> block_offset = i % block_size;</span><br><span class="line">        </span><br><span class="line">        <span class="comment">// [2] 查询映射表，由逻辑 ID 换算拿取离散在四面八方的真实物理块 ID</span></span><br><span class="line">        <span class="type">int</span> physical_block_idx = block_table[batch_idx * max_blocks_per_seq + logical_block_idx];</span><br><span class="line">        </span><br><span class="line">        <span class="comment">// [3] 直接提取 C++ 二级指针数组中的物理块基址指针</span></span><br><span class="line">        <span class="type">float</span>* k_block = k_blocks[physical_block_idx];</span><br><span class="line">        <span class="type">float</span>* v_block = v_blocks[physical_block_idx];</span><br><span class="line">        </span><br><span class="line">        <span class="comment">// [4] 计算该物理块内部的精准元素偏移并完成取值</span></span><br><span class="line">        <span class="type">int</span> element_idx = head_idx * (block_size * head_dim) + </span><br><span class="line">                          block_offset * head_dim + tid;</span><br><span class="line">        <span class="type">float</span> k_val = k_block[element_idx];</span><br><span class="line">        <span class="comment">// ...</span></span><br><span class="line">    &#125;</span><br></pre></td></tr></table></figure>
-<p><strong>要点解读</strong>：</p>
-<ul>
-<li><code>[1]</code> 到 <code>[3]</code> 是 PagedAttention 的心脏逻辑。在原本可以通过线性递增指针的紧凑循环里，它强行引入了整数除法、模运算以及两次全局显存的非连续内存跳转（拿去查 <code>block_table</code> 和提领 <code>k_blocks</code>）。这在传统的 GPU 代码优化原则里是大忌，正是这种置诸死地而后生的交换逻辑铸就了 VLLM 架构。</li>
-</ul>
-<h3 id="jiang-wei-zhan-ping-zuo-biao-xi-continuous-batching" tabindex="-1" id="降维展平坐标系-Continuous-Batching">降维展平坐标系 (Continuous Batching)</h3>
-<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 来源：11_Inference_Optimization/03_dynamic_batching/dynamic_batching.cu : L68-L86</span></span><br><span class="line">    <span class="comment">// [1] 获取当前序列在这个 packed array 中的全局 token 起止范围</span></span><br><span class="line">    <span class="type">int</span> start_token_idx = seq_starts[batch_idx];</span><br><span class="line">    <span class="type">int</span> end_token_idx = seq_starts[batch_idx + <span class="number">1</span>];</span><br><span class="line">    </span><br><span class="line">    <span class="type">float</span> q_val = query[batch_idx * num_heads * head_dim + head_idx * head_dim + tid];</span><br><span class="line">    <span class="type">float</span> acc = <span class="number">0.0f</span>;</span><br><span class="line">    </span><br><span class="line">    <span class="comment">// [2] 仅遍历纯净的有效 token 区间！拒绝 Padding</span></span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> token_idx = start_token_idx; token_idx &lt; end_token_idx; ++token_idx) &#123;</span><br><span class="line">        <span class="comment">// [3] 由于维度的强行压实坍塌，直接使用合并后的前端 1D ID 进行寻址坐标乘运算</span></span><br><span class="line">        <span class="type">int</span> kv_idx = token_idx * (num_heads * head_dim) + </span><br><span class="line">                     head_idx * head_dim + tid;</span><br><span class="line">                     </span><br><span class="line">        <span class="type">float</span> k_val = key[kv_idx];</span><br><span class="line">        <span class="type">float</span> v_val = value[kv_idx];</span><br><span class="line">        acc += (q_val * k_val) * v_val;</span><br><span class="line">    &#125;</span><br></pre></td></tr></table></figure>
-<p><strong>要点解读</strong>：</p>
-<ul>
-<li>打平后的 <code>[total_actual_tokens, num_heads * head_dim]</code> 数据结构中，GPU 线程依赖由外部 CPU 送入进来的 <code>seq_starts</code> 一维锚序列（<code>[1]</code>）作为切分尺。内环循环（<code>[2]</code>）已经变得清清爽爽，由于没有任何掺水的 0 节点，所以甚至不需要任何的分支预测 <code>if</code> 去掩码判断。</li>
-</ul>
-<h2 id="jie-guo-yu-bian-jie" tabindex="-1" id="结果与边界">结果与边界</h2>
-<h3 id="xing-neng-dui-bi" tabindex="-1" id="性能对比">性能对比</h3>
-<blockquote>
-<p><strong>测试条件</strong>：RTX 4090, CUDA 12.x<br>
-<strong>数据来源</strong>：<code>Results/11_Inference_Optimization.md</code> 原始日志</p>
-</blockquote>
-<p><strong>1. 算子融合 (Kernel Fusion) Benchmark</strong></p>
-<p><em>针对特征尺寸 N=134M 元素进行 <code>Add -&gt; ReLU -&gt; Scale</code></em></p>
+<h3 id="fang-cun-liang-dui-bi-kernel-fusion" tabindex="-1" id="访存量对比（Kernel-Fusion）">访存量对比（Kernel Fusion）</h3>
+<p>设每元素为 float（4 B），链路 Add → ReLU → Scale：</p>
 <table>
 <thead>
 <tr>
-<th>实现版本</th>
-<th>Kernel 平均耗时</th>
-<th>业务有效带宽</th>
-<th>加速比</th>
+<th>版本</th>
+<th>读次数</th>
+<th>写次数</th>
+<th>总访存（每元素）</th>
+<th>相对比例</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>非融合</td>
+<td>4（A, B, T1, T2）</td>
+<td>3（T1, T2, O）</td>
+<td><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>7</mn><mo>×</mo><mn>4</mn><mtext> B</mtext></mrow><annotation encoding="application/x-tex">7 \times 4\text{ B}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7278em;vertical-align:-0.0833em;"></span><span class="mord">7</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord">4</span><span class="mord text"><span class="mord"> B</span></span></span></span></span></td>
+<td>1.00</td>
+</tr>
+<tr>
+<td>融合</td>
+<td>2（A, B）</td>
+<td>1（O）</td>
+<td><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>3</mn><mo>×</mo><mn>4</mn><mtext> B</mtext></mrow><annotation encoding="application/x-tex">3 \times 4\text{ B}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7278em;vertical-align:-0.0833em;"></span><span class="mord">3</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord">4</span><span class="mord text"><span class="mord"> B</span></span></span></span></span></td>
+<td>3/7</td>
+</tr>
+</tbody>
+</table>
+<p>理论访存降至约 <strong>3/7</strong>，有效带宽可逼近单次「读 2 写 1」的物理带宽上限 [实测]。</p>
+<hr>
+<h2 id="guan-jian-dai-ma-jie-shi" tabindex="-1" id="关键代码解释">关键代码解释</h2>
+<h3 id="rong-he-kernel-de-ji-cun-qi-liu-shui" tabindex="-1" id="融合-Kernel-的寄存器流水">融合 Kernel 的寄存器流水</h3>
+<p>融合版中，每线程只做三次标量运算，中间结果不写回 Global Memory：</p>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 来源：11_Inference_Optimization/02_kernel_fusion/kernel_fusion.cu : L45-L54</span></span><br><span class="line"><span class="type">float</span> sum = a[idx] + b[idx];</span><br><span class="line"><span class="type">float</span> activated = <span class="built_in">fmaxf</span>(sum, <span class="number">0.0f</span>);</span><br><span class="line">output[idx] = activated * scale;</span><br></pre></td></tr></table></figure>
+<p><code>sum</code>、<code>activated</code> 留在寄存器，只有最终结果写回。同一 Warp 内 <code>idx</code> 连续，读 A/B、写 O 均为合并访存，与 <a href="/posts/7608f1b0/">01 基础概念与分块</a> 的 Vector Add 一致。</p>
+<h3 id="paged-attention-de-luo-ji-wu-li-xun-zhi" tabindex="-1" id="PagedAttention-的「逻辑-→-物理」寻址">PagedAttention 的「逻辑 → 物理」寻址</h3>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 来源：11_Inference_Optimization/01_kv_cache/kv_cache.cu : L73-L94</span></span><br><span class="line"><span class="keyword">for</span> (<span class="type">int</span> i = <span class="number">0</span>; i &lt; seq_len; ++i) &#123;</span><br><span class="line">    <span class="type">int</span> logical_block_idx = i / block_size;</span><br><span class="line">    <span class="type">int</span> block_offset = i % block_size;</span><br><span class="line"></span><br><span class="line">    <span class="type">int</span> physical_block_idx = block_table[batch_idx * max_blocks_per_seq + logical_block_idx];</span><br><span class="line"></span><br><span class="line">    <span class="type">float</span>* k_block = k_blocks[physical_block_idx];</span><br><span class="line">    <span class="type">float</span>* v_block = v_blocks[physical_block_idx];</span><br><span class="line"></span><br><span class="line">    <span class="type">int</span> element_idx = head_idx * (block_size * head_dim) + block_offset * head_dim + tid;</span><br><span class="line">    <span class="type">float</span> k_val = k_block[element_idx];</span><br><span class="line">    <span class="type">float</span> v_val = v_block[element_idx];</span><br><span class="line"></span><br><span class="line">    acc += (q_val * k_val) * v_val;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>寻址链：<strong>整除/取模 → 查 block_table → 指针解引用 → 块内偏移</strong>。访问更碎、合并更困难，吞吐会下降；但 KV 从「必须连续」变为「按需分块」，从根上缓解碎片与预留。</p>
+<h3 id="block-thread-ying-she-kv-cache-kernel" tabindex="-1" id="Block-Thread-映射（KV-Cache-Kernel）">Block / Thread 映射（KV Cache Kernel）</h3>
+<table>
+<thead>
+<tr>
+<th>层级</th>
+<th>配置</th>
+<th>职责</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Grid</td>
+<td><code>batch_size * num_heads</code> 个 Block</td>
+<td>每个 Block 负责一个 (batch, head) 的 Attention 输出</td>
+</tr>
+<tr>
+<td>Block</td>
+<td>1D，<code>head_dim</code> 线程</td>
+<td>每线程负责 head_dim 的一维，沿 seq_len 循环读 K/V 并累加</td>
+</tr>
+<tr>
+<td>Thread <code>tid</code></td>
+<td>—</td>
+<td>取 Q 的一维、按逻辑/物理块取 K/V 对应元素，写回 output 的一维</td>
+</tr>
+</tbody>
+</table>
+<h3 id="continuous-batching-de-seq-starts-qie-fen" tabindex="-1" id="Continuous-Batching-的-seq-starts-切分">Continuous Batching 的 seq_starts 切分</h3>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 来源：11_Inference_Optimization/03_dynamic_batching/dynamic_batching.cu : L68-L86</span></span><br><span class="line"><span class="type">int</span> start_token_idx = seq_starts[batch_idx];</span><br><span class="line"><span class="type">int</span> end_token_idx = seq_starts[batch_idx + <span class="number">1</span>];</span><br><span class="line"></span><br><span class="line"><span class="keyword">for</span> (<span class="type">int</span> token_idx = start_token_idx; token_idx &lt; end_token_idx; ++token_idx) &#123;</span><br><span class="line">    <span class="type">int</span> kv_idx = token_idx * (num_heads * head_dim) + head_idx * head_dim + tid;</span><br><span class="line">    <span class="type">float</span> k_val = key[kv_idx];</span><br><span class="line">    <span class="type">float</span> v_val = value[kv_idx];</span><br><span class="line">    acc += (q_val * k_val) * v_val;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>Packed Tensor 下 <code>token_idx</code> 维度无空洞。Kernel 不再需要「跑满 max_seq_len 再用 if 掩码」；即便 fixed 方案在计算上可跳过 padding，仍会在系统层为 padding 预留显存与调度，packed 方案把这部分开销消除。</p>
+<h3 id="shu-ju-liu-zong-lan-tui-li-lian-lu-san-ceng-you-hua" tabindex="-1" id="数据流总览（推理链路三层优化）">数据流总览（推理链路三层优化）</h3>
+<pre><code class="highlight mermaid">graph TD
+    classDef hbm fill:#f9d0c4,stroke:#333,stroke-width:2px;
+    classDef reg fill:#bbf,stroke:#333,stroke-width:2px;
+    classDef packed fill:#fcf1c8,stroke:#333,stroke-width:2px;
+
+    subgraph &quot;Kernel Fusion&quot;
+        A[A, B]:::hbm --&gt; R[寄存器 sum, activated]:::reg
+        R --&gt; O[Output]:::hbm
+    end
+
+    subgraph &quot;PagedAttention&quot;
+        BT[block_table] --&gt; KB[k_blocks / v_blocks]:::hbm
+        KB --&gt; acc[累加器]:::reg
+    end
+
+    subgraph &quot;Continuous Batching&quot;
+        SS[seq_starts] --&gt; PT[Packed Key/Value]:::packed
+        PT --&gt; acc
+    end</code></pre>
+<hr>
+<h2 id="jie-guo-yu-bian-jie" tabindex="-1" id="结果与边界">结果与边界</h2>
+<h3 id="kernel-fusion-xing-neng-n-134-217-728-50-ci-die-dai-qu-ping-jun" tabindex="-1" id="Kernel-Fusion-性能（N-134-217-728，50-次迭代取平均）">Kernel Fusion 性能（N = 134,217,728，50 次迭代取平均）</h3>
+<blockquote>
+<p>数据来源：<code>Results/11_Inference_Optimization.md</code> 原始日志</p>
+</blockquote>
+<table>
+<thead>
+<tr>
+<th>版本</th>
+<th>Kernel 耗时</th>
+<th>有效带宽</th>
+<th>vs 非融合</th>
 <th>数据性质</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>非融合序列 (原生调度)</td>
+<td>非融合序列 (Add+ReLU+Scale)</td>
 <td>4.06 ms</td>
 <td>396.79 GB/s</td>
 <td>1.00x</td>
 <td>[实测]</td>
 </tr>
 <tr>
-<td>Fused Kernel</td>
-<td>1.73 ms</td>
-<td>932.85 GB/s</td>
+<td><strong>Fused Kernel</strong></td>
+<td><strong>1.73 ms</strong></td>
+<td><strong>932.85 GB/s</strong></td>
 <td><strong>2.35x</strong></td>
 <td>[实测]</td>
 </tr>
 </tbody>
 </table>
-<p>单纯抹去中间无意义显存回写，即可在不更改任何上游逻辑前提下令全链路提速 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>2.35</mn></mrow><annotation encoding="application/x-tex">2.35</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">2.35</span></span></span></span> 倍，并将有效内存吞吐直推物理边界极值 932.85 GB/s [实测]。</p>
-<p><strong>2. PagedAttention Benchmark</strong> (容量置换代价分析)</p>
-<p><em>Batch=32 (含长尾随机请求)</em></p>
+<p>总搬运量（融合版）= <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>3</mn><mo>×</mo><mn>134,217,728</mn><mo>×</mo><mn>4</mn><mtext> B</mtext><mo>≈</mo><mn>1.5</mn><mtext> GB</mtext></mrow><annotation encoding="application/x-tex">3 \times 134{,}217{,}728 \times 4 \text{ B} \approx 1.5 \text{ GB}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7278em;vertical-align:-0.0833em;"></span><span class="mord">3</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.8389em;vertical-align:-0.1944em;"></span><span class="mord">134</span><span class="mord"><span class="mpunct">,</span></span><span class="mord">217</span><span class="mord"><span class="mpunct">,</span></span><span class="mord">728</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">×</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord">4</span><span class="mord text"><span class="mord"> B</span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">≈</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord">1.5</span><span class="mord text"><span class="mord"> GB</span></span></span></span></span> [理论]。有效带宽 932.85 GB/s 达到 RTX 4090 理论 1008 GB/s 的 <strong>92.5%</strong> [实测/理论]，说明该 Kernel 已接近显存带宽物理极限。</p>
+<pre><code class="highlight mermaid">xychart-beta
+  title &quot;Kernel Fusion 有效带宽 (GB/s)&quot;
+  x-axis [&quot;非融合&quot;, &quot;融合&quot;]
+  y-axis &quot;GB/s&quot; 0 --&gt; 1000
+  bar [396.79, 932.85]</code></pre>
+<h3 id="paged-attention-tun-tu-shui-huan-rong-liang-batch-32-max-seq-2048-block-16" tabindex="-1" id="PagedAttention：吞吐税换容量（batch-32，max-seq-2048，block-16）">PagedAttention：吞吐税换容量（batch=32，max_seq=2048，block=16）</h3>
+<blockquote>
+<p>数据来源：<code>Results/11_Inference_Optimization.md</code> 原始日志</p>
+</blockquote>
 <table>
 <thead>
 <tr>
-<th>实现架构</th>
+<th>版本</th>
 <th>Kernel 耗时</th>
 <th>等效带宽</th>
-<th>显存容量占用</th>
+<th>KV Cache 预估占用</th>
 <th>数据性质</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Naive (盲目连续对齐)</td>
+<td>Naive 连续 KV</td>
 <td>0.37 ms</td>
 <td>898.12 GB/s</td>
 <td>512.00 MB</td>
 <td>[实测]</td>
 </tr>
 <tr>
-<td>Paged (查表寻链法)</td>
-<td>0.45 ms</td>
-<td>735.04 GB/s</td>
+<td><strong>PagedAttention</strong></td>
+<td><strong>0.45 ms</strong></td>
+<td><strong>735.04 GB/s</strong></td>
 <td><strong>317.75 MB</strong></td>
 <td>[实测]</td>
 </tr>
 </tbody>
 </table>
-<p>PagedArchitecture 架构在指标上产生了极其反常识的“倒退”：因繁琐的查表阻断合并访存，其实测耗时劣化了 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>1.22</mn></mrow><annotation encoding="application/x-tex">1.22</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">1.22</span></span></span></span> 倍。但在这约 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mn>0.08</mn><mtext> ms</mtext></mrow><annotation encoding="application/x-tex">0.08\text{ ms}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">0.08</span><span class="mord text"><span class="mord"> ms</span></span></span></span></span> 的舍弃换取到的却是：容量核心直接节省高达 <strong>37.94%</strong> [实测]！使得集群不加卡即能强行拔高承载上线。</p>
-<p><strong>3. Continuous Batching Benchmark</strong></p>
-<p><em>包含 128 条并发指令混纺（极小部分长达 1024，大部分 200 出头）</em></p>
+<p>PagedAttention 让 kernel 慢约 1.22x，但显存节省 <strong>37.94%</strong> [实测]。在推理服务中，这往往能把并发上限抬高一档。</p>
+<h3 id="continuous-batching-xian-cun-yu-bing-fa-batch-128-max-seq-1024" tabindex="-1" id="Continuous-Batching：显存与并发（batch-128，max-seq-1024）">Continuous Batching：显存与并发（batch=128，max_seq=1024）</h3>
+<blockquote>
+<p>数据来源：<code>Results/11_Inference_Optimization.md</code> 原始日志</p>
+</blockquote>
 <table>
 <thead>
 <tr>
-<th>实现架构</th>
-<th>Kernel 执行耗时</th>
-<th>核心底层算子用料与显存</th>
+<th>版本</th>
+<th>Kernel 耗时</th>
+<th>有效带宽</th>
+<th>KV 相关显存（估算）</th>
 <th>数据性质</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Static Padding 方案</td>
+<td>Static Padding</td>
 <td>1.52 ms</td>
-<td><strong>4096.00 MB (吞没131k token)</strong></td>
+<td>844.78 GB/s</td>
+<td>4096.00 MB</td>
 <td>[实测]</td>
 </tr>
 <tr>
-<td>Continuous 降维方案</td>
-<td>1.69 ms</td>
-<td><strong>1311.22 MB (缩减至41k token)</strong></td>
+<td><strong>Varlen Packed</strong></td>
+<td><strong>1.69 ms</strong></td>
+<td><strong>759.09 GB/s</strong></td>
+<td><strong>1311.22 MB</strong></td>
 <td>[实测]</td>
 </tr>
 </tbody>
 </table>
-<p>在静态批处理中，即便凭借底层 FPU 微指令规避（由于 <code>if-else</code> 分支屏蔽）让其时间上仍然能跑到 1.52ms。但其显卡资源被极其蛮力地锁死了整整 4GB [实测]。连续批处理运用扁平化打击，挤全净水使得占据水位缩退至 1311 MB。资源节省比足达 <strong>67.99%</strong> [实测]。</p>
-<h3 id="bian-jie-tiao-jian-yu-ju-xian" tabindex="-1" id="边界条件与局限">边界条件与局限</h3>
+<p>两者 kernel 时间接近（static 已用分支跳过 padding），但 packed 把显存从 4096 MB 降到 1311 MB，节省 <strong>67.99%</strong> [实测]，等效可多服务约 <strong>3.1x</strong> 并发请求。</p>
+<h3 id="bian-jie-yu-ju-xian" tabindex="-1" id="边界与局限">边界与局限</h3>
 <ul>
-<li><strong>CUDA Graph 兼容冲突</strong>：系统最下层的终极调度掩体 CUDA Graphs 要求一切必须遵循静止不可变更的 Shape 原则。而 PagedAttention 和 Continuous Batching 本质是对 Shape 与内存指引的极度动态狂飙。工程落盘中需将架构分切开，只在固定 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>b</mi><mo>=</mo><mn>1</mn></mrow><annotation encoding="application/x-tex">b=1</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6944em;"></span><span class="mord mathnormal">b</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">1</span></span></span></span> 的 Decoding 阶段用多个静态 Graph 模板去包揽这些不确定的内存链动态推演。</li>
+<li><strong>端到端视角</strong>：本篇侧重系统吞吐与容量，因此 Paged、Varlen 在单 kernel 指标上可能更慢，但在服务并发与长尾长度分布下收益更大。</li>
+<li><strong>H2D/D2H</strong>：实测中 H2D/D2H 常远大于 kernel，属基准测试方式（每次搬大张量）。真实推理通常权重与 KV 常驻显存，并用多流/图执行减少调度。</li>
+<li><strong>CUDA Graph 与动态形状</strong>：Paged 与 Varlen 更动态，与完全静态的图模板有张力；工程上常用多模板 + 分桶（bucket）折中。</li>
 </ul>
+<hr>
 <h2 id="chang-jian-wu-qu" tabindex="-1" id="常见误区">常见误区</h2>
 <ol>
-<li><strong>误区</strong>：在发现程序慢的时候，只有 <code>sm__throughput</code> 这一项代表芯片的核心状态。<br>
-<strong>实际</strong>：在所有大模型的生成后期 Decoding，其最核心瓶颈全部卡死在 <code>dram__throughput</code> 吞吐指标上。单纯迷信高 TFLOPS 无用武之地。</li>
-<li><strong>误区</strong>：既然 Paged 架构造成了内存读的碎裂甚至降频，我们可以通过做 Tiling 给它接回来以求两全其美。<br>
-<strong>实际</strong>：这在 KV Cache 的长条向向量中基本等同无效功。其本质不在于计算架构编排松散，在于根本无法预测这几十名用户的上下文会被随机散落在哪。其属于无可避免的数据架构级开销税。</li>
+<li>
+<p><strong>误区</strong>：推理慢就去看 TFLOPS / <code>sm__throughput</code>，认为「算力不够」。<br>
+<strong>实际</strong>：Decoding 阶段更常见的是 <code>dram__throughput</code>、访存模式与 KV 容量成为主瓶颈；先消除无效搬运、碎片与 padding，收益通常远大于再挤算力。</p>
+</li>
+<li>
+<p><strong>误区</strong>：Kernel Fusion 只是「少一次 kernel launch」，收益有限。<br>
+<strong>实际</strong>：更大收益来自「少写两份中间张量回 HBM」。在 Memory Bound 链路上，减少 round-trip 直接体现在带宽与耗时上（本实测 2.35x）。</p>
+</li>
+<li>
+<p><strong>误区</strong>：PagedAttention 变慢说明「不值得用」。<br>
+<strong>实际</strong>：PagedAttention 解决的是 Capacity Bound：在显存紧张、长尾长度分布下，节省的 KV 空间能显著提高并发；吞吐税是为了换容量。</p>
+</li>
+<li>
+<p><strong>误区</strong>：Continuous Batching 的目标是让 kernel 更快。<br>
+<strong>实际</strong>：它首先是「让显存与计算量跟真实 token 数走」，从系统层消灭 padding 带来的死存；kernel 时间是否更快取决于 fixed 方案是否已用分支跳过。</p>
+</li>
 </ol>
+<hr>
 <h2 id="xi-lie-dao-hang" tabindex="-1" id="系列导航">系列导航</h2>
 <h3 id="qian-zhi-yue-du" tabindex="-1" id="前置阅读">前置阅读</h3>
 <table>
@@ -462,24 +552,20 @@ btf.addGlobalFn('pjaxComplete', () => {
 </thead>
 <tbody>
 <tr>
-<td><a href="/posts/cb29461c/">05 大模型算子与注意力归一化</a></td>
-<td>先理解单次自注意力 / Norm / FlashAttention 的算子级优化与带宽瓶颈，再看本篇这些算子在推理系统中的部署问题</td>
+<td><a href="/posts/7608f1b0/">01 基础概念与分块</a></td>
+<td>建立合并访存、Shared Tiling 与带宽墙直觉；本篇 Fusion 的「读 2 写 1」与 01 的 Vector Add 同属带宽压榨</td>
 </tr>
 <tr>
-<td><a href="/posts/ef325d2f/">07 量化、半精度与整数推理</a></td>
-<td>本篇默认你已经掌握 FP16/INT8 的混合精度和带宽收益，便于理解推理时 KV Cache/Activation 的内存压力来源</td>
+<td><a href="/posts/cb29461c/">05 大模型算子与注意力归一化</a></td>
+<td>单次自注意力 / Norm / FlashAttention 的算子级优化；本篇讨论这些算子在推理系统中的部署与 KV 管理</td>
 </tr>
 <tr>
 <td><a href="/posts/5b6f891d/">10 访存优化与共享内存冲突</a></td>
-<td>本篇的 Kernel Fusion、PagedAttention、Continuous Batching 都依赖良好的 Global 合并访问与合理的 Shared 使用</td>
-</tr>
-<tr>
-<td><a href="/posts/803b94d6/">13 性能分析、屋顶线与占用率</a></td>
-<td>诊断篇中对 <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>I</mi></mrow><annotation encoding="application/x-tex">I</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.07847em;">I</span></span></span></span> 与带宽天花板的分析，是本篇判断 Memory Bound / Capacity Bound 的基础</td>
+<td>合并访存与 Bank 优化；本篇 Kernel Fusion、PagedAttention、Continuous Batching 都依赖良好的 Global 访存与合理 Shared 使用</td>
 </tr>
 </tbody>
 </table>
-<h3 id="tui-jian-hou-xu" tabindex="-1" id="推荐后续">推荐后续</h3>
+<h3 id="tui-jian-hou-xu-cheng-shang-qi-xia" tabindex="-1" id="推荐后续（承上启下）">推荐后续（承上启下）</h3>
 <table>
 <thead>
 <tr>
@@ -489,16 +575,16 @@ btf.addGlobalFn('pjaxComplete', () => {
 </thead>
 <tbody>
 <tr>
-<td><a href="/posts/b1c0c6a3/">08 多流、图执行与扩展开发</a></td>
-<td>将本篇的推理算子与 KV Cache 放入多流和 CUDA Graphs 的系统级调度框架中</td>
+<td><a href="/posts/b1c0c6a3/">08 多流图执行与扩展开发</a></td>
+<td>将本篇的推理算子与 KV Cache 放入多流和 CUDA Graphs 的系统级调度</td>
 </tr>
 <tr>
-<td><a href="/posts/f1b57921/">14 模板矩阵乘与代数布局</a></td>
-<td>即便已经消除了 Padding 和中间回写，底层 GEMM / Attention 内核仍然需要 CUTLASS 级优化来压榨硬件</td>
+<td><a href="/posts/803b94d6/">13 性能分析、屋顶线与占用率</a></td>
+<td>用 Nsight 与 Roofline 判断 Memory Bound / Capacity Bound，验证本篇优化效果</td>
 </tr>
 <tr>
 <td><a href="/posts/b599e19f/">15 多卡通信与全归约</a></td>
-<td>在多卡环境下继续扩展本篇的优化思路，从单卡推理走向多卡分布式推理</td>
+<td>在多卡环境下扩展本篇思路，从单卡推理到多卡分布式推理</td>
 </tr>
 </tbody>
 </table>
@@ -508,7 +594,7 @@ btf.addGlobalFn('pjaxComplete', () => {
 <li>上一篇：<a href="/posts/5b6f891d/">CUDA实践-10-访存优化与共享内存冲突</a></li>
 <li>下一篇：<a href="/posts/a1e20e80/">CUDA实践-12-标准库与工程实践</a></li>
 </ul>
-</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/9729c03f/">https://smarter.xin/posts/9729c03f/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/llm/">LLM</a><a class="post-meta__tags" href="/tags/paged-attention/">PagedAttention</a><a class="post-meta__tags" href="/tags/kv-cache/">KV Cache</a><a class="post-meta__tags" href="/tags/inference-optimization/">推理优化</a><a class="post-meta__tags" href="/tags/cuda/">CUDA</a><a class="post-meta__tags" href="/tags/gpu-programming/">GPU编程</a><a class="post-meta__tags" href="/tags/parallel-computing/">并行计算</a><a class="post-meta__tags" href="/tags/high-performance-computing/">高性能计算</a><a class="post-meta__tags" href="/tags/kernel-fusion/">Kernel Fusion</a><a class="post-meta__tags" href="/tags/continuous-batching/">Continuous Batching</a></div><div class="post-share"><div class="social-share" data-image="/img/Nvidia_CUDA_Logo.jpg" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/b599e19f/" title="CUDA-Practice：15 Ring AllReduce 数学推导与 NCCL 实现"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">CUDA-Practice：15 Ring AllReduce 数学推导与 NCCL 实现</div></div></div></a><a class="pagination-related  no-desc" href="/posts/803b94d6/" title="CUDA-Practice：13 Roofline 定天界，Occupancy 辨虚实——量化的 GPU 诊断流"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">CUDA-Practice：13 Roofline 定天界，Occupancy 辨虚实——量化的 GPU 诊断流</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/cb29461c/" title="CUDA-Practice：05 Transformer 核心算子——Softmax、Norm、RoPE 与 FlashAttention"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-12</div><div class="info-item-2">CUDA-Practice：05 Transformer 核心算子——Softmax、Norm、RoPE 与 FlashAttention</div></div></div></a><a class="pagination-related no-desc" href="/posts/7608f1b0/" title="CUDA-Practice：01 从 Vector Add 到 Tiled GEMM——带宽墙与数据复用"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-10</div><div class="info-item-2">CUDA-Practice：01 从 Vector Add 到 Tiled GEMM——带宽墙与数据复用</div></div></div></a><a class="pagination-related no-desc" href="/posts/1a09f6f/" title="CUDA-Practice：04 从 Shared Memory Tiling 到寄存器外积——逼近计算瓶颈"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-11</div><div class="info-item-2">CUDA-Practice：04 从 Shared Memory Tiling 到寄存器外积——逼近计算瓶颈</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">113</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">237</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">21</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/9729c03f/">https://smarter.xin/posts/9729c03f/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/llm/">LLM</a><a class="post-meta__tags" href="/tags/paged-attention/">PagedAttention</a><a class="post-meta__tags" href="/tags/kv-cache/">KV Cache</a><a class="post-meta__tags" href="/tags/inference-optimization/">推理优化</a><a class="post-meta__tags" href="/tags/cuda/">CUDA</a><a class="post-meta__tags" href="/tags/gpu-programming/">GPU编程</a><a class="post-meta__tags" href="/tags/parallel-computing/">并行计算</a><a class="post-meta__tags" href="/tags/high-performance-computing/">高性能计算</a><a class="post-meta__tags" href="/tags/kernel-fusion/">Kernel Fusion</a><a class="post-meta__tags" href="/tags/continuous-batching/">Continuous Batching</a></div><div class="post-share"><div class="social-share" data-image="/img/Nvidia_CUDA_Logo.jpg" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/b599e19f/" title="CUDA-Practice：15 从 Parameter Server 到 Ring AllReduce——多卡通信与全归约"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">CUDA-Practice：15 从 Parameter Server 到 Ring AllReduce——多卡通信与全归约</div></div></div></a><a class="pagination-related  no-desc" href="/posts/803b94d6/" title="CUDA-Practice：13 从 Roofline 到 Nsight——性能天花板与占用率辨虚实"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">CUDA-Practice：13 从 Roofline 到 Nsight——性能天花板与占用率辨虚实</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/cb29461c/" title="CUDA-Practice：05 从归约到 Transformer 算子——Softmax、Norm 与 FlashAttention"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-12</div><div class="info-item-2">CUDA-Practice：05 从归约到 Transformer 算子——Softmax、Norm 与 FlashAttention</div></div></div></a><a class="pagination-related no-desc" href="/posts/7608f1b0/" title="CUDA-Practice：01 从 Vector Add 到 Tiled GEMM——带宽墙与数据复用"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-10</div><div class="info-item-2">CUDA-Practice：01 从 Vector Add 到 Tiled GEMM——带宽墙与数据复用</div></div></div></a><a class="pagination-related no-desc" href="/posts/1a09f6f/" title="CUDA-Practice：04 从 Tiled GEMM 到寄存器分块——逼近计算墙"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-11</div><div class="info-item-2">CUDA-Practice：04 从 Tiled GEMM 到寄存器分块——逼近计算墙</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">113</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">237</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">21</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
     var sentence = document.querySelector("#poem_sentence")
     var author = document.querySelector("#poem_author")
     var dynasty = document.querySelector("#poem_dynasty")
@@ -518,7 +604,7 @@ btf.addGlobalFn('pjaxComplete', () => {
     sentence.innerHTML = sentenceText
     dynasty.innerHTML = result.data.origin.dynasty
     author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
-});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#ben-wen-mu-biao"><span class="toc-text">本文目标</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#dui-ying-dai-ma-lu-jing"><span class="toc-text">对应代码路径</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#baseline"><span class="toc-text">Baseline</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#ping-jing-fen-xi"><span class="toc-text">瓶颈分析</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#you-hua-si-lu"><span class="toc-text">优化思路</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#you-hua-1-kernel-fusion-suan-zi-rong-he"><span class="toc-text">优化 1：Kernel Fusion 算子融合</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#you-hua-2-paged-attention-nei-cun-fen-ye-ji-zhi"><span class="toc-text">优化 2：PagedAttention 内存分页机制</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#you-hua-3-continuous-batching-lian-xu-dong-tai-pi-da-ping"><span class="toc-text">优化 3：Continuous Batching 连续动态批打平</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#guan-jian-dai-ma-jie-shi"><span class="toc-text">关键代码解释</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#nei-cun-fen-ye-zhuan-huan-paged-attention"><span class="toc-text">内存分页转换 (PagedAttention)</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#jiang-wei-zhan-ping-zuo-biao-xi-continuous-batching"><span class="toc-text">降维展平坐标系 (Continuous Batching)</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#jie-guo-yu-bian-jie"><span class="toc-text">结果与边界</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#xing-neng-dui-bi"><span class="toc-text">性能对比</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#bian-jie-tiao-jian-yu-ju-xian"><span class="toc-text">边界条件与局限</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#chang-jian-wu-qu"><span class="toc-text">常见误区</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xi-lie-dao-hang"><span class="toc-text">系列导航</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#qian-zhi-yue-du"><span class="toc-text">前置阅读</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#tui-jian-hou-xu"><span class="toc-text">推荐后续</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shun-xu-dao-hang"><span class="toc-text">顺序导航</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/d6fa227a/" title="CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线"/></a><div class="content"><a class="title" href="/posts/d6fa227a/" title="CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</a><time datetime="2026-03-16T02:00:00.000Z" title="发表于 2026-03-16 10:00:00">2026-03-16</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/f1b57921/" title="CUDA-Practice：14 从双缓冲流水线到 CuTe 纯代数引擎的工业级抽象"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA-Practice：14 从双缓冲流水线到 CuTe 纯代数引擎的工业级抽象"/></a><div class="content"><a class="title" href="/posts/f1b57921/" title="CUDA-Practice：14 从双缓冲流水线到 CuTe 纯代数引擎的工业级抽象">CUDA-Practice：14 从双缓冲流水线到 CuTe 纯代数引擎的工业级抽象</a><time datetime="2026-03-12T08:00:00.000Z" title="发表于 2026-03-12 16:00:00">2026-03-12</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/a1e20e80/" title="CUDA-Practice：12 cuBLAS、cuFFT 与 Thrust——站在巨人肩上的正确姿势"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA-Practice：12 cuBLAS、cuFFT 与 Thrust——站在巨人肩上的正确姿势"/></a><div class="content"><a class="title" href="/posts/a1e20e80/" title="CUDA-Practice：12 cuBLAS、cuFFT 与 Thrust——站在巨人肩上的正确姿势">CUDA-Practice：12 cuBLAS、cuFFT 与 Thrust——站在巨人肩上的正确姿势</a><time datetime="2026-03-12T07:30:00.000Z" title="发表于 2026-03-12 15:30:00">2026-03-12</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#ben-wen-mu-biao"><span class="toc-text">本文目标</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#dui-ying-dai-ma-lu-jing"><span class="toc-text">对应代码路径</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#san-ge-shi-xian-fen-bie-zuo-liao-shi-yao"><span class="toc-text">三个实现分别做了什么</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-kernel-fusion-ba-zhong-jian-bian-liang-luo-pan-cong-7-ci-fang-cun-ya-dao-3-ci"><span class="toc-text">1. Kernel Fusion：把「中间变量落盘」从 7 次访存压到 3 次</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-naive-kv-cache-vs-paged-attention-yong-cha-biao-huan-rong-liang"><span class="toc-text">2. Naive KV Cache vs PagedAttention：用「查表」换容量</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-static-padding-vs-continuous-batching-ba-token-wei-du-ya-bian"><span class="toc-text">3. Static Padding vs Continuous Batching：把 token 维度「压扁」</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#baseline-yu-ping-jing-fen-xi"><span class="toc-text">Baseline 与瓶颈分析</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#decoding-wei-he-tian-ran-memory-bound-capacity-bound"><span class="toc-text">Decoding 为何天然 Memory Bound &#x2F; Capacity Bound</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#san-lei-ping-jing-yu-dui-ying-gong-cheng-shou-duan"><span class="toc-text">三类瓶颈与对应工程手段</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#you-hua-si-lu-rong-he-fen-ye-yu-lian-xu-pi-chu-li-ru-he-luo-di"><span class="toc-text">优化思路：融合、分页与连续批处理如何落地</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#he-xin-si-xiang"><span class="toc-text">核心思想</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#fang-cun-liang-dui-bi-kernel-fusion"><span class="toc-text">访存量对比（Kernel Fusion）</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#guan-jian-dai-ma-jie-shi"><span class="toc-text">关键代码解释</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#rong-he-kernel-de-ji-cun-qi-liu-shui"><span class="toc-text">融合 Kernel 的寄存器流水</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#paged-attention-de-luo-ji-wu-li-xun-zhi"><span class="toc-text">PagedAttention 的「逻辑 → 物理」寻址</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#block-thread-ying-she-kv-cache-kernel"><span class="toc-text">Block &#x2F; Thread 映射（KV Cache Kernel）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#continuous-batching-de-seq-starts-qie-fen"><span class="toc-text">Continuous Batching 的 seq_starts 切分</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#shu-ju-liu-zong-lan-tui-li-lian-lu-san-ceng-you-hua"><span class="toc-text">数据流总览（推理链路三层优化）</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#jie-guo-yu-bian-jie"><span class="toc-text">结果与边界</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#kernel-fusion-xing-neng-n-134-217-728-50-ci-die-dai-qu-ping-jun"><span class="toc-text">Kernel Fusion 性能（N &#x3D; 134,217,728，50 次迭代取平均）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#paged-attention-tun-tu-shui-huan-rong-liang-batch-32-max-seq-2048-block-16"><span class="toc-text">PagedAttention：吞吐税换容量（batch&#x3D;32，max_seq&#x3D;2048，block&#x3D;16）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#continuous-batching-xian-cun-yu-bing-fa-batch-128-max-seq-1024"><span class="toc-text">Continuous Batching：显存与并发（batch&#x3D;128，max_seq&#x3D;1024）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#bian-jie-yu-ju-xian"><span class="toc-text">边界与局限</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#chang-jian-wu-qu"><span class="toc-text">常见误区</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xi-lie-dao-hang"><span class="toc-text">系列导航</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#qian-zhi-yue-du"><span class="toc-text">前置阅读</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#tui-jian-hou-xu-cheng-shang-qi-xia"><span class="toc-text">推荐后续（承上启下）</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shun-xu-dao-hang"><span class="toc-text">顺序导航</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/d6fa227a/" title="CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线"/></a><div class="content"><a class="title" href="/posts/d6fa227a/" title="CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</a><time datetime="2026-03-16T02:00:00.000Z" title="发表于 2026-03-16 10:00:00">2026-03-16</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/f1b57921/" title="CUDA-Practice：14 从 CUTLASS 模板 GEMM 到 CuTe 代数布局——工业级抽象与可融合尾段"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA-Practice：14 从 CUTLASS 模板 GEMM 到 CuTe 代数布局——工业级抽象与可融合尾段"/></a><div class="content"><a class="title" href="/posts/f1b57921/" title="CUDA-Practice：14 从 CUTLASS 模板 GEMM 到 CuTe 代数布局——工业级抽象与可融合尾段">CUDA-Practice：14 从 CUTLASS 模板 GEMM 到 CuTe 代数布局——工业级抽象与可融合尾段</a><time datetime="2026-03-12T08:00:00.000Z" title="发表于 2026-03-12 16:00:00">2026-03-12</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/a1e20e80/" title="CUDA-Practice：12 cuBLAS、cuFFT 与 Thrust——标准库与工程实践"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA-Practice：12 cuBLAS、cuFFT 与 Thrust——标准库与工程实践"/></a><div class="content"><a class="title" href="/posts/a1e20e80/" title="CUDA-Practice：12 cuBLAS、cuFFT 与 Thrust——标准库与工程实践">CUDA-Practice：12 cuBLAS、cuFFT 与 Thrust——标准库与工程实践</a><time datetime="2026-03-12T07:30:00.000Z" title="发表于 2026-03-12 15:30:00">2026-03-12</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
   const showKatex = () => {
     document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
   }
@@ -643,7 +729,7 @@ btf.addGlobalFn('pjaxComplete', () => {
 })()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
   function butterfly_swiper_injector_config(){
     var parent_div_git = document.getElementById('recent-posts');
-    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">从 Self-Attention、位置编码到 Encoder-Decoder，系统梳理 Transformer 的核心结构、设计动机与理解路径</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/d6fa227a/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-16</span><a class="blog-slider__title" href="posts/d6fa227a/" alt="">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</a><div class="blog-slider__text">从访存优化到多卡通信，一篇看清 CUDA 实践系列的结构与学习路线</div><a class="blog-slider__button" href="posts/d6fa227a/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/aac6e27d/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Computer_System.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/aac6e27d/" alt="">深入理解计算机系统知识点总结</a><div class="blog-slider__text">从程序员视角梳理 CSAPP 的知识脉络、系统抽象与性能理解</div><a class="blog-slider__button" href="posts/aac6e27d/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/92dc1028/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/CUDA_C.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-02-05</span><a class="blog-slider__title" href="posts/92dc1028/" alt="">CUDA C编程权威指南-导读</a><div class="blog-slider__text">从异构并行到多 GPU 实践，串起 CUDA C 权威指南的核心学习路线</div><a class="blog-slider__button" href="posts/92dc1028/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">从全书视角出发，一篇看清 PMPP 的章节结构、核心主题与学习主线</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">围绕类型推导、移动语义与并发，提炼现代 C++ 的核心实践</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">从 Self-Attention、位置编码到 Encoder-Decoder，系统梳理 Transformer 的核心结构、设计动机与理解路径</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/d6fa227a/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-16</span><a class="blog-slider__title" href="posts/d6fa227a/" alt="">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</a><div class="blog-slider__text">从访存优化到多卡通信，一篇看清 CUDA 实践系列的结构与学习路线</div><a class="blog-slider__button" href="posts/d6fa227a/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/92dc1028/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/CUDA_C.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-02-05</span><a class="blog-slider__title" href="posts/92dc1028/" alt="">CUDA C编程权威指南-导读</a><div class="blog-slider__text">从异构并行到多 GPU 实践，串起 CUDA C 权威指南的核心学习路线</div><a class="blog-slider__button" href="posts/92dc1028/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">从全书视角出发，一篇看清 PMPP 的章节结构、核心主题与学习主线</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/aac6e27d/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Computer_System.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/aac6e27d/" alt="">深入理解计算机系统知识点总结</a><div class="blog-slider__text">从程序员视角梳理 CSAPP 的知识脉络、系统抽象与性能理解</div><a class="blog-slider__button" href="posts/aac6e27d/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">围绕类型推导、移动语义与并发，提炼现代 C++ 的核心实践</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
     console.log('已挂载butterfly_swiper')
     parent_div_git.insertAdjacentHTML("afterbegin",item_html)
     }
