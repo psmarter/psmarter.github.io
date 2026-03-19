@@ -1,0 +1,654 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>Linux 上把 Clash 用顺：开启代理、切换节点、查询出口、脚本与日常工作流 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="最近我在一台 Ubuntu 服务器上折腾 Clash（准确说是 Mihomo&#x2F;Clash Meta 这一类内核），本来只是想解决一个很简单的问题：让服务器稳定走代理，然后安装工具、切换节点、测试出口国家，必要时再开 TUN 做全局接管。 结果一路踩坑：  Clash 明明启动了，但 ping google.com 死活不通； curl --proxy 能访问 Google，普通终端命令却还是不走代">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Linux 上把 Clash 用顺：开启代理、切换节点、查询出口、脚本与日常工作流">
+<meta property="og:url" content="https://smarter.xin/posts/98e57854/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="最近我在一台 Ubuntu 服务器上折腾 Clash（准确说是 Mihomo&#x2F;Clash Meta 这一类内核），本来只是想解决一个很简单的问题：让服务器稳定走代理，然后安装工具、切换节点、测试出口国家，必要时再开 TUN 做全局接管。 结果一路踩坑：  Clash 明明启动了，但 ping google.com 死活不通； curl --proxy 能访问 Google，普通终端命令却还是不走代">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/Clash.jpg">
+<meta property="article:published_time" content="2026-03-19T00:21:11.000Z">
+<meta property="article:modified_time" content="2026-03-19T01:31:53.179Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="Clash">
+<meta property="article:tag" content="Mihomo">
+<meta property="article:tag" content="Linux">
+<meta property="article:tag" content="代理">
+<meta property="article:tag" content="Shell">
+<meta property="article:tag" content="TUN">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/Clash.jpg"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "Linux 上把 Clash 用顺：开启代理、切换节点、查询出口、脚本与日常工作流",
+  "url": "https://smarter.xin/posts/98e57854/",
+  "image": "https://smarter.xin/img/Clash.jpg",
+  "datePublished": "2026-03-19T00:21:11.000Z",
+  "dateModified": "2026-03-19T01:31:53.179Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/98e57854/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'Linux 上把 Clash 用顺：开启代理、切换节点、查询出口、脚本与日常工作流',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">116</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">242</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">21</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/Clash.jpg);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">Linux 上把 Clash 用顺：开启代理、切换节点、查询出口、脚本与日常工作流</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">Linux 上把 Clash 用顺：开启代理、切换节点、查询出口、脚本与日常工作流</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-03-19T00:21:11.000Z" title="发表于 2026-03-19 08:21:11">2026-03-19</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-03-19T01:31:53.179Z" title="更新于 2026-03-19 09:31:53">2026-03-19</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/clash/">Clash</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">3.9k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>16分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><p>最近我在一台 Ubuntu 服务器上折腾 Clash（准确说是 Mihomo/Clash Meta 这一类内核），本来只是想解决一个很简单的问题：<strong>让服务器稳定走代理，然后安装工具、切换节点、测试出口国家，必要时再开 TUN 做全局接管</strong>。</p>
+<p>结果一路踩坑：</p>
+<ul>
+<li>Clash 明明启动了，但 <code>ping google.com</code> 死活不通；</li>
+<li><code>curl --proxy</code> 能访问 Google，普通终端命令却还是不走代理；</li>
+<li>API 能查到节点列表，但切换节点时报 <code>proxy not exist</code>；</li>
+<li>交互式切换每次手敲 JSON 太麻烦；</li>
+<li>开始装 Claude Code 时，脚本不是卡住，就是拿到 HTML 页面；</li>
+<li>最后才发现：<strong>很多问题根本不是“代理坏了”，而是“代理方式没搞明白”。</strong></li>
+</ul>
+<p>这篇文章把我这次在 Linux 上把 Clash 用顺的过程完整记录下来，重点包括：</p>
+<ol>
+<li>如何在终端里真正让命令走代理</li>
+<li>如何查询当前节点与切换节点</li>
+<li>如何查询当前出口国家/地区</li>
+<li>如何写一个交互式切换脚本</li>
+<li>如何开启 TUN，以及什么时候该用、什么时候不该用</li>
+</ol>
+<p>如果你也在 Linux 服务器、远程开发、AI 工具、GitHub、安装脚本这些场景里折腾代理，希望这篇能帮你少踩一些坑。</p>
+<hr>
+<h2 id="guan-jian-jie-lun-xian-xing" tabindex="-1" id="关键结论先行">关键结论先行</h2>
+<p>在 Linux 终端里使用 Clash 时，“Clash 已经在监听端口”并不等同于“所有命令都会走代理”。通常需要同时满足：你配置了命令所使用的代理（环境变量或显式 <code>--proxy</code>），以及 Clash 的端口/API 可用。</p>
+<p>本文会用同一套可复现流程，把“代理端口是否可用”“当前命令是否走代理”“当前出口是否符合预期”逐层验证清楚。</p>
+<pre><code class="highlight mermaid">graph LR
+  Cmd[命令/工具] --&gt;|&quot;读取环境变量或显式指定代理&quot;| LocalProxy[本地代理端口&lt;br/&gt;7890/7891]
+  LocalProxy --&gt; Clash[Clash/Mihomo]
+  Clash --&gt; Target[目标站点/接口]</code></pre>
+<h2 id="qian-zhi-tiao-jian" tabindex="-1" id="前置条件">前置条件</h2>
+<ol>
+<li>你已经启动了 Clash/Mihomo，并且本地端口可监听：
+<ul>
+<li><code>7890</code>（HTTP 代理）</li>
+<li><code>7891</code>（SOCKS5 代理）</li>
+<li><code>9090</code>（external controller / API）</li>
+</ul>
+</li>
+<li>你的环境里可用这些工具（至少其中部分）：
+<ul>
+<li><code>curl</code></li>
+<li><code>jq</code>（用于解析 JSON）</li>
+</ul>
+</li>
+<li>下文示例默认使用策略组名 <code>🔰 选择节点</code>（如果你的组名不同，需要替换对应字段）。</li>
+</ol>
+<h2 id="ke-fu-xian-bu-zou-jian-yi-shun-xu" tabindex="-1" id="可复现步骤（建议顺序）">可复现步骤（建议顺序）</h2>
+<ol>
+<li>先验证端口与服务是否正常（例如确认 <code>7890/7891/9090</code> 在监听）。</li>
+<li>在当前 shell 导出代理环境变量（或在单次命令中显式指定 <code>--proxy</code>）。</li>
+<li>用带代理的 <code>curl</code> 验证“代理端口是否真的能用”。</li>
+<li>通过 API 查询当前节点与节点列表（读取 <code>/proxies</code> 返回的 <code>all</code> 与 <code>now</code>）。</li>
+<li>通过 API 切换节点，并再次查询 <code>now</code> 进行确认。</li>
+<li>用带代理的请求查询出口 IP/国家等信息，避免仅凭节点名判断。</li>
+<li>只有在需要更接近“系统全局接管”的场景，才考虑启用 TUN。</li>
+</ol>
+<h2 id="chang-jian-wu-jie-yu-jiu-zheng-ben-wen-hou-xu-zhan-kai" tabindex="-1" id="常见误解与纠正（本文后续展开）">常见误解与纠正（本文后续展开）</h2>
+<p>常见的误解是：用 <code>ping</code> 去验证 HTTP/SOCKS 代理链路是否可用。<code>ping</code> 测的是 ICMP，并不会自动通过你配置的代理端口转发流量。</p>
+<h1 id="yi-xian-gao-ming-bai-clash-qi-dong-liao-bu-deng-yu-suo-you-ming-ling-du-zai-zou-dai-li" tabindex="-1">一、先搞明白：Clash 启动了，不等于所有命令都在走代理</h1>
+<p>我一开始遇到的一个常见误区是：<strong>Clash 已经在监听 7890/7891 端口了，那系统应该已经“翻过去了”吧？</strong></p>
+<p>结果现实是：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">ping www.google.com</span><br><span class="line"><span class="comment"># packet loss</span></span><br></pre></td></tr></table></figure>
+<p><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="https://cdn.jsdelivr.net/gh/psmarter/blog-imgs/Linux-%E4%B8%8A%E6%8A%8A-Clash-%E7%94%A8%E9%A1%BA/2026-03-19-09-14-16-705272.png" alt="image-20260319085553956"></p>
+<p>但另一边：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">curl -I --proxy http://127.0.0.1:7890 https://www.google.com</span><br><span class="line"><span class="comment"># HTTP/2 200</span></span><br></pre></td></tr></table></figure>
+<p>这说明了一个关键事实：</p>
+<blockquote>
+<p><strong>你现在开的，只是本地 HTTP/SOCKS 代理端口，不是系统全局代理。</strong></p>
+</blockquote>
+<p>也就是说：</p>
+<ul>
+<li><code>127.0.0.1:7890</code> 是 HTTP 代理端口</li>
+<li><code>127.0.0.1:7891</code> 是 SOCKS5 代理端口</li>
+<li>程序只有“显式使用这些代理端口”时，流量才会走 Clash</li>
+<li>普通终端命令不会凭空自动走 7890/7891</li>
+</ul>
+<p>这也是为什么：</p>
+<ul>
+<li><code>curl --proxy ...</code> 能通</li>
+<li><code>ping</code> 还是不通</li>
+<li><code>apt</code>、<code>pip</code>、<code>git</code> 是否走代理，要看它们有没有读到代理环境变量</li>
+</ul>
+<hr>
+<h1 id="er-zhong-duan-li-ru-he-zhen-zheng-kai-qi-dai-li" tabindex="-1">二、终端里如何真正开启代理</h1>
+<h2 id="1-dang-qian-shell-lin-shi-sheng-xiao" tabindex="-1" id="1-当前-shell-临时生效">1. 当前 shell 临时生效</h2>
+<p>常用的做法是在当前终端导出环境变量：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">export</span> http_proxy=http://127.0.0.1:7890</span><br><span class="line"><span class="built_in">export</span> https_proxy=http://127.0.0.1:7890</span><br><span class="line"><span class="built_in">export</span> HTTP_PROXY=http://127.0.0.1:7890</span><br><span class="line"><span class="built_in">export</span> HTTPS_PROXY=http://127.0.0.1:7890</span><br><span class="line"><span class="built_in">export</span> ALL_PROXY=socks5h://127.0.0.1:7891</span><br><span class="line"><span class="built_in">export</span> all_proxy=socks5h://127.0.0.1:7891</span><br><span class="line"><span class="built_in">export</span> NO_PROXY=localhost,127.0.0.1,::1</span><br><span class="line"><span class="built_in">export</span> no_proxy=localhost,127.0.0.1,::1</span><br></pre></td></tr></table></figure>
+<p><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="https://cdn.jsdelivr.net/gh/psmarter/blog-imgs/Linux-%E4%B8%8A%E6%8A%8A-Clash-%E7%94%A8%E9%A1%BA/2026-03-19-09-14-16-967e21.png" alt="image-20260319090752616"></p>
+<p>设置完之后，很多命令就会直接走代理，例如：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">curl https://www.google.com -I</span><br><span class="line">curl https://api.ip.sb/ip</span><br><span class="line">git ls-remote https://github.com/git/git.git | <span class="built_in">head</span></span><br></pre></td></tr></table></figure>
+<h2 id="2-yong-jiu-xie-ru-code-bashrc-code" tabindex="-1" id="2-永久写入-bashrc">2. 永久写入 <code>~/.bashrc</code></h2>
+<p>如果你希望每次打开终端都自动带上代理，可以写入：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cat</span> &gt;&gt; ~/.bashrc &lt;&lt;<span class="string">&#x27;EOF&#x27;</span></span><br><span class="line"><span class="built_in">export</span> http_proxy=http://127.0.0.1:7890</span><br><span class="line"><span class="built_in">export</span> https_proxy=http://127.0.0.1:7890</span><br><span class="line"><span class="built_in">export</span> HTTP_PROXY=http://127.0.0.1:7890</span><br><span class="line"><span class="built_in">export</span> HTTPS_PROXY=http://127.0.0.1:7890</span><br><span class="line"><span class="built_in">export</span> ALL_PROXY=socks5h://127.0.0.1:7891</span><br><span class="line"><span class="built_in">export</span> all_proxy=socks5h://127.0.0.1:7891</span><br><span class="line"><span class="built_in">export</span> NO_PROXY=localhost,127.0.0.1,::1</span><br><span class="line"><span class="built_in">export</span> no_proxy=localhost,127.0.0.1,::1</span><br><span class="line">EOF</span><br><span class="line"></span><br><span class="line"><span class="built_in">source</span> ~/.bashrc</span><br></pre></td></tr></table></figure>
+<hr>
+<h1 id="san-wei-shi-yao-kai-liao-dai-li-code-ping-google-com-code-huan-shi-bu-tong" tabindex="-1">三、为什么开了代理，<code>ping google.com</code> 还是不通？</h1>
+<p>结论其实很简单：</p>
+<blockquote>
+<p><strong><code>ping</code> 测的是 ICMP，不会自动通过你这个 HTTP/SOCKS 代理端口。</strong></p>
+</blockquote>
+<p>所以：</p>
+<ul>
+<li><code>curl</code>、<code>git</code>、<code>pip</code> 这类支持代理的应用，能走 7890/7891</li>
+<li><code>ping</code> 这种系统级网络探测工具，不会因为你设置了 HTTP 代理就自动穿过去</li>
+</ul>
+<p>因此，验证 Clash 是否真的工作，<strong>不要优先用 <code>ping</code></strong>，而应该优先用：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">curl -I --proxy http://127.0.0.1:7890 https://www.google.com</span><br><span class="line">curl -I --socks5-hostname 127.0.0.1:7891 https://www.google.com</span><br></pre></td></tr></table></figure>
+<p>如果这两个能通，说明：</p>
+<ul>
+<li>节点是通的</li>
+<li>Clash 内核是正常工作的</li>
+<li>只是你的系统流量还没有全局接管</li>
+</ul>
+<h2 id="yan-zheng-fang-shi-dui-zhao" tabindex="-1" id="验证方式对照">验证方式对照</h2>
+<table>
+<thead>
+<tr>
+<th>你想确认的事情</th>
+<th>更合适的验证方式</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>代理端口是否可用</td>
+<td><code>curl --proxy http://127.0.0.1:7890 ...</code> / <code>curl --socks5-hostname 127.0.0.1:7891 ...</code></td>
+<td>直接把请求交给 Clash 本地端口处理</td>
+</tr>
+<tr>
+<td>当前命令是否“默认走代理”</td>
+<td>看环境变量是否存在，或检查命令是否显式带了代理参数</td>
+<td>端口存在不代表每个命令都会自动走代理</td>
+</tr>
+<tr>
+<td>当前节点/策略组状态</td>
+<td>调用 <code>/proxies</code> 并读取 <code>all</code> / <code>now</code></td>
+<td>这属于 API/控制层验证</td>
+</tr>
+<tr>
+<td>当前出口国家/地区</td>
+<td>使用带代理的请求查询出口 IP（例如 <code>api.ip.sb/geoip</code>）</td>
+<td>避免只凭节点名猜测</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h1 id="si-ru-he-cha-xun-dang-qian-jie-dian-yu-jie-dian-lie-biao" tabindex="-1">四、如何查询当前节点与节点列表</h1>
+<p>我的 Clash 开了 external controller，监听在：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">127.0.0.1:9090</span><br></pre></td></tr></table></figure>
+<p>所以可以直接通过 API 查询策略组和节点。</p>
+<h2 id="1-cha-kan-mou-ge-zu-dang-qian-de-jie-dian-xin-xi" tabindex="-1" id="1-查看某个组当前的节点信息">1. 查看某个组当前的节点信息</h2>
+<p>例如我常用的策略组叫 <code>🔰 选择节点</code>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">curl -s http://127.0.0.1:9090/proxies | jq <span class="string">&#x27;.proxies[&quot;🔰 选择节点&quot;]&#x27;</span></span><br></pre></td></tr></table></figure>
+<p>输出类似这样：</p>
+<p><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="https://cdn.jsdelivr.net/gh/psmarter/blog-imgs/Linux-%E4%B8%8A%E6%8A%8A-Clash-%E7%94%A8%E9%A1%BA/2026-03-19-09-14-16-9361cf.png" alt="image-20260319090840388"></p>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="punctuation">&#123;</span></span><br><span class="line">  <span class="attr">&quot;alive&quot;</span><span class="punctuation">:</span> <span class="literal"><span class="keyword">true</span></span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;all&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span></span><br><span class="line">    <span class="string">&quot;🇭🇰 香港Z01&quot;</span><span class="punctuation">,</span></span><br><span class="line">    <span class="string">&quot;🇯🇵 日本Z01&quot;</span><span class="punctuation">,</span></span><br><span class="line">    <span class="string">&quot;🇺🇲 美国Z01&quot;</span><span class="punctuation">,</span></span><br><span class="line">    <span class="string">&quot;🇺🇲 美国Z02&quot;</span><span class="punctuation">,</span></span><br><span class="line">    <span class="string">&quot;DIRECT&quot;</span></span><br><span class="line">  <span class="punctuation">]</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;name&quot;</span><span class="punctuation">:</span> <span class="string">&quot;🔰 选择节点&quot;</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;now&quot;</span><span class="punctuation">:</span> <span class="string">&quot;🇺🇲 美国Z01&quot;</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;type&quot;</span><span class="punctuation">:</span> <span class="string">&quot;Selector&quot;</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;udp&quot;</span><span class="punctuation">:</span> <span class="literal"><span class="keyword">true</span></span></span><br><span class="line"><span class="punctuation">&#125;</span></span><br></pre></td></tr></table></figure>
+<p>这里需要关注两个字段：</p>
+<ul>
+<li><code>all</code>：这个组里所有可选节点</li>
+<li><code>now</code>：当前正在使用的节点</li>
+</ul>
+<h2 id="2-zhi-kan-dang-qian-jie-dian" tabindex="-1" id="2-只看当前节点">2. 只看当前节点</h2>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">curl -s http://127.0.0.1:9090/proxies | jq -r <span class="string">&#x27;.proxies[&quot;🔰 选择节点&quot;].now&#x27;</span></span><br></pre></td></tr></table></figure>
+<hr>
+<h1 id="wu-wei-shi-yao-qie-huan-jie-dian-shi-bao-code-proxy-not-exist-code" tabindex="-1">五、为什么切换节点时报 <code>proxy not exist</code></h1>
+<p>我当时第一次切节点时，写的是：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">curl -s -X PUT <span class="string">&#x27;http://127.0.0.1:9090/proxies/%F0%9F%94%B0%20%E9%80%89%E6%8B%A9%E8%8A%82%E7%82%B9&#x27;</span>   -H <span class="string">&#x27;Content-Type: application/json&#x27;</span>   -d <span class="string">&#x27;&#123;&quot;name&quot;:&quot;美国Z02&quot;&#125;&#x27;</span></span><br></pre></td></tr></table></figure>
+<p>结果返回：</p>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="punctuation">&#123;</span><span class="attr">&quot;message&quot;</span><span class="punctuation">:</span><span class="string">&quot;Selector update error: proxy not exist&quot;</span><span class="punctuation">&#125;</span></span><br></pre></td></tr></table></figure>
+<p>后来才反应过来：</p>
+<blockquote>
+<p><strong>切换时的 <code>name</code> 必须和节点完整名称完全一致。</strong></p>
+</blockquote>
+<p>也就是说，如果节点列表里是：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">🇺🇲 美国Z02</span><br></pre></td></tr></table></figure>
+<p>那你就必须写：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">curl -s -X PUT <span class="string">&#x27;http://127.0.0.1:9090/proxies/%F0%9F%94%B0%20%E9%80%89%E6%8B%A9%E8%8A%82%E7%82%B9&#x27;</span>   -H <span class="string">&#x27;Content-Type: application/json&#x27;</span>   -d <span class="string">&#x27;&#123;&quot;name&quot;:&quot;🇺🇲 美国Z02&quot;&#125;&#x27;</span></span><br></pre></td></tr></table></figure>
+<p>切换成功后，再看当前节点：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">curl -s http://127.0.0.1:9090/proxies | jq -r <span class="string">&#x27;.proxies[&quot;🔰 选择节点&quot;].now&#x27;</span></span><br></pre></td></tr></table></figure>
+<hr>
+<h1 id="liu-ru-he-cha-xun-dang-qian-jie-dian-wei-yu-na-ge-guo-jia" tabindex="-1">六、如何查询当前节点位于哪个国家</h1>
+<p>节点名字写“日本”“美国”不一定可靠，通常更可靠的方式是：</p>
+<blockquote>
+<p><strong>让请求显式走当前代理，然后查出口 IP 的地理信息。</strong></p>
+</blockquote>
+<p>我这里用的是 <code>ip.sb</code>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">curl -s --proxy http://127.0.0.1:7890 https://api.ip.sb/geoip | jq</span><br></pre></td></tr></table></figure>
+<p>如果只想看关键信息：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">curl -s --proxy http://127.0.0.1:7890 https://api.ip.sb/geoip | jq -r <span class="string">&#x27;&quot;IP: \(.ip)\n国家: \(.country)\n地区: \(.region)\n城市: \(.city)\n组织: \(.organization)&quot;&#x27;</span></span><br></pre></td></tr></table></figure>
+<p>这样你就能很直观地看到：</p>
+<ul>
+<li>当前出口 IP</li>
+<li>国家</li>
+<li>地区</li>
+<li>城市</li>
+<li>ASN / 组织</li>
+</ul>
+<p>这比“看节点名猜国家”靠谱得多。</p>
+<hr>
+<h1 id="qi-yi-ge-ke-fu-yong-de-jie-dian-guan-li-jiao-ben" tabindex="-1">七、一个可复用的节点管理脚本</h1>
+<p>每次手敲 <code>curl + jq + PUT + JSON</code> 太累，所以我后来写了一个脚本，支持：</p>
+<ul>
+<li>列出节点</li>
+<li>显示当前节点</li>
+<li>模糊关键词切换</li>
+<li>精确名称切换</li>
+<li>查询当前出口国家</li>
+</ul>
+<p>保存为 <code>clash-node.sh</code>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#!/usr/bin/env bash</span></span><br><span class="line"><span class="built_in">set</span> -euo pipefail</span><br><span class="line"></span><br><span class="line">API=<span class="string">&quot;<span class="variable">$&#123;CLASH_API:-http://127.0.0.1:9090&#125;</span>&quot;</span></span><br><span class="line">GROUP=<span class="string">&quot;<span class="variable">$&#123;CLASH_GROUP:-🔰 选择节点&#125;</span>&quot;</span></span><br><span class="line">PROXY_HTTP=<span class="string">&quot;<span class="variable">$&#123;CLASH_PROXY_HTTP:-http://127.0.0.1:7890&#125;</span>&quot;</span></span><br><span class="line">SECRET=<span class="string">&quot;<span class="variable">$&#123;CLASH_SECRET:-&#125;</span>&quot;</span></span><br><span class="line"></span><br><span class="line">auth_args=()</span><br><span class="line"><span class="keyword">if</span> [[ -n <span class="string">&quot;<span class="variable">$SECRET</span>&quot;</span> ]]; <span class="keyword">then</span></span><br><span class="line">  auth_args=(-H <span class="string">&quot;Authorization: Bearer <span class="variable">$SECRET</span>&quot;</span>)</span><br><span class="line"><span class="keyword">fi</span></span><br><span class="line"></span><br><span class="line"><span class="function"><span class="title">urlencode</span></span>() &#123;</span><br><span class="line">  jq -rn --arg v <span class="string">&quot;<span class="variable">$1</span>&quot;</span> <span class="string">&#x27;$v|@uri&#x27;</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="title">api_get</span></span>() &#123;</span><br><span class="line">  curl -fsS <span class="string">&quot;<span class="variable">$&#123;auth_args[@]&#125;</span>&quot;</span> <span class="string">&quot;<span class="variable">$1</span>&quot;</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="title">api_put_json</span></span>() &#123;</span><br><span class="line">  curl -fsS -X PUT <span class="string">&quot;<span class="variable">$&#123;auth_args[@]&#125;</span>&quot;</span>     -H <span class="string">&#x27;Content-Type: application/json&#x27;</span>     -d <span class="string">&quot;<span class="variable">$2</span>&quot;</span>     <span class="string">&quot;<span class="variable">$1</span>&quot;</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="title">group_json</span></span>() &#123;</span><br><span class="line">  api_get <span class="string">&quot;<span class="variable">$API</span>/proxies&quot;</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="title">list_nodes</span></span>() &#123;</span><br><span class="line">  group_json | jq -r --arg g <span class="string">&quot;<span class="variable">$GROUP</span>&quot;</span> <span class="string">&#x27;.proxies[$g].all[]&#x27;</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="title">current_node</span></span>() &#123;</span><br><span class="line">  group_json | jq -r --arg g <span class="string">&quot;<span class="variable">$GROUP</span>&quot;</span> <span class="string">&#x27;.proxies[$g].now&#x27;</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="title">switch_exact</span></span>() &#123;</span><br><span class="line">  <span class="built_in">local</span> name=<span class="string">&quot;<span class="variable">$1</span>&quot;</span></span><br><span class="line">  <span class="built_in">local</span> group_enc</span><br><span class="line">  group_enc=<span class="string">&quot;<span class="subst">$(urlencode <span class="string">&quot;<span class="variable">$GROUP</span>&quot;</span>)</span>&quot;</span></span><br><span class="line">  api_put_json <span class="string">&quot;<span class="variable">$API</span>/proxies/<span class="variable">$group_enc</span>&quot;</span> <span class="string">&quot;<span class="subst">$(jq -nc --arg name <span class="string">&quot;<span class="variable">$name</span>&quot;</span> &#x27;&#123;name:$name&#125;&#x27;)</span>&quot;</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="title">switch_fuzzy</span></span>() &#123;</span><br><span class="line">  <span class="built_in">local</span> keyword=<span class="string">&quot;<span class="variable">$1</span>&quot;</span></span><br><span class="line">  <span class="built_in">local</span> matches</span><br><span class="line">  matches=<span class="string">&quot;<span class="subst">$(list_nodes | grep -F <span class="string">&quot;<span class="variable">$keyword</span>&quot;</span> || true)</span>&quot;</span></span><br><span class="line"></span><br><span class="line">  <span class="built_in">local</span> count</span><br><span class="line">  count=<span class="string">&quot;<span class="subst">$(printf <span class="string">&quot;%s\n&quot;</span> <span class="string">&quot;<span class="variable">$matches</span>&quot;</span> | sed &#x27;/^$/d&#x27; | wc -l | tr -d &#x27; &#x27;)</span>&quot;</span></span><br><span class="line"></span><br><span class="line">  <span class="keyword">if</span> [[ <span class="string">&quot;<span class="variable">$count</span>&quot;</span> == <span class="string">&quot;0&quot;</span> ]]; <span class="keyword">then</span></span><br><span class="line">    <span class="built_in">echo</span> <span class="string">&quot;未找到包含关键词的节点: <span class="variable">$keyword</span>&quot;</span> &gt;&amp;2</span><br><span class="line">    <span class="built_in">exit</span> 1</span><br><span class="line">  <span class="keyword">elif</span> [[ <span class="string">&quot;<span class="variable">$count</span>&quot;</span> != <span class="string">&quot;1&quot;</span> ]]; <span class="keyword">then</span></span><br><span class="line">    <span class="built_in">echo</span> <span class="string">&quot;匹配到多个节点，请更精确一些：&quot;</span> &gt;&amp;2</span><br><span class="line">    <span class="built_in">printf</span> <span class="string">&quot;%s\n&quot;</span> <span class="string">&quot;<span class="variable">$matches</span>&quot;</span> &gt;&amp;2</span><br><span class="line">    <span class="built_in">exit</span> 1</span><br><span class="line">  <span class="keyword">fi</span></span><br><span class="line"></span><br><span class="line">  <span class="built_in">local</span> target</span><br><span class="line">  target=<span class="string">&quot;<span class="subst">$(printf <span class="string">&quot;%s\n&quot;</span> <span class="string">&quot;<span class="variable">$matches</span>&quot;</span> | head -n1)</span>&quot;</span></span><br><span class="line">  <span class="built_in">echo</span> <span class="string">&quot;切换到: <span class="variable">$target</span>&quot;</span> &gt;&amp;2</span><br><span class="line">  switch_exact <span class="string">&quot;<span class="variable">$target</span>&quot;</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="title">show_country</span></span>() &#123;</span><br><span class="line">  curl -fsS --proxy <span class="string">&quot;<span class="variable">$PROXY_HTTP</span>&quot;</span> https://api.ip.sb/geoip |     jq -r <span class="string">&#x27;&quot;IP: \(.ip)\n国家: \(.country)\n地区: \(.region)\n城市: \(.city)\nASN/组织: \(.organization)&quot;&#x27;</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>赋予执行权限：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">chmod</span> +x clash-node.sh</span><br></pre></td></tr></table></figure>
+<p>常用方式：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">./clash-node.sh current</span><br><span class="line">./clash-node.sh list</span><br><span class="line">./clash-node.sh switch <span class="string">&quot;美国Z02&quot;</span></span><br><span class="line">./clash-node.sh switch-exact <span class="string">&quot;🇺🇲 美国Z02&quot;</span></span><br><span class="line">./clash-node.sh country</span><br></pre></td></tr></table></figure>
+<hr>
+<h1 id="ba-jiao-hu-shi-qie-huan-jiao-ben-geng-gua-he-ri-chang-shi-yong" tabindex="-1">八、交互式切换脚本：更适合日常使用</h1>
+<p>上面那个已经够用，但如果节点多、国旗多、名字长，手输还是不够舒服。</p>
+<p>所以我又写了一个交互式版本：<strong>直接把节点全部编号列出来，输入数字即可切换。</strong></p>
+<p>保存为 <code>clash-select.sh</code>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#!/usr/bin/env bash</span></span><br><span class="line"><span class="built_in">set</span> -euo pipefail</span><br><span class="line"></span><br><span class="line">API=<span class="string">&quot;<span class="variable">$&#123;CLASH_API:-http://127.0.0.1:9090&#125;</span>&quot;</span></span><br><span class="line">GROUP=<span class="string">&quot;<span class="variable">$&#123;CLASH_GROUP:-🔰 选择节点&#125;</span>&quot;</span></span><br><span class="line">PROXY_HTTP=<span class="string">&quot;<span class="variable">$&#123;CLASH_PROXY_HTTP:-http://127.0.0.1:7890&#125;</span>&quot;</span></span><br><span class="line">SECRET=<span class="string">&quot;<span class="variable">$&#123;CLASH_SECRET:-&#125;</span>&quot;</span></span><br><span class="line"></span><br><span class="line">auth_args=()</span><br><span class="line"><span class="keyword">if</span> [[ -n <span class="string">&quot;<span class="variable">$SECRET</span>&quot;</span> ]]; <span class="keyword">then</span></span><br><span class="line">  auth_args=(-H <span class="string">&quot;Authorization: Bearer <span class="variable">$SECRET</span>&quot;</span>)</span><br><span class="line"><span class="keyword">fi</span></span><br><span class="line"></span><br><span class="line"><span class="function"><span class="title">urlencode</span></span>() &#123;</span><br><span class="line">  python3 -c <span class="string">&#x27;import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=&quot;&quot;))&#x27;</span> <span class="string">&quot;<span class="variable">$1</span>&quot;</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="title">api_get</span></span>() &#123;</span><br><span class="line">  curl -fsS <span class="string">&quot;<span class="variable">$&#123;auth_args[@]&#125;</span>&quot;</span> <span class="string">&quot;<span class="variable">$1</span>&quot;</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="title">api_put_json</span></span>() &#123;</span><br><span class="line">  curl -fsS -X PUT <span class="string">&quot;<span class="variable">$&#123;auth_args[@]&#125;</span>&quot;</span>     -H <span class="string">&#x27;Content-Type: application/json&#x27;</span>     -d <span class="string">&quot;<span class="variable">$2</span>&quot;</span>     <span class="string">&quot;<span class="variable">$1</span>&quot;</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="title">get_group_json</span></span>() &#123;</span><br><span class="line">  api_get <span class="string">&quot;<span class="variable">$API</span>/proxies&quot;</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="title">get_current</span></span>() &#123;</span><br><span class="line">  get_group_json | jq -r --arg g <span class="string">&quot;<span class="variable">$GROUP</span>&quot;</span> <span class="string">&#x27;.proxies[$g].now&#x27;</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="built_in">mapfile</span> -t NODES &lt; &lt;(get_group_json | jq -r --arg g <span class="string">&quot;<span class="variable">$GROUP</span>&quot;</span> <span class="string">&#x27;.proxies[$g].all[]&#x27;</span>)</span><br><span class="line"></span><br><span class="line"><span class="built_in">echo</span> <span class="string">&quot;策略组: <span class="variable">$GROUP</span>&quot;</span></span><br><span class="line"><span class="built_in">echo</span> <span class="string">&quot;当前节点: <span class="subst">$(get_current)</span>&quot;</span></span><br><span class="line"><span class="built_in">echo</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">for</span> i <span class="keyword">in</span> <span class="string">&quot;<span class="variable">$&#123;!NODES[@]&#125;</span>&quot;</span>; <span class="keyword">do</span></span><br><span class="line">  idx=$((i + <span class="number">1</span>))</span><br><span class="line">  marker=<span class="string">&quot; &quot;</span></span><br><span class="line">  <span class="keyword">if</span> [[ <span class="string">&quot;<span class="variable">$&#123;NODES[$i]&#125;</span>&quot;</span> == <span class="string">&quot;<span class="subst">$(get_current)</span>&quot;</span> ]]; <span class="keyword">then</span></span><br><span class="line">    marker=<span class="string">&quot;*&quot;</span></span><br><span class="line">  <span class="keyword">fi</span></span><br><span class="line">  <span class="built_in">printf</span> <span class="string">&quot;%2d. [%s] %s\n&quot;</span> <span class="string">&quot;<span class="variable">$idx</span>&quot;</span> <span class="string">&quot;<span class="variable">$marker</span>&quot;</span> <span class="string">&quot;<span class="variable">$&#123;NODES[$i]&#125;</span>&quot;</span></span><br><span class="line"><span class="keyword">done</span></span><br><span class="line"></span><br><span class="line"><span class="built_in">echo</span></span><br><span class="line"><span class="built_in">read</span> -rp <span class="string">&quot;请输入要切换的编号（直接回车退出）: &quot;</span> choice</span><br><span class="line">[[ -z <span class="string">&quot;<span class="variable">$&#123;choice:-&#125;</span>&quot;</span> ]] &amp;&amp; <span class="built_in">exit</span> 0</span><br><span class="line"></span><br><span class="line">target=<span class="string">&quot;<span class="variable">$&#123;NODES[$((choice - 1))]&#125;</span>&quot;</span></span><br><span class="line">group_enc=<span class="string">&quot;<span class="subst">$(urlencode <span class="string">&quot;<span class="variable">$GROUP</span>&quot;</span>)</span>&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="built_in">echo</span> <span class="string">&quot;切换到: <span class="variable">$target</span>&quot;</span></span><br><span class="line">api_put_json <span class="string">&quot;<span class="variable">$API</span>/proxies/<span class="variable">$group_enc</span>&quot;</span> <span class="string">&quot;<span class="subst">$(jq -nc --arg name <span class="string">&quot;<span class="variable">$target</span>&quot;</span> &#x27;&#123;name:$name&#125;&#x27;)</span>&quot;</span> &gt;/dev/null</span><br><span class="line"></span><br><span class="line"><span class="built_in">sleep</span> 1</span><br><span class="line"><span class="built_in">echo</span> <span class="string">&quot;当前节点: <span class="subst">$(get_current)</span>&quot;</span></span><br><span class="line"><span class="built_in">echo</span></span><br><span class="line"><span class="built_in">echo</span> <span class="string">&quot;测试当前出口信息...&quot;</span></span><br><span class="line">curl -fsS --proxy <span class="string">&quot;<span class="variable">$PROXY_HTTP</span>&quot;</span> https://api.ip.sb/geoip | jq -r <span class="string">&#x27;&quot;IP: \(.ip)\n国家: \(.country)\n地区: \(.region)\n城市: \(.city)\n组织: \(.organization)&quot;&#x27;</span></span><br></pre></td></tr></table></figure>
+<p>赋权并运行：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">chmod</span> +x clash-select.sh</span><br><span class="line">./clash-select.sh</span><br></pre></td></tr></table></figure>
+<p><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="https://cdn.jsdelivr.net/gh/psmarter/blog-imgs/Linux-%E4%B8%8A%E6%8A%8A-Clash-%E7%94%A8%E9%A1%BA/2026-03-19-09-14-16-7b6aee.png" alt="image-20260319090952539"></p>
+<hr>
+<h1 id="jiu-shi-yao-shi-hou-gai-kai-qi-tun" tabindex="-1">九、什么时候该开启 TUN</h1>
+<pre><code class="highlight mermaid">flowchart TD
+  NeedGlobal[&quot;是否需要让普通命令自动走代理？&quot;] --&gt;|&quot;否&quot;| UseEnv[&quot;优先使用环境变量或显式 --proxy&quot;]
+  NeedGlobal --&gt;|&quot;是&quot;| NeedTun[&quot;是否需要更接近“系统全局接管”？&quot;]
+  NeedTun --&gt;|&quot;否&quot;| UseProxy[&quot;继续使用 HTTP/SOCKS + 环境变量/显式参数&quot;]
+  NeedTun --&gt;|&quot;是&quot;| EnableTun[&quot;启用 TUN（需要评估路由与 DNS 影响）&quot;]</code></pre>
+<p>如果你只是在终端里：</p>
+<ul>
+<li>安装工具</li>
+<li>拉 GitHub 仓库</li>
+<li>调 API</li>
+<li>跑 <code>curl</code></li>
+<li>用 <code>pip</code>、<code>npm</code>、<code>apt</code></li>
+</ul>
+<p>那其实很多时候：</p>
+<blockquote>
+<p><strong>HTTP/SOCKS 代理 + 环境变量</strong> 就够了。</p>
+</blockquote>
+<p>但如果你希望的是：</p>
+<ul>
+<li>普通命令也自动走代理</li>
+<li>某些不读环境变量的程序也能走</li>
+<li>更接近“系统全局代理”的效果</li>
+</ul>
+<p>那就应该开启 TUN。</p>
+<h2 id="yi-ge-zui-xiao-ke-yong-de-tun-pei-zhi-shi-li" tabindex="-1" id="一个最小可用的-TUN-配置示例">一个最小可用的 TUN 配置示例</h2>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">tun:</span></span><br><span class="line">  <span class="attr">enable:</span> <span class="literal">true</span></span><br><span class="line">  <span class="attr">stack:</span> <span class="string">system</span></span><br><span class="line">  <span class="attr">auto-route:</span> <span class="literal">true</span></span><br><span class="line">  <span class="attr">auto-redirect:</span> <span class="literal">true</span></span><br><span class="line">  <span class="attr">auto-detect-interface:</span> <span class="literal">true</span></span><br><span class="line">  <span class="attr">strict-route:</span> <span class="literal">true</span></span><br><span class="line">  <span class="attr">dns-hijack:</span></span><br><span class="line">    <span class="bullet">-</span> <span class="string">any:53</span></span><br><span class="line">    <span class="bullet">-</span> <span class="string">tcp://any:53</span></span><br><span class="line"></span><br><span class="line"><span class="attr">dns:</span></span><br><span class="line">  <span class="attr">enable:</span> <span class="literal">true</span></span><br><span class="line">  <span class="attr">listen:</span> <span class="number">0.0</span><span class="number">.0</span><span class="number">.0</span><span class="string">:53</span></span><br><span class="line">  <span class="attr">ipv6:</span> <span class="literal">true</span></span><br><span class="line">  <span class="attr">enhanced-mode:</span> <span class="string">fake-ip</span></span><br><span class="line">  <span class="attr">fake-ip-range:</span> <span class="number">198.18</span><span class="number">.0</span><span class="number">.1</span><span class="string">/16</span></span><br><span class="line">  <span class="attr">respect-rules:</span> <span class="literal">true</span></span><br><span class="line">  <span class="attr">nameserver:</span></span><br><span class="line">    <span class="bullet">-</span> <span class="string">https://dns.alidns.com/dns-query</span></span><br><span class="line">    <span class="bullet">-</span> <span class="string">https://doh.pub/dns-query</span></span><br><span class="line">  <span class="attr">proxy-server-nameserver:</span></span><br><span class="line">    <span class="bullet">-</span> <span class="string">https://dns.alidns.com/dns-query</span></span><br><span class="line">    <span class="bullet">-</span> <span class="string">https://doh.pub/dns-query</span></span><br></pre></td></tr></table></figure>
+<p>改完后，一般需要用更高权限启动 Clash，例如：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">sudo</span> ./clash -d .</span><br></pre></td></tr></table></figure>
+<hr>
+<h1 id="shi-wo-dui-tun-de-li-jie-ta-bu-shi-bi-xu-er-shi-geng-che-di" tabindex="-1">十、我对 TUN 的理解：它不是“必须”，而是“更彻底”</h1>
+<p>经过这次测试后，我对 TUN 的理解可以概括为：</p>
+<ul>
+<li><strong>只想让少数命令走代理</strong>：环境变量最轻量</li>
+<li><strong>想在终端里精确控制</strong>：HTTP/SOCKS + <code>curl --proxy</code> 最可控</li>
+<li><strong>想让系统级流量也尽量接管</strong>：再上 TUN</li>
+<li><strong>想长期维护舒服</strong>：建议把查询、切换、验证做成脚本</li>
+</ul>
+<p>需要注意的不是“节点不通”，而是：</p>
+<blockquote>
+<p><strong>你以为自己在走代理，实际上根本没走。</strong></p>
+</blockquote>
+<hr>
+<h2 id="ri-chang-gong-zuo-liu-wo-de-ming-ling-qing-dan" tabindex="-1" id="日常工作流：我的命令清单">日常工作流：我的命令清单</h2>
+<h2 id="1-kai-qi-dang-qian-shell-dai-li" tabindex="-1" id="1-开启当前-shell-代理">1. 开启当前 shell 代理</h2>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">export</span> http_proxy=http://127.0.0.1:7890</span><br><span class="line"><span class="built_in">export</span> https_proxy=http://127.0.0.1:7890</span><br><span class="line"><span class="built_in">export</span> ALL_PROXY=socks5h://127.0.0.1:7891</span><br></pre></td></tr></table></figure>
+<h2 id="2-yan-zheng-dai-li-shi-fou-tong" tabindex="-1" id="2-验证代理是否通">2. 验证代理是否通</h2>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">curl -I https://www.google.com</span><br><span class="line">curl https://api.ip.sb/ip</span><br></pre></td></tr></table></figure>
+<h2 id="3-cha-kan-dang-qian-jie-dian" tabindex="-1" id="3-查看当前节点">3. 查看当前节点</h2>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">./clash-node.sh current</span><br></pre></td></tr></table></figure>
+<h2 id="4-qie-dao-mou-ge-jie-dian" tabindex="-1" id="4-切到某个节点">4. 切到某个节点</h2>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">./clash-node.sh switch <span class="string">&quot;日本Z02&quot;</span></span><br></pre></td></tr></table></figure>
+<h2 id="5-jiao-hu-shi-qie-huan" tabindex="-1" id="5-交互式切换">5. 交互式切换</h2>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">./clash-select.sh</span><br></pre></td></tr></table></figure>
+<h2 id="6-cha-kan-dang-qian-chu-kou-guo-jia" tabindex="-1" id="6-查看当前出口国家">6. 查看当前出口国家</h2>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">./clash-node.sh country</span><br></pre></td></tr></table></figure>
+<hr>
+<h2 id="zong-jie" tabindex="-1" id="总结">总结</h2>
+<p>这次在 Linux 上折腾 Clash，表面上看是“换节点、开代理、开 TUN”，本质上其实是把三件事想明白了：</p>
+<ol>
+<li><strong>代理端口 != 系统全局代理</strong></li>
+<li><strong>节点可用 != 当前命令真的在走代理</strong></li>
+<li><strong>脚本化比手敲命令重要得多</strong></li>
+</ol>
+<p>当你把这三件事理顺之后，很多原本不易定位的问题，通常可以拆解成更可执行的步骤：</p>
+<ul>
+<li>先验证代理本身</li>
+<li>再验证当前程序是否走代理</li>
+<li>再验证出口国家</li>
+<li>最后决定要不要上 TUN</li>
+</ul>
+<p>如果你也在 Linux 服务器、远程开发、AI 工具、GitHub、安装脚本这类场景下使用 Clash，希望这篇文章能帮你把代理从“能用”升级到“好用”。</p>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/98e57854/">https://smarter.xin/posts/98e57854/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/clash/">Clash</a><a class="post-meta__tags" href="/tags/mihomo/">Mihomo</a><a class="post-meta__tags" href="/tags/linux/">Linux</a><a class="post-meta__tags" href="/tags/proxy/">代理</a><a class="post-meta__tags" href="/tags/shell/">Shell</a><a class="post-meta__tags" href="/tags/tun/">TUN</a></div><div class="post-share"><div class="social-share" data-image="/img/Clash.jpg" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/2ae34a54/" title="Clash 终端工作流进阶：把开启代理、切换节点、查询状态统一成 cx"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Clash.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">Clash 终端工作流进阶：把开启代理、切换节点、查询状态统一成 cx</div></div></div></a><a class="pagination-related  no-desc" href="/posts/d6fa227a/" title="CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/4fefc094/" title="Clash 终端工作流续篇：为什么 cx off 了代理却“还在”"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Clash.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-19</div><div class="info-item-2">Clash 终端工作流续篇：为什么 cx off 了代理却“还在”</div></div></div></a><a class="pagination-related no-desc" href="/posts/2ae34a54/" title="Clash 终端工作流进阶：把开启代理、切换节点、查询状态统一成 cx"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Clash.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-19</div><div class="info-item-2">Clash 终端工作流进阶：把开启代理、切换节点、查询状态统一成 cx</div></div></div></a><a class="pagination-related no-desc" href="/posts/78c6fb80/" title="关于Clash开启TUN无法联网的问题"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Clash.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2025-12-19</div><div class="info-item-2">关于Clash开启TUN无法联网的问题</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">116</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">242</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">21</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#guan-jian-jie-lun-xian-xing"><span class="toc-text">关键结论先行</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#qian-zhi-tiao-jian"><span class="toc-text">前置条件</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#ke-fu-xian-bu-zou-jian-yi-shun-xu"><span class="toc-text">可复现步骤（建议顺序）</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#chang-jian-wu-jie-yu-jiu-zheng-ben-wen-hou-xu-zhan-kai"><span class="toc-text">常见误解与纠正（本文后续展开）</span></a></li></ol></li><li class="toc-item toc-level-1"><a class="toc-link" href="#yi-xian-gao-ming-bai-clash-qi-dong-liao-bu-deng-yu-suo-you-ming-ling-du-zai-zou-dai-li"><span class="toc-text">一、先搞明白：Clash 启动了，不等于所有命令都在走代理</span></a></li><li class="toc-item toc-level-1"><a class="toc-link" href="#er-zhong-duan-li-ru-he-zhen-zheng-kai-qi-dai-li"><span class="toc-text">二、终端里如何真正开启代理</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#1-dang-qian-shell-lin-shi-sheng-xiao"><span class="toc-text">1. 当前 shell 临时生效</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-yong-jiu-xie-ru-code-bashrc-code"><span class="toc-text">2. 永久写入 ~&#x2F;.bashrc</span></a></li></ol></li><li class="toc-item toc-level-1"><a class="toc-link" href="#san-wei-shi-yao-kai-liao-dai-li-code-ping-google-com-code-huan-shi-bu-tong"><span class="toc-text">三、为什么开了代理，ping google.com 还是不通？</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#yan-zheng-fang-shi-dui-zhao"><span class="toc-text">验证方式对照</span></a></li></ol></li><li class="toc-item toc-level-1"><a class="toc-link" href="#si-ru-he-cha-xun-dang-qian-jie-dian-yu-jie-dian-lie-biao"><span class="toc-text">四、如何查询当前节点与节点列表</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#1-cha-kan-mou-ge-zu-dang-qian-de-jie-dian-xin-xi"><span class="toc-text">1. 查看某个组当前的节点信息</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-zhi-kan-dang-qian-jie-dian"><span class="toc-text">2. 只看当前节点</span></a></li></ol></li><li class="toc-item toc-level-1"><a class="toc-link" href="#wu-wei-shi-yao-qie-huan-jie-dian-shi-bao-code-proxy-not-exist-code"><span class="toc-text">五、为什么切换节点时报 proxy not exist</span></a></li><li class="toc-item toc-level-1"><a class="toc-link" href="#liu-ru-he-cha-xun-dang-qian-jie-dian-wei-yu-na-ge-guo-jia"><span class="toc-text">六、如何查询当前节点位于哪个国家</span></a></li><li class="toc-item toc-level-1"><a class="toc-link" href="#qi-yi-ge-ke-fu-yong-de-jie-dian-guan-li-jiao-ben"><span class="toc-text">七、一个可复用的节点管理脚本</span></a></li><li class="toc-item toc-level-1"><a class="toc-link" href="#ba-jiao-hu-shi-qie-huan-jiao-ben-geng-gua-he-ri-chang-shi-yong"><span class="toc-text">八、交互式切换脚本：更适合日常使用</span></a></li><li class="toc-item toc-level-1"><a class="toc-link" href="#jiu-shi-yao-shi-hou-gai-kai-qi-tun"><span class="toc-text">九、什么时候该开启 TUN</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#yi-ge-zui-xiao-ke-yong-de-tun-pei-zhi-shi-li"><span class="toc-text">一个最小可用的 TUN 配置示例</span></a></li></ol></li><li class="toc-item toc-level-1"><a class="toc-link" href="#shi-wo-dui-tun-de-li-jie-ta-bu-shi-bi-xu-er-shi-geng-che-di"><span class="toc-text">十、我对 TUN 的理解：它不是“必须”，而是“更彻底”</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#ri-chang-gong-zuo-liu-wo-de-ming-ling-qing-dan"><span class="toc-text">日常工作流：我的命令清单</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#1-kai-qi-dang-qian-shell-dai-li"><span class="toc-text">1. 开启当前 shell 代理</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-yan-zheng-dai-li-shi-fou-tong"><span class="toc-text">2. 验证代理是否通</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#3-cha-kan-dang-qian-jie-dian"><span class="toc-text">3. 查看当前节点</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#4-qie-dao-mou-ge-jie-dian"><span class="toc-text">4. 切到某个节点</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#5-jiao-hu-shi-qie-huan"><span class="toc-text">5. 交互式切换</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#6-cha-kan-dang-qian-chu-kou-guo-jia"><span class="toc-text">6. 查看当前出口国家</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#zong-jie"><span class="toc-text">总结</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/4fefc094/" title="Clash 终端工作流续篇：为什么 cx off 了代理却“还在”"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Clash.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Clash 终端工作流续篇：为什么 cx off 了代理却“还在”"/></a><div class="content"><a class="title" href="/posts/4fefc094/" title="Clash 终端工作流续篇：为什么 cx off 了代理却“还在”">Clash 终端工作流续篇：为什么 cx off 了代理却“还在”</a><time datetime="2026-03-19T00:21:37.000Z" title="发表于 2026-03-19 08:21:37">2026-03-19</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/2ae34a54/" title="Clash 终端工作流进阶：把开启代理、切换节点、查询状态统一成 cx"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Clash.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Clash 终端工作流进阶：把开启代理、切换节点、查询状态统一成 cx"/></a><div class="content"><a class="title" href="/posts/2ae34a54/" title="Clash 终端工作流进阶：把开启代理、切换节点、查询状态统一成 cx">Clash 终端工作流进阶：把开启代理、切换节点、查询状态统一成 cx</a><time datetime="2026-03-19T00:21:27.000Z" title="发表于 2026-03-19 08:21:27">2026-03-19</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/98e57854/" title="Linux 上把 Clash 用顺：开启代理、切换节点、查询出口、脚本与日常工作流"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Clash.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Linux 上把 Clash 用顺：开启代理、切换节点、查询出口、脚本与日常工作流"/></a><div class="content"><a class="title" href="/posts/98e57854/" title="Linux 上把 Clash 用顺：开启代理、切换节点、查询出口、脚本与日常工作流">Linux 上把 Clash 用顺：开启代理、切换节点、查询出口、脚本与日常工作流</a><time datetime="2026-03-19T00:21:11.000Z" title="发表于 2026-03-19 08:21:11">2026-03-19</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">从 Self-Attention、位置编码到 Encoder-Decoder，系统梳理 Transformer 的核心结构、设计动机与理解路径</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/d6fa227a/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-16</span><a class="blog-slider__title" href="posts/d6fa227a/" alt="">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</a><div class="blog-slider__text">从访存优化到多卡通信，一篇看清 CUDA 实践系列的结构与学习路线</div><a class="blog-slider__button" href="posts/d6fa227a/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/92dc1028/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/CUDA_C.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-02-05</span><a class="blog-slider__title" href="posts/92dc1028/" alt="">CUDA C编程权威指南-导读</a><div class="blog-slider__text">从异构并行到多 GPU 实践，串起 CUDA C 权威指南的核心学习路线</div><a class="blog-slider__button" href="posts/92dc1028/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">从全书视角出发，一篇看清 PMPP 的章节结构、核心主题与学习主线</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/aac6e27d/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Computer_System.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/aac6e27d/" alt="">深入理解计算机系统知识点总结</a><div class="blog-slider__text">从程序员视角梳理 CSAPP 的知识脉络、系统抽象与性能理解</div><a class="blog-slider__button" href="posts/aac6e27d/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">围绕类型推导、移动语义与并发，提炼现代 C++ 的核心实践</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>
