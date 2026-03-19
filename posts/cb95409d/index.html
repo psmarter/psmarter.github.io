@@ -1,0 +1,762 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>Claude Code 任务完成通知实战：SSH 远程服务器与本地环境接入飞书机器人 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="Claude Code 任务完成通知实战：SSH 远程服务器与本地环境接入飞书机器人 最近在使用 Claude Code 时，我遇到了一个非常实际的问题：  Claude Code 很适合处理多步任务，但无论是在 SSH 远程服务器上运行，还是在本地终端中运行，只要任务稍微长一点，就不得不一直盯着终端窗口，等待它结束、等待它请求授权，或者等待它回到需要我输入下一步指令的状态。  这显然不够高效。">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Claude Code 任务完成通知实战：SSH 远程服务器与本地环境接入飞书机器人">
+<meta property="og:url" content="https://smarter.xin/posts/cb95409d/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="Claude Code 任务完成通知实战：SSH 远程服务器与本地环境接入飞书机器人 最近在使用 Claude Code 时，我遇到了一个非常实际的问题：  Claude Code 很适合处理多步任务，但无论是在 SSH 远程服务器上运行，还是在本地终端中运行，只要任务稍微长一点，就不得不一直盯着终端窗口，等待它结束、等待它请求授权，或者等待它回到需要我输入下一步指令的状态。  这显然不够高效。">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/claude.jpeg">
+<meta property="article:published_time" content="2026-03-19T06:28:24.000Z">
+<meta property="article:modified_time" content="2026-03-19T07:05:00.101Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="SSH">
+<meta property="article:tag" content="Claude Code">
+<meta property="article:tag" content="飞书机器人">
+<meta property="article:tag" content="Hook">
+<meta property="article:tag" content="Windows">
+<meta property="article:tag" content="Linux">
+<meta property="article:tag" content="通知">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/claude.jpeg"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "Claude Code 任务完成通知实战：SSH 远程服务器与本地环境接入飞书机器人",
+  "url": "https://smarter.xin/posts/cb95409d/",
+  "image": "https://smarter.xin/img/claude.jpeg",
+  "datePublished": "2026-03-19T06:28:24.000Z",
+  "dateModified": "2026-03-19T07:05:00.101Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/cb95409d/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'Claude Code 任务完成通知实战：SSH 远程服务器与本地环境接入飞书机器人',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">117</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">247</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">22</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/claude.jpeg);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">Claude Code 任务完成通知实战：SSH 远程服务器与本地环境接入飞书机器人</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">Claude Code 任务完成通知实战：SSH 远程服务器与本地环境接入飞书机器人</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-03-19T06:28:24.000Z" title="发表于 2026-03-19 14:28:24">2026-03-19</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-03-19T07:05:00.101Z" title="更新于 2026-03-19 15:05:00">2026-03-19</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/claude-code/">Claude code</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">4.7k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>18分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="claude-code-ren-wu-wan-cheng-tong-zhi-shi-zhan-ssh-yuan-cheng-fu-wu-qi-yu-ben-di-huan-jing-jie-ru-fei-shu-ji-qi-ren" tabindex="-1">Claude Code 任务完成通知实战：SSH 远程服务器与本地环境接入飞书机器人</h1>
+<p>最近在使用 Claude Code 时，我遇到了一个非常实际的问题：</p>
+<blockquote>
+<p>Claude Code 很适合处理多步任务，但无论是在 SSH 远程服务器上运行，还是在本地终端中运行，只要任务稍微长一点，就不得不一直盯着终端窗口，等待它结束、等待它请求授权，或者等待它回到需要我输入下一步指令的状态。</p>
+</blockquote>
+<p>这显然不够高效。</p>
+<p>于是，我开始折腾一套“Claude Code → Hook → Python 脚本 → 飞书机器人”的通知链路，希望在下面几种场景中自动收到消息：</p>
+<ul>
+<li>Claude 完成一轮响应；</li>
+<li>Claude 做完当前工作，开始等待我下一步输入；</li>
+<li>Claude 需要我授权；</li>
+<li>Claude 主动向我发起追问或确认。</li>
+</ul>
+<p>整个过程看上去只是“发个 webhook”这么简单，但真正做下来，踩坑并不少：</p>
+<ul>
+<li>一开始误以为只要配置 <code>Notification</code>，Claude 每次回复结束后都会通知；</li>
+<li>飞书 webhook 地址曾经写错，前缀重复导致直接 <code>404</code>；</li>
+<li>SSH 场景下服务器开了 Clash 代理，hook 脚本偶发报 <code>Connection reset by peer</code>；</li>
+<li>Windows 本地路径因为反斜杠转义，被 shell 解析坏掉；</li>
+<li>本地 hook 执行时还遇到了 <code>utf-8 codec can't encode surrogate</code> 这类编码问题。</li>
+</ul>
+<p>最后，我把两套环境都完全跑通了：</p>
+<ol>
+<li><strong>SSH 远程 Linux 服务器运行 Claude Code → 飞书通知</strong></li>
+<li><strong>本地 Windows 直接运行 Claude Code → 飞书通知</strong></li>
+</ol>
+<p>这篇文章把整个过程完整整理一遍，尽量写成一份可以直接照着配置的实战记录。</p>
+<hr>
+<h2 id="yi-xian-shuo-jie-lun-claude-code-tong-zhi-dao-di-gai-zen-yao-li-jie" tabindex="-1" id="一、先说结论：Claude-Code-通知到底该怎么理解">一、先说结论：Claude Code 通知到底该怎么理解</h2>
+<p>Claude Code 的通知核心并不是终端弹窗，而是 <strong>hooks</strong>。</p>
+<p>在这次实践里，最重要的是两个事件：</p>
+<h3 id="1-code-stop-code" tabindex="-1" id="1-Stop">1. <code>Stop</code></h3>
+<p><code>Stop</code> 表示：</p>
+<blockquote>
+<p><strong>Claude 完成一轮响应时触发。</strong></p>
+</blockquote>
+<p>它更适合“我给 Claude 发了一条指令，Claude 回答完以后就通知我”的场景。</p>
+<p>如果你的目标是：</p>
+<ul>
+<li>我发一句话；</li>
+<li>Claude 回复结束；</li>
+<li>然后飞书提醒我；</li>
+</ul>
+<p>那么核心应该配的是 <strong><code>Stop</code></strong>。</p>
+<h3 id="2-code-notification-code" tabindex="-1" id="2-Notification">2. <code>Notification</code></h3>
+<p><code>Notification</code> 并不是“每次回复都触发”，而是：</p>
+<blockquote>
+<p><strong>Claude 进入需要你注意的状态时触发。</strong></p>
+</blockquote>
+<p>常见包括：</p>
+<ul>
+<li><code>idle_prompt</code>：当前工作完成，开始等待你下一步输入；</li>
+<li><code>permission_prompt</code>：需要你授权；</li>
+<li><code>elicitation_dialog</code>：Claude 主动向你提问；</li>
+<li><code>auth_success</code>：认证相关事件完成。</li>
+</ul>
+<p>也就是说，如果你只配置 <code>Notification</code>，然后输入一句简单的 <code>hello</code>，Claude 回复结束后通常<strong>不会立即通知</strong>。因为它不等于“回复完成”，它更像“现在需要你注意”。</p>
+<h3 id="3-zui-tui-jian-de-pei-zhi-fang-shi" tabindex="-1" id="3-最推荐的配置方式">3. 最推荐的配置方式</h3>
+<p>如果希望通知尽量完整，我建议：</p>
+<ul>
+<li><code>Stop</code>：负责“每轮响应结束”；</li>
+<li><code>Notification</code>：负责“需要你注意”。</li>
+</ul>
+<p>如果你希望飞书安静一点，可以只保留 <code>Stop</code>；如果你只关心“真正需要我介入”的时刻，可以只保留 <code>Notification</code>。</p>
+<hr>
+<h2 id="er-zheng-ti-fang-an-claude-code-hook-fei-shu-ji-qi-ren" tabindex="-1" id="二、整体方案：Claude-Code-→-Hook-→-飞书机器人">二、整体方案：Claude Code → Hook → 飞书机器人</h2>
+<p>我最后采用的整体方案非常简单：</p>
+<pre><code class="highlight mermaid">graph LR
+  Claude[Claude Code] --&gt; Hook[Hook 触发]
+  Hook --&gt; Python[notify_feishu.py]
+  Python --&gt; Feishu[飞书机器人 Webhook]
+  Feishu --&gt; User[收到通知]</code></pre>
+<p>也就是说：</p>
+<ol>
+<li>Claude Code 在指定时机触发 hook；</li>
+<li>hook 调用本地命令；</li>
+<li>本地命令执行 Python 脚本；</li>
+<li>Python 脚本向飞书机器人发送文本消息；</li>
+<li>飞书群收到提醒。</li>
+</ol>
+<p>这个思路在 <strong>SSH 远程 Linux</strong> 和 <strong>本地 Windows</strong> 上都成立，只是路径、环境变量和代理处理略有区别。</p>
+<hr>
+<h2 id="san-fei-shu-ji-qi-ren-zhun-bei-gong-zuo" tabindex="-1" id="三、飞书机器人准备工作">三、飞书机器人准备工作</h2>
+<p>无论你是在远程服务器上配，还是在本地机器上配，飞书机器人都要先准备好。</p>
+<h3 id="1-zai-fei-shu-qun-zhong-tian-jia-zi-ding-yi-ji-qi-ren" tabindex="-1" id="1-在飞书群中添加自定义机器人">1. 在飞书群中添加自定义机器人</h3>
+<p>进入你的飞书群，添加一个 <strong>自定义机器人</strong>，然后记录两项信息：</p>
+<ul>
+<li><code>Webhook</code></li>
+<li><code>Secret</code>（如果你启用了签名校验）</li>
+</ul>
+<p>最终拿到的 webhook 地址通常是这种格式：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">https://open.feishu.cn/open-apis/bot/v2/hook/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx</span><br></pre></td></tr></table></figure>
+<h3 id="2-yi-ge-fei-chang-rong-yi-cai-de-keng-webhook-qian-zhui-zhong-fu" tabindex="-1" id="2-一个非常容易踩的坑：Webhook-前缀重复">2. 一个非常容易踩的坑：Webhook 前缀重复</h3>
+<p>我一开始把环境变量写成了下面这样：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">export</span> FEISHU_WEBHOOK=<span class="string">&#x27;https://open.feishu.cn/open-apis/bot/v2/hook/https://open.feishu.cn/open-apis/bot/v2/hook/da4fdb04-0be6-4cff-972c-da029f870919&#x27;</span></span><br></pre></td></tr></table></figure>
+<p>这会直接导致：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">HTTP Error 404: Not Found</span><br></pre></td></tr></table></figure>
+<p>因为 webhook 的前缀被写了两遍。</p>
+<p>正确写法应该是：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">export</span> FEISHU_WEBHOOK=<span class="string">&#x27;https://open.feishu.cn/open-apis/bot/v2/hook/da4fdb04-0be6-4cff-972c-da029f870919&#x27;</span></span><br><span class="line"><span class="built_in">export</span> FEISHU_SECRET=<span class="string">&#x27;你的secret&#x27;</span></span><br></pre></td></tr></table></figure>
+<p>因此，如果你一开始就收到 <code>404</code>，最先检查的不是 Claude 配置，也不是 Python 逻辑，而是：</p>
+<blockquote>
+<p><strong>Webhook 地址是否写对。</strong></p>
+</blockquote>
+<hr>
+<h1 id="si-ssh-yuan-cheng-fu-wu-qi-chang-jing-linux-shang-rang-claude-code-zi-dong-fa-fei-shu-tong-zhi" tabindex="-1">四、SSH 远程服务器场景：Linux 上让 Claude Code 自动发飞书通知</h1>
+<p>这是最有价值的场景之一，因为真正需要通知的，往往就是挂在服务器上跑的任务。</p>
+<p>典型使用方式如下：</p>
+<ul>
+<li>本地通过 SSH 连接远程 Linux；</li>
+<li>在远程服务器上启动 Claude Code；</li>
+<li>Claude 做长任务时不再盯着终端；</li>
+<li>通过飞书获取任务完成、等待输入、权限请求等提醒。</li>
+</ul>
+<h2 id="1-tui-jian-mu-lu-jie-gou" tabindex="-1" id="1-推荐目录结构">1. 推荐目录结构</h2>
+<p>我最后统一放在下面这些路径中：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">~/.claude/</span><br><span class="line">~/.claude/hooks/</span><br><span class="line">~/.claude/hooks/notify_feishu.py</span><br><span class="line">~/.claude/settings.json</span><br></pre></td></tr></table></figure>
+<p>创建目录：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">mkdir</span> -p ~/.claude/hooks</span><br></pre></td></tr></table></figure>
+<hr>
+<h2 id="2-zai-yuan-cheng-linux-shang-pei-zhi-fei-shu-huan-jing-bian-liang" tabindex="-1" id="2-在远程-Linux-上配置飞书环境变量">2. 在远程 Linux 上配置飞书环境变量</h2>
+<p>我把飞书 webhook 和 secret 写入当前用户的 <code>~/.bashrc</code>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">export</span> FEISHU_WEBHOOK=<span class="string">&#x27;https://open.feishu.cn/open-apis/bot/v2/hook/你的token&#x27;</span></span><br><span class="line"><span class="built_in">export</span> FEISHU_SECRET=<span class="string">&#x27;你的secret&#x27;</span></span><br></pre></td></tr></table></figure>
+<p>然后执行：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">source</span> ~/.bashrc</span><br></pre></td></tr></table></figure>
+<p>检查是否生效：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">python3 - &lt;&lt;<span class="string">&#x27;PY&#x27;</span></span><br><span class="line">import os</span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot;FEISHU_WEBHOOK =&quot;</span>, repr(os.environ.get(<span class="string">&quot;FEISHU_WEBHOOK&quot;</span>, <span class="string">&quot;&quot;</span>)))</span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot;FEISHU_SECRET  =&quot;</span>, repr(os.environ.get(<span class="string">&quot;FEISHU_SECRET&quot;</span>, <span class="string">&quot;&quot;</span>)))</span><br><span class="line">PY</span><br></pre></td></tr></table></figure>
+<p>如果输出里能看到正确的值，说明环境变量已经就绪。</p>
+<hr>
+<h2 id="3-xian-dan-du-ce-shi-jiao-ben-lian-lu-er-bu-shi-yi-shang-lai-jiu-ce-claude" tabindex="-1" id="3-先单独测试脚本链路，而不是一上来就测-Claude">3. 先单独测试脚本链路，而不是一上来就测 Claude</h2>
+<p>这一步非常重要。</p>
+<p>在我整个排查过程中，最大的经验就是：</p>
+<blockquote>
+<p><strong>先把“Python 脚本 → 飞书”这条链路单独打通，再去接 Claude Code。</strong></p>
+</blockquote>
+<p>测试方法如下：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">echo</span> <span class="string">&#x27;&#123;</span></span><br><span class="line"><span class="string">  &quot;session_id&quot;: &quot;test-session&quot;,</span></span><br><span class="line"><span class="string">  &quot;cwd&quot;: &quot;/home/shh/project&quot;,</span></span><br><span class="line"><span class="string">  &quot;hook_event_name&quot;: &quot;Stop&quot;,</span></span><br><span class="line"><span class="string">  &quot;stop_hook_active&quot;: false,</span></span><br><span class="line"><span class="string">  &quot;transcript_path&quot;: &quot;/tmp/test.jsonl&quot;</span></span><br><span class="line"><span class="string">&#125;&#x27;</span> | python3 ~/.claude/hooks/notify_feishu.py</span><br></pre></td></tr></table></figure>
+<p>如果飞书群能收到消息，说明以下环节都正常：</p>
+<ul>
+<li>webhook 正确；</li>
+<li>secret 正确；</li>
+<li>Python 脚本可执行；</li>
+<li>服务器到飞书的网络链路正常。</li>
+</ul>
+<p>只有这一条先通了，后面出了问题你才能明确知道是 Claude hook 配置层的问题，而不是脚本本身的问题。</p>
+<hr>
+<h2 id="4-linux-xia-zui-zhong-ke-yong-de-fei-shu-tong-zhi-jiao-ben" tabindex="-1" id="4-Linux-下最终可用的飞书通知脚本">4. Linux 下最终可用的飞书通知脚本</h2>
+<p>我最后整理出的版本解决了几个关键问题：</p>
+<ul>
+<li>支持 <code>Stop</code> 和 <code>Notification</code>；</li>
+<li>自动写日志；</li>
+<li>对网络错误自动重试；</li>
+<li>能处理奇怪字符，避免编码报错；</li>
+<li><strong>最关键：显式禁用 <code>urllib</code> 自动继承系统代理。</strong></li>
+</ul>
+<p>这份脚本保存为：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">~/.claude/hooks/notify_feishu.py</span><br></pre></td></tr></table></figure>
+<p>内容如下：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br><span class="line">101</span><br><span class="line">102</span><br><span class="line">103</span><br><span class="line">104</span><br><span class="line">105</span><br><span class="line">106</span><br><span class="line">107</span><br><span class="line">108</span><br><span class="line">109</span><br><span class="line">110</span><br><span class="line">111</span><br><span class="line">112</span><br><span class="line">113</span><br><span class="line">114</span><br><span class="line">115</span><br><span class="line">116</span><br><span class="line">117</span><br><span class="line">118</span><br><span class="line">119</span><br><span class="line">120</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">#!/usr/bin/env python3</span></span><br><span class="line"><span class="keyword">import</span> sys</span><br><span class="line"><span class="keyword">import</span> os</span><br><span class="line"><span class="keyword">import</span> json</span><br><span class="line"><span class="keyword">import</span> time</span><br><span class="line"><span class="keyword">import</span> hmac</span><br><span class="line"><span class="keyword">import</span> base64</span><br><span class="line"><span class="keyword">import</span> hashlib</span><br><span class="line"><span class="keyword">import</span> socket</span><br><span class="line"><span class="keyword">from</span> urllib <span class="keyword">import</span> request</span><br><span class="line"></span><br><span class="line">WEBHOOK = os.environ.get(<span class="string">&quot;FEISHU_WEBHOOK&quot;</span>, <span class="string">&quot;&quot;</span>).strip()</span><br><span class="line">SECRET = os.environ.get(<span class="string">&quot;FEISHU_SECRET&quot;</span>, <span class="string">&quot;&quot;</span>).strip()</span><br><span class="line">LOG_FILE = os.path.expanduser(<span class="string">&quot;~/.claude/hooks/notify_feishu.log&quot;</span>)</span><br><span class="line"></span><br><span class="line"><span class="keyword">def</span> <span class="title function_">safe_text</span>(<span class="params">x</span>):</span><br><span class="line">    <span class="keyword">if</span> x <span class="keyword">is</span> <span class="literal">None</span>:</span><br><span class="line">        <span class="keyword">return</span> <span class="string">&quot;&quot;</span></span><br><span class="line">    <span class="keyword">if</span> <span class="keyword">not</span> <span class="built_in">isinstance</span>(x, <span class="built_in">str</span>):</span><br><span class="line">        x = <span class="built_in">str</span>(x)</span><br><span class="line">    <span class="keyword">return</span> x.encode(<span class="string">&quot;utf-8&quot;</span>, <span class="string">&quot;backslashreplace&quot;</span>).decode(<span class="string">&quot;utf-8&quot;</span>)</span><br><span class="line"></span><br><span class="line"><span class="keyword">def</span> <span class="title function_">log</span>(<span class="params">msg: <span class="built_in">str</span></span>):</span><br><span class="line">    ts = time.strftime(<span class="string">&quot;%Y-%m-%d %H:%M:%S&quot;</span>)</span><br><span class="line">    safe_msg = safe_text(msg)</span><br><span class="line">    <span class="keyword">with</span> <span class="built_in">open</span>(LOG_FILE, <span class="string">&quot;a&quot;</span>, encoding=<span class="string">&quot;utf-8&quot;</span>, errors=<span class="string">&quot;backslashreplace&quot;</span>) <span class="keyword">as</span> f:</span><br><span class="line">        f.write(<span class="string">f&quot;[<span class="subst">&#123;ts&#125;</span>] <span class="subst">&#123;safe_msg&#125;</span>\n&quot;</span>)</span><br><span class="line"></span><br><span class="line"><span class="keyword">def</span> <span class="title function_">feishu_sign</span>(<span class="params">secret: <span class="built_in">str</span>, timestamp: <span class="built_in">str</span></span>) -&gt; <span class="built_in">str</span>:</span><br><span class="line">    string_to_sign = <span class="string">f&quot;<span class="subst">&#123;timestamp&#125;</span>\n<span class="subst">&#123;secret&#125;</span>&quot;</span>.encode(<span class="string">&quot;utf-8&quot;</span>)</span><br><span class="line">    <span class="keyword">return</span> base64.b64encode(</span><br><span class="line">        hmac.new(string_to_sign, <span class="string">b&quot;&quot;</span>, digestmod=hashlib.sha256).digest()</span><br><span class="line">    ).decode(<span class="string">&quot;utf-8&quot;</span>)</span><br><span class="line"></span><br><span class="line"><span class="keyword">def</span> <span class="title function_">post_to_feishu</span>(<span class="params">text: <span class="built_in">str</span></span>):</span><br><span class="line">    <span class="keyword">if</span> <span class="keyword">not</span> WEBHOOK:</span><br><span class="line">        <span class="keyword">raise</span> RuntimeError(<span class="string">&quot;FEISHU_WEBHOOK is empty&quot;</span>)</span><br><span class="line"></span><br><span class="line">    payload = &#123;</span><br><span class="line">        <span class="string">&quot;msg_type&quot;</span>: <span class="string">&quot;text&quot;</span>,</span><br><span class="line">        <span class="string">&quot;content&quot;</span>: &#123;<span class="string">&quot;text&quot;</span>: safe_text(text)&#125;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span> SECRET:</span><br><span class="line">        ts = <span class="built_in">str</span>(<span class="built_in">int</span>(time.time()))</span><br><span class="line">        payload[<span class="string">&quot;timestamp&quot;</span>] = ts</span><br><span class="line">        payload[<span class="string">&quot;sign&quot;</span>] = feishu_sign(SECRET, ts)</span><br><span class="line"></span><br><span class="line">    data = json.dumps(payload, ensure_ascii=<span class="literal">True</span>).encode(<span class="string">&quot;utf-8&quot;</span>)</span><br><span class="line">    req = request.Request(</span><br><span class="line">        WEBHOOK,</span><br><span class="line">        data=data,</span><br><span class="line">        headers=&#123;<span class="string">&quot;Content-Type&quot;</span>: <span class="string">&quot;application/json&quot;</span>&#125;,</span><br><span class="line">        method=<span class="string">&quot;POST&quot;</span>,</span><br><span class="line">    )</span><br><span class="line"></span><br><span class="line">    <span class="comment"># 禁用自动代理继承，避免 Clash/系统代理造成偶发 reset</span></span><br><span class="line">    opener = request.build_opener(request.ProxyHandler(&#123;&#125;))</span><br><span class="line"></span><br><span class="line">    last_err = <span class="literal">None</span></span><br><span class="line">    <span class="keyword">for</span> i <span class="keyword">in</span> <span class="built_in">range</span>(<span class="number">3</span>):</span><br><span class="line">        <span class="keyword">try</span>:</span><br><span class="line">            <span class="keyword">with</span> opener.<span class="built_in">open</span>(req, timeout=<span class="number">10</span>) <span class="keyword">as</span> resp:</span><br><span class="line">                body = resp.read().decode(<span class="string">&quot;utf-8&quot;</span>, errors=<span class="string">&quot;replace&quot;</span>)</span><br><span class="line">                log(<span class="string">f&quot;POST success status=<span class="subst">&#123;resp.status&#125;</span> body=<span class="subst">&#123;body&#125;</span>&quot;</span>)</span><br><span class="line">                <span class="keyword">return</span></span><br><span class="line">        <span class="keyword">except</span> Exception <span class="keyword">as</span> e:</span><br><span class="line">            last_err = e</span><br><span class="line">            log(<span class="string">f&quot;POST failed attempt=<span class="subst">&#123;i+<span class="number">1</span>&#125;</span>/3 err=<span class="subst">&#123;<span class="built_in">repr</span>(e)&#125;</span>&quot;</span>)</span><br><span class="line">            time.sleep(<span class="number">2</span> * (i + <span class="number">1</span>))</span><br><span class="line"></span><br><span class="line">    <span class="keyword">raise</span> last_err</span><br><span class="line"></span><br><span class="line"><span class="keyword">def</span> <span class="title function_">main</span>():</span><br><span class="line">    raw = sys.stdin.read()</span><br><span class="line">    <span class="keyword">if</span> <span class="keyword">not</span> raw.strip():</span><br><span class="line">        <span class="keyword">raise</span> RuntimeError(<span class="string">&quot;No stdin JSON received&quot;</span>)</span><br><span class="line"></span><br><span class="line">    event = json.loads(raw)</span><br><span class="line"></span><br><span class="line">    hook_event_name = safe_text(event.get(<span class="string">&quot;hook_event_name&quot;</span>, <span class="string">&quot;&quot;</span>))</span><br><span class="line">    cwd = safe_text(event.get(<span class="string">&quot;cwd&quot;</span>, <span class="string">&quot;&quot;</span>))</span><br><span class="line">    session_id = safe_text(event.get(<span class="string">&quot;session_id&quot;</span>, <span class="string">&quot;&quot;</span>))</span><br><span class="line">    host = safe_text(socket.gethostname())</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span> hook_event_name == <span class="string">&quot;Stop&quot;</span>:</span><br><span class="line">        content = safe_text(event.get(<span class="string">&quot;last_assistant_message&quot;</span>, <span class="string">&quot;&quot;</span>))[:<span class="number">500</span>]</span><br><span class="line">        text = (</span><br><span class="line">            <span class="string">f&quot;【Claude Code 远程完成】\n&quot;</span></span><br><span class="line">            <span class="string">f&quot;主机: <span class="subst">&#123;host&#125;</span>\n&quot;</span></span><br><span class="line">            <span class="string">f&quot;目录: <span class="subst">&#123;cwd&#125;</span>\n&quot;</span></span><br><span class="line">            <span class="string">f&quot;Session: <span class="subst">&#123;session_id&#125;</span>\n&quot;</span></span><br><span class="line">            <span class="string">f&quot;事件: Stop\n&quot;</span></span><br><span class="line">            <span class="string">f&quot;摘要: <span class="subst">&#123;content&#125;</span>&quot;</span></span><br><span class="line">        )</span><br><span class="line">    <span class="keyword">else</span>:</span><br><span class="line">        title = safe_text(event.get(<span class="string">&quot;title&quot;</span>, <span class="string">&quot;Claude Code&quot;</span>))</span><br><span class="line">        message = safe_text(event.get(<span class="string">&quot;message&quot;</span>, <span class="string">&quot;&quot;</span>))</span><br><span class="line">        ntype = safe_text(event.get(<span class="string">&quot;notification_type&quot;</span>, <span class="string">&quot;&quot;</span>))</span><br><span class="line">        text = (</span><br><span class="line">            <span class="string">f&quot;【Claude Code 远程提醒】\n&quot;</span></span><br><span class="line">            <span class="string">f&quot;主机: <span class="subst">&#123;host&#125;</span>\n&quot;</span></span><br><span class="line">            <span class="string">f&quot;目录: <span class="subst">&#123;cwd&#125;</span>\n&quot;</span></span><br><span class="line">            <span class="string">f&quot;Session: <span class="subst">&#123;session_id&#125;</span>\n&quot;</span></span><br><span class="line">            <span class="string">f&quot;事件: <span class="subst">&#123;hook_event_name&#125;</span>\n&quot;</span></span><br><span class="line">            <span class="string">f&quot;类型: <span class="subst">&#123;ntype&#125;</span>\n&quot;</span></span><br><span class="line">            <span class="string">f&quot;标题: <span class="subst">&#123;title&#125;</span>\n&quot;</span></span><br><span class="line">            <span class="string">f&quot;内容: <span class="subst">&#123;message&#125;</span>&quot;</span></span><br><span class="line">        )</span><br><span class="line"></span><br><span class="line">    log(<span class="string">&quot;event=&quot;</span> + json.dumps(event, ensure_ascii=<span class="literal">True</span>))</span><br><span class="line">    post_to_feishu(text)</span><br><span class="line"></span><br><span class="line"><span class="keyword">if</span> __name__ == <span class="string">&quot;__main__&quot;</span>:</span><br><span class="line">    <span class="keyword">try</span>:</span><br><span class="line">        main()</span><br><span class="line">    <span class="keyword">except</span> Exception <span class="keyword">as</span> e:</span><br><span class="line">        log(<span class="string">f&quot;fatal=<span class="subst">&#123;<span class="built_in">repr</span>(e)&#125;</span>&quot;</span>)</span><br><span class="line">        <span class="built_in">print</span>(<span class="string">f&quot;notify_feishu.py error: <span class="subst">&#123;e&#125;</span>&quot;</span>, file=sys.stderr)</span><br><span class="line">        sys.exit(<span class="number">1</span>)</span><br></pre></td></tr></table></figure>
+<p>赋予执行权限：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">chmod</span> +x ~/.claude/hooks/notify_feishu.py</span><br></pre></td></tr></table></figure>
+<hr>
+<h2 id="5-yuan-cheng-linux-xia-de-code-settings-json-code" tabindex="-1" id="5-远程-Linux-下的-settings-json">5. 远程 Linux 下的 <code>settings.json</code></h2>
+<p>我最后推荐使用下面这份最小可用配置：</p>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line"><span class="punctuation">&#123;</span></span><br><span class="line">  <span class="attr">&quot;$schema&quot;</span><span class="punctuation">:</span> <span class="string">&quot;https://json.schemastore.org/claude-code-settings.json&quot;</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;hooks&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line">    <span class="attr">&quot;Stop&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span></span><br><span class="line">      <span class="punctuation">&#123;</span></span><br><span class="line">        <span class="attr">&quot;hooks&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span></span><br><span class="line">          <span class="punctuation">&#123;</span></span><br><span class="line">            <span class="attr">&quot;type&quot;</span><span class="punctuation">:</span> <span class="string">&quot;command&quot;</span><span class="punctuation">,</span></span><br><span class="line">            <span class="attr">&quot;command&quot;</span><span class="punctuation">:</span> <span class="string">&quot;python3 ~/.claude/hooks/notify_feishu.py&quot;</span></span><br><span class="line">          <span class="punctuation">&#125;</span></span><br><span class="line">        <span class="punctuation">]</span></span><br><span class="line">      <span class="punctuation">&#125;</span></span><br><span class="line">    <span class="punctuation">]</span><span class="punctuation">,</span></span><br><span class="line">    <span class="attr">&quot;Notification&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span></span><br><span class="line">      <span class="punctuation">&#123;</span></span><br><span class="line">        <span class="attr">&quot;matcher&quot;</span><span class="punctuation">:</span> <span class="string">&quot;idle_prompt|permission_prompt|elicitation_dialog|auth_success&quot;</span><span class="punctuation">,</span></span><br><span class="line">        <span class="attr">&quot;hooks&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span></span><br><span class="line">          <span class="punctuation">&#123;</span></span><br><span class="line">            <span class="attr">&quot;type&quot;</span><span class="punctuation">:</span> <span class="string">&quot;command&quot;</span><span class="punctuation">,</span></span><br><span class="line">            <span class="attr">&quot;command&quot;</span><span class="punctuation">:</span> <span class="string">&quot;python3 ~/.claude/hooks/notify_feishu.py&quot;</span></span><br><span class="line">          <span class="punctuation">&#125;</span></span><br><span class="line">        <span class="punctuation">]</span></span><br><span class="line">      <span class="punctuation">&#125;</span></span><br><span class="line">    <span class="punctuation">]</span></span><br><span class="line">  <span class="punctuation">&#125;</span></span><br><span class="line"><span class="punctuation">&#125;</span></span><br></pre></td></tr></table></figure>
+<p>它的含义是：</p>
+<ul>
+<li><code>Stop</code>：Claude 一轮回答结束后执行脚本；</li>
+<li><code>Notification</code>：Claude 需要你注意时执行脚本。</li>
+</ul>
+<p>如果你嫌飞书太频繁，可以只保留 <code>Stop</code>。</p>
+<hr>
+<h2 id="6-wo-zai-yuan-cheng-linux-shang-yu-dao-de-dai-li-wen-ti" tabindex="-1" id="6-我在远程-Linux-上遇到的代理问题">6. 我在远程 Linux 上遇到的代理问题</h2>
+<p>这是整个过程中最隐蔽、也最容易误判的问题之一。</p>
+<p>我当时在服务器上开了 Clash，环境变量大致如下：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">HTTPS_PROXY=http://127.0.0.1:7890</span><br><span class="line">https_proxy=http://127.0.0.1:7890</span><br></pre></td></tr></table></figure>
+<p>随后出现了一个非常迷惑的现象：</p>
+<ul>
+<li>手工执行 Python 脚本，有时成功；</li>
+<li>Claude Code 触发 hook 时，偶发报错：</li>
+</ul>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">Connection reset by peer</span><br></pre></td></tr></table></figure>
+<p>最后排查出来，问题并不在 Claude，也不在飞书，而在于：</p>
+<blockquote>
+<p><strong>Python 的 <code>urllib</code> 默认会自动继承环境变量中的代理设置。</strong></p>
+</blockquote>
+<p>也就是说：</p>
+<ul>
+<li>你的通知脚本实际上在走 Clash 代理；</li>
+<li>这条代理链路偶发不稳定；</li>
+<li>所以 hook 在发送 webhook 的时候会随机失败。</li>
+</ul>
+<h3 id="zui-wen-de-chu-li-fang-shi" tabindex="-1" id="最稳的处理方式">最稳的处理方式</h3>
+<p>直接在脚本中禁用代理继承：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">opener = request.build_opener(request.ProxyHandler(&#123;&#125;))</span><br></pre></td></tr></table></figure>
+<p>这样，脚本只在“飞书通知”这个动作上直连外网，不影响你其他终端命令继续走代理。</p>
+<p>这是我最终认为<strong>最干净、最稳定</strong>的解决方式。</p>
+<hr>
+<h2 id="7-ru-he-pan-duan-yuan-cheng-linux-shang-de-hook-yi-jing-zhen-de-sheng-xiao" tabindex="-1" id="7-如何判断远程-Linux-上的-hook-已经真的生效">7. 如何判断远程 Linux 上的 hook 已经真的生效</h2>
+<p>在 Claude Code 中输入一句简单的话，例如：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">hello</span><br></pre></td></tr></table></figure>
+<p>如果 <code>Stop</code> hook 配置正确，你通常会看到类似：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">Ran 1 stop hook</span><br></pre></td></tr></table></figure>
+<p>如果飞书没有收到消息，不要先怀疑 Claude 配置没读到，而应该先检查日志：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">tail</span> -n 50 ~/.claude/hooks/notify_feishu.log</span><br></pre></td></tr></table></figure>
+<p>如果日志中有事件记录，就说明：</p>
+<ul>
+<li>hook 的确触发了；</li>
+<li>问题在 Python 脚本或网络；</li>
+<li>不是 <code>settings.json</code> 没加载。</li>
+</ul>
+<hr>
+<h1 id="wu-ben-di-windows-chang-jing-zhi-jie-yun-xing-claude-code-bing-jie-ru-fei-shu-tong-zhi" tabindex="-1">五、本地 Windows 场景：直接运行 Claude Code 并接入飞书通知</h1>
+<p>远程 Linux 跑通之后，我又把本地 Windows 环境也完整配了一遍。</p>
+<p>这个场景其实更舒服，因为：</p>
+<ul>
+<li>不需要 SSH；</li>
+<li>不需要担心服务器链路；</li>
+<li>Claude Code 可以直接在本地终端运行；</li>
+<li>VS Code 中的 Claude Code 也能共用同一份配置。</li>
+</ul>
+<hr>
+<h2 id="1-ben-di-mu-lu-jie-gou" tabindex="-1" id="1-本地目录结构">1. 本地目录结构</h2>
+<p>我最后统一采用下面这种结构：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">C:\Users\你的用户名\.claude\</span><br><span class="line">C:\Users\你的用户名\.claude\hooks\</span><br><span class="line">C:\Users\你的用户名\.claude\hooks\notify_feishu.py</span><br><span class="line">C:\Users\你的用户名\.claude\settings.json</span><br></pre></td></tr></table></figure>
+<p>创建目录：</p>
+<figure class="highlight powershell"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">New-Item</span> <span class="literal">-ItemType</span> Directory <span class="literal">-Force</span> <span class="string">&quot;<span class="variable">$env:USERPROFILE</span>\.claude\hooks&quot;</span> | <span class="built_in">Out-Null</span></span><br></pre></td></tr></table></figure>
+<hr>
+<h2 id="2-zai-windows-shang-pei-zhi-fei-shu-huan-jing-bian-liang" tabindex="-1" id="2-在-Windows-上配置飞书环境变量">2. 在 Windows 上配置飞书环境变量</h2>
+<p>我使用的是<strong>用户级环境变量</strong>：</p>
+<figure class="highlight powershell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">[<span class="type">Environment</span>]::SetEnvironmentVariable(<span class="string">&#x27;FEISHU_WEBHOOK&#x27;</span>, <span class="string">&#x27;https://open.feishu.cn/open-apis/bot/v2/hook/你的token&#x27;</span>, <span class="string">&#x27;User&#x27;</span>)</span><br><span class="line">[<span class="type">Environment</span>]::SetEnvironmentVariable(<span class="string">&#x27;FEISHU_SECRET&#x27;</span>, <span class="string">&#x27;你的secret&#x27;</span>, <span class="string">&#x27;User&#x27;</span>)</span><br></pre></td></tr></table></figure>
+<p>为了让当前 PowerShell 会话立刻可用，再补两句：</p>
+<figure class="highlight powershell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="variable">$env:FEISHU_WEBHOOK</span> = [<span class="type">Environment</span>]::GetEnvironmentVariable(<span class="string">&#x27;FEISHU_WEBHOOK&#x27;</span>, <span class="string">&#x27;User&#x27;</span>)</span><br><span class="line"><span class="variable">$env:FEISHU_SECRET</span>  = [<span class="type">Environment</span>]::GetEnvironmentVariable(<span class="string">&#x27;FEISHU_SECRET&#x27;</span>, <span class="string">&#x27;User&#x27;</span>)</span><br></pre></td></tr></table></figure>
+<p>检查是否生效：</p>
+<figure class="highlight powershell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">echo</span> <span class="variable">$env:FEISHU_WEBHOOK</span></span><br><span class="line"><span class="built_in">echo</span> <span class="variable">$env:FEISHU_SECRET</span></span><br></pre></td></tr></table></figure>
+<hr>
+<h2 id="3-windows-xia-de-jiao-ben-qi-shi-ke-yi-zhi-jie-fu-yong-linux-na-yi-ban" tabindex="-1" id="3-Windows-下的脚本其实可以直接复用-Linux-那一版">3. Windows 下的脚本其实可以直接复用 Linux 那一版</h2>
+<p>本地 Windows 场景中，核心脚本逻辑并不需要大改。</p>
+<p>也就是说，只要把 Linux 中那份 <code>notify_feishu.py</code> 放到：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">C:\Users\pc\.claude\hooks\notify_feishu.py</span><br></pre></td></tr></table></figure>
+<p>通常就可以直接使用。</p>
+<p>真正需要注意的，主要是 <strong>路径写法</strong> 和 <strong>奇怪字符导致的编码问题</strong>。</p>
+<hr>
+<h2 id="4-windows-xia-zui-rong-yi-cai-de-keng-lu-jing-bei-shell-jie-xi-pi-liao" tabindex="-1" id="4-Windows-下最容易踩的坑：路径被-shell-解析坏了">4. Windows 下最容易踩的坑：路径被 shell 解析坏了</h2>
+<p>我最初在 <code>settings.json</code> 中写的是：</p>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">&quot;command&quot;</span><span class="punctuation">:</span> <span class="string">&quot;py -3 C:\\Users\\pc\\.claude\\hooks\\notify_feishu.py&quot;</span></span><br></pre></td></tr></table></figure>
+<p>结果 Claude 执行 hook 时直接报错，路径被解析成了乱七八糟的形式，例如：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">C:\Users\pc\Userspc.claudehooksnotify_feishu.py</span><br></pre></td></tr></table></figure>
+<p>本质原因是：</p>
+<blockquote>
+<p><strong>某些 shell 在解析命令字符串时，会把反斜杠当作转义字符。</strong></p>
+</blockquote>
+<h3 id="jie-jue-fang-fa" tabindex="-1" id="解决方法">解决方法</h3>
+<p>最稳妥的方式有两种：</p>
+<h4 id="fang-fa-yi-gei-wan-zheng-lu-jing-jia-yin-hao" tabindex="-1" id="方法一：给完整路径加引号">方法一：给完整路径加引号</h4>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">&quot;command&quot;</span><span class="punctuation">:</span> <span class="string">&quot;py -3 \&quot;C:\\Users\\pc\\.claude\\hooks\\notify_feishu.py\&quot;&quot;</span></span><br></pre></td></tr></table></figure>
+<h4 id="fang-fa-er-zhi-jie-shi-yong-zheng-xie-gang" tabindex="-1" id="方法二：直接使用正斜杠">方法二：直接使用正斜杠</h4>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">&quot;command&quot;</span><span class="punctuation">:</span> <span class="string">&quot;py -3 \&quot;C:/Users/pc/.claude/hooks/notify_feishu.py\&quot;&quot;</span></span><br></pre></td></tr></table></figure>
+<p>我最后更推荐第二种，因为它更简洁，也更不容易再出现转义问题。</p>
+<hr>
+<h2 id="5-windows-ben-di-tui-jian-de-code-settings-json-code" tabindex="-1" id="5-Windows-本地推荐的-settings-json">5. Windows 本地推荐的 <code>settings.json</code></h2>
+<p>这是我最终保留下来的本地版本：</p>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line"><span class="punctuation">&#123;</span></span><br><span class="line">  <span class="attr">&quot;$schema&quot;</span><span class="punctuation">:</span> <span class="string">&quot;https://json.schemastore.org/claude-code-settings.json&quot;</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;hooks&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line">    <span class="attr">&quot;Stop&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span></span><br><span class="line">      <span class="punctuation">&#123;</span></span><br><span class="line">        <span class="attr">&quot;hooks&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span></span><br><span class="line">          <span class="punctuation">&#123;</span></span><br><span class="line">            <span class="attr">&quot;type&quot;</span><span class="punctuation">:</span> <span class="string">&quot;command&quot;</span><span class="punctuation">,</span></span><br><span class="line">            <span class="attr">&quot;command&quot;</span><span class="punctuation">:</span> <span class="string">&quot;py -3 \&quot;C:/Users/pc/.claude/hooks/notify_feishu.py\&quot;&quot;</span></span><br><span class="line">          <span class="punctuation">&#125;</span></span><br><span class="line">        <span class="punctuation">]</span></span><br><span class="line">      <span class="punctuation">&#125;</span></span><br><span class="line">    <span class="punctuation">]</span><span class="punctuation">,</span></span><br><span class="line">    <span class="attr">&quot;Notification&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span></span><br><span class="line">      <span class="punctuation">&#123;</span></span><br><span class="line">        <span class="attr">&quot;matcher&quot;</span><span class="punctuation">:</span> <span class="string">&quot;idle_prompt|permission_prompt|elicitation_dialog|auth_success&quot;</span><span class="punctuation">,</span></span><br><span class="line">        <span class="attr">&quot;hooks&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span></span><br><span class="line">          <span class="punctuation">&#123;</span></span><br><span class="line">            <span class="attr">&quot;type&quot;</span><span class="punctuation">:</span> <span class="string">&quot;command&quot;</span><span class="punctuation">,</span></span><br><span class="line">            <span class="attr">&quot;command&quot;</span><span class="punctuation">:</span> <span class="string">&quot;py -3 \&quot;C:/Users/pc/.claude/hooks/notify_feishu.py\&quot;&quot;</span></span><br><span class="line">          <span class="punctuation">&#125;</span></span><br><span class="line">        <span class="punctuation">]</span></span><br><span class="line">      <span class="punctuation">&#125;</span></span><br><span class="line">    <span class="punctuation">]</span></span><br><span class="line">  <span class="punctuation">&#125;</span></span><br><span class="line"><span class="punctuation">&#125;</span></span><br></pre></td></tr></table></figure>
+<p>只需要把其中的用户名路径替换成你自己的即可。</p>
+<hr>
+<h2 id="6-windows-ben-di-de-ling-yi-ge-keng-utf-8-surrogate-bian-ma-bao-cuo" tabindex="-1" id="6-Windows-本地的另一个坑：UTF-8-surrogate-编码报错">6. Windows 本地的另一个坑：UTF-8 surrogate 编码报错</h2>
+<p>当路径问题解决之后，我又遇到了一个更隐蔽的错误：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&#x27;utf-8&#x27; codec can&#x27;t encode character &#x27;\udc80&#x27; ... surrogates not allowed</span><br></pre></td></tr></table></figure>
+<p>这类错误的根本原因是：</p>
+<blockquote>
+<p>Hook 输入里混入了某些不能直接按 UTF-8 写出的字符，而脚本又把它们原样写到日志或原样拼接进了文本。</p>
+</blockquote>
+<h3 id="wo-de-jie-jue-fang-fa" tabindex="-1" id="我的解决方法">我的解决方法</h3>
+<p>在脚本中增加一个安全转换函数：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">def</span> <span class="title function_">safe_text</span>(<span class="params">x</span>):</span><br><span class="line">    <span class="keyword">if</span> x <span class="keyword">is</span> <span class="literal">None</span>:</span><br><span class="line">        <span class="keyword">return</span> <span class="string">&quot;&quot;</span></span><br><span class="line">    <span class="keyword">if</span> <span class="keyword">not</span> <span class="built_in">isinstance</span>(x, <span class="built_in">str</span>):</span><br><span class="line">        x = <span class="built_in">str</span>(x)</span><br><span class="line">    <span class="keyword">return</span> x.encode(<span class="string">&quot;utf-8&quot;</span>, <span class="string">&quot;backslashreplace&quot;</span>).decode(<span class="string">&quot;utf-8&quot;</span>)</span><br></pre></td></tr></table></figure>
+<p>然后：</p>
+<ul>
+<li>日志写文件使用 <code>errors=&quot;backslashreplace&quot;</code>；</li>
+<li>发给飞书的文本也先经过 <code>safe_text()</code>；</li>
+<li><code>json.dumps(..., ensure_ascii=True)</code> 保证特殊字符被安全转义。</li>
+</ul>
+<p>这样就能把这类本来会导致脚本崩溃的字符，变成可安全写出的转义文本。</p>
+<hr>
+<h2 id="7-windows-ben-di-de-ce-shi-fang-shi" tabindex="-1" id="7-Windows-本地的测试方式">7. Windows 本地的测试方式</h2>
+<h3 id="di-yi-bu-xian-dan-du-ce-jiao-ben" tabindex="-1" id="第一步：先单独测脚本">第一步：先单独测脚本</h3>
+<figure class="highlight powershell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="string">&#x27;&#123;</span></span><br><span class="line"><span class="string">  &quot;session_id&quot;: &quot;test-session&quot;,</span></span><br><span class="line"><span class="string">  &quot;cwd&quot;: &quot;C:\\test&quot;,</span></span><br><span class="line"><span class="string">  &quot;hook_event_name&quot;: &quot;Stop&quot;,</span></span><br><span class="line"><span class="string">  &quot;stop_hook_active&quot;: false,</span></span><br><span class="line"><span class="string">  &quot;last_assistant_message&quot;: &quot;本地测试成功&quot;</span></span><br><span class="line"><span class="string">&#125;&#x27;</span> | py <span class="literal">-3</span> <span class="string">&quot;<span class="variable">$env:USERPROFILE</span>\.claude\hooks\notify_feishu.py&quot;</span></span><br></pre></td></tr></table></figure>
+<p>如果飞书群收到消息，说明：</p>
+<ul>
+<li>Python 环境正常；</li>
+<li>webhook 和 secret 正确；</li>
+<li>脚本可以独立跑通。</li>
+</ul>
+<h3 id="di-er-bu-zai-ce-claude-code" tabindex="-1" id="第二步：再测-Claude-Code">第二步：再测 Claude Code</h3>
+<p>重新打开一个终端，启动：</p>
+<figure class="highlight powershell"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">claude</span><br></pre></td></tr></table></figure>
+<p>然后输入：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">hello</span><br></pre></td></tr></table></figure>
+<p>如果 <code>Stop</code> hook 配对，Claude 回复结束后就会触发飞书通知。</p>
+<hr>
+<h1 id="liu-vs-code-zhong-de-claude-code-shi-fou-ye-neng-fu-yong-zhe-tao-tong-zhi-pei-zhi" tabindex="-1">六、VS Code 中的 Claude Code 是否也能复用这套通知配置</h1>
+<p>可以，而且这是我认为这套方案很舒服的一点。</p>
+<p>本地环境中：</p>
+<blockquote>
+<p><strong>Claude Code CLI 和 VS Code 中的 Claude Code 扩展，默认共用同一份 <code>~/.claude/settings.json</code> 配置。</strong></p>
+</blockquote>
+<p>这意味着：</p>
+<ul>
+<li>你在本地终端里跑 Claude Code，飞书通知会触发；</li>
+<li>你在 VS Code 中使用 Claude Code，同样也能触发同样的 hook；</li>
+<li>你不需要额外为 VS Code 单独维护一份通知逻辑。</li>
+</ul>
+<p>因此，本地只需要维护一份：</p>
+<ul>
+<li><code>notify_feishu.py</code></li>
+<li><code>~/.claude/settings.json</code></li>
+</ul>
+<p>就足够了。</p>
+<hr>
+<h1 id="qi-wo-zui-hou-de-tui-jian-pei-zhi-si-lu" tabindex="-1">七、我最后的推荐配置思路</h1>
+<h2 id="1-yuan-cheng-linux" tabindex="-1" id="1-远程-Linux">1. 远程 Linux</h2>
+<p>适合：</p>
+<ul>
+<li>SSH 跑长任务；</li>
+<li>不想一直盯终端；</li>
+<li>希望任务完成、等待输入或权限请求时飞书提醒。</li>
+</ul>
+<p>推荐：</p>
+<ul>
+<li>配置 <code>Stop</code> + <code>Notification</code>；</li>
+<li>Python 脚本中显式禁用代理继承；</li>
+<li>开启日志；</li>
+<li>增加简单重试。</li>
+</ul>
+<h2 id="2-ben-di-windows" tabindex="-1" id="2-本地-Windows">2. 本地 Windows</h2>
+<p>适合：</p>
+<ul>
+<li>本地终端运行 Claude Code；</li>
+<li>本地 VS Code 扩展一起复用；</li>
+<li>统一使用飞书通知。</li>
+</ul>
+<p>推荐：</p>
+<ul>
+<li>路径一定加引号；</li>
+<li>最好使用正斜杠路径；</li>
+<li>脚本中使用 <code>safe_text()</code> 处理怪字符。</li>
+</ul>
+<h2 id="3-ru-guo-ni-zhi-xiang-rang-tong-zhi-zui-an-jing" tabindex="-1" id="3-如果你只想让通知最安静">3. 如果你只想让通知最安静</h2>
+<p>只保留：</p>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">&quot;hooks&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line">  <span class="attr">&quot;Stop&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span>...<span class="punctuation">]</span></span><br><span class="line"><span class="punctuation">&#125;</span></span><br></pre></td></tr></table></figure>
+<p>这样每轮结束发一次，不会太吵。</p>
+<h2 id="4-ru-guo-ni-xiang-jin-ke-neng-bu-cuo-guo-ren-he-zhuang-tai" tabindex="-1" id="4-如果你想尽可能不错过任何状态">4. 如果你想尽可能不错过任何状态</h2>
+<p>同时保留：</p>
+<ul>
+<li><code>Stop</code></li>
+<li><code>Notification</code></li>
+</ul>
+<p>并让 <code>Notification</code> 匹配：</p>
+<ul>
+<li><code>idle_prompt</code></li>
+<li><code>permission_prompt</code></li>
+<li><code>elicitation_dialog</code></li>
+<li><code>auth_success</code></li>
+</ul>
+<pre><code class="highlight mermaid">flowchart TD
+  A[Claude Code 是否触发 hook] --&gt; B[settings.json 是否被正确读取]
+  B --&gt; C[命令路径是否正确]
+  C --&gt; D[Python 脚本是否正常执行]
+  D --&gt; E[Webhook 和 Secret 是否正确]
+  E --&gt; F[网络或代理是否稳定]
+  F --&gt; G[飞书是否成功收到消息]</code></pre>
+<hr>
+<h1 id="ba-zong-jie" tabindex="-1">八、总结</h1>
+<p>这次把 Claude Code 的通知体系完整打通之后，我觉得最关键的几点经验可以概括为：</p>
+<ol>
+<li>
+<p><strong><code>Stop</code> 和 <code>Notification</code> 完全不是一回事。</strong><br>
+前者更适合“回复结束”，后者更适合“需要你注意”。</p>
+</li>
+<li>
+<p><strong>远程 Linux 最大的坑通常是代理继承。</strong><br>
+如果服务器开了 Clash 或系统代理，Python 的 <code>urllib</code> 很可能会自动走代理，导致 webhook 偶发失败。</p>
+</li>
+<li>
+<p><strong>Windows 本地最大的问题通常是路径和编码。</strong><br>
+路径要加引号，最好使用正斜杠；文本要经过安全转换，避免 surrogate 字符导致整个 hook 报错。</p>
+</li>
+<li>
+<p><strong>先单独打通“脚本 → 飞书”，再接入 Claude Code。</strong><br>
+这是整个排查流程里最节省时间的一步。</p>
+</li>
+</ol>
+<p>如果你的需求和我一样：</p>
+<ul>
+<li>远程服务器跑 Claude Code；</li>
+<li>本地终端或 VS Code 跑 Claude Code；</li>
+<li>不想一直盯着终端；</li>
+<li>希望任务完成后立即收到提醒；</li>
+</ul>
+<p>那么这套方案基本已经足够稳定，而且维护成本也不高。</p>
+<p>至此，Claude Code 在我的日常使用中，终于从“需要一直看着它”的工具，变成了一个真正可以挂着跑、等消息回来再接手的工作伙伴。</p>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/cb95409d/">https://smarter.xin/posts/cb95409d/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/ssh/">SSH</a><a class="post-meta__tags" href="/tags/claude-code/">Claude Code</a><a class="post-meta__tags" href="/tags/feishu-bot/">飞书机器人</a><a class="post-meta__tags" href="/tags/hook/">Hook</a><a class="post-meta__tags" href="/tags/windows/">Windows</a><a class="post-meta__tags" href="/tags/linux/">Linux</a><a class="post-meta__tags" href="/tags/notification/">通知</a></div><div class="post-share"><div class="social-share" data-image="/img/claude.jpeg" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related full-width no-desc" href="/posts/4fefc094/" title="Clash 终端工作流续篇：为什么 cx off 了代理却“还在”"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Clash.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">Clash 终端工作流续篇：为什么 cx off 了代理却“还在”</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/a8ee689e/" title="AI Infra学习之旅-服务器环境配置"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-02</div><div class="info-item-2">AI Infra学习之旅-服务器环境配置</div></div></div></a><a class="pagination-related no-desc" href="/posts/4fefc094/" title="Clash 终端工作流续篇：为什么 cx off 了代理却“还在”"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Clash.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-19</div><div class="info-item-2">Clash 终端工作流续篇：为什么 cx off 了代理却“还在”</div></div></div></a><a class="pagination-related no-desc" href="/posts/2ae34a54/" title="Clash 终端工作流进阶：把开启代理、切换节点、查询状态统一成 cx"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Clash.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-19</div><div class="info-item-2">Clash 终端工作流进阶：把开启代理、切换节点、查询状态统一成 cx</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">117</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">247</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">22</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#claude-code-ren-wu-wan-cheng-tong-zhi-shi-zhan-ssh-yuan-cheng-fu-wu-qi-yu-ben-di-huan-jing-jie-ru-fei-shu-ji-qi-ren"><span class="toc-text">Claude Code 任务完成通知实战：SSH 远程服务器与本地环境接入飞书机器人</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#yi-xian-shuo-jie-lun-claude-code-tong-zhi-dao-di-gai-zen-yao-li-jie"><span class="toc-text">一、先说结论：Claude Code 通知到底该怎么理解</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-code-stop-code"><span class="toc-text">1. Stop</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-code-notification-code"><span class="toc-text">2. Notification</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-zui-tui-jian-de-pei-zhi-fang-shi"><span class="toc-text">3. 最推荐的配置方式</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#er-zheng-ti-fang-an-claude-code-hook-fei-shu-ji-qi-ren"><span class="toc-text">二、整体方案：Claude Code → Hook → 飞书机器人</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#san-fei-shu-ji-qi-ren-zhun-bei-gong-zuo"><span class="toc-text">三、飞书机器人准备工作</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-zai-fei-shu-qun-zhong-tian-jia-zi-ding-yi-ji-qi-ren"><span class="toc-text">1. 在飞书群中添加自定义机器人</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-yi-ge-fei-chang-rong-yi-cai-de-keng-webhook-qian-zhui-zhong-fu"><span class="toc-text">2. 一个非常容易踩的坑：Webhook 前缀重复</span></a></li></ol></li></ol></li><li class="toc-item toc-level-1"><a class="toc-link" href="#si-ssh-yuan-cheng-fu-wu-qi-chang-jing-linux-shang-rang-claude-code-zi-dong-fa-fei-shu-tong-zhi"><span class="toc-text">四、SSH 远程服务器场景：Linux 上让 Claude Code 自动发飞书通知</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#1-tui-jian-mu-lu-jie-gou"><span class="toc-text">1. 推荐目录结构</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-zai-yuan-cheng-linux-shang-pei-zhi-fei-shu-huan-jing-bian-liang"><span class="toc-text">2. 在远程 Linux 上配置飞书环境变量</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#3-xian-dan-du-ce-shi-jiao-ben-lian-lu-er-bu-shi-yi-shang-lai-jiu-ce-claude"><span class="toc-text">3. 先单独测试脚本链路，而不是一上来就测 Claude</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#4-linux-xia-zui-zhong-ke-yong-de-fei-shu-tong-zhi-jiao-ben"><span class="toc-text">4. Linux 下最终可用的飞书通知脚本</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#5-yuan-cheng-linux-xia-de-code-settings-json-code"><span class="toc-text">5. 远程 Linux 下的 settings.json</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#6-wo-zai-yuan-cheng-linux-shang-yu-dao-de-dai-li-wen-ti"><span class="toc-text">6. 我在远程 Linux 上遇到的代理问题</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#zui-wen-de-chu-li-fang-shi"><span class="toc-text">最稳的处理方式</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#7-ru-he-pan-duan-yuan-cheng-linux-shang-de-hook-yi-jing-zhen-de-sheng-xiao"><span class="toc-text">7. 如何判断远程 Linux 上的 hook 已经真的生效</span></a></li></ol></li><li class="toc-item toc-level-1"><a class="toc-link" href="#wu-ben-di-windows-chang-jing-zhi-jie-yun-xing-claude-code-bing-jie-ru-fei-shu-tong-zhi"><span class="toc-text">五、本地 Windows 场景：直接运行 Claude Code 并接入飞书通知</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#1-ben-di-mu-lu-jie-gou"><span class="toc-text">1. 本地目录结构</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-zai-windows-shang-pei-zhi-fei-shu-huan-jing-bian-liang"><span class="toc-text">2. 在 Windows 上配置飞书环境变量</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#3-windows-xia-de-jiao-ben-qi-shi-ke-yi-zhi-jie-fu-yong-linux-na-yi-ban"><span class="toc-text">3. Windows 下的脚本其实可以直接复用 Linux 那一版</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#4-windows-xia-zui-rong-yi-cai-de-keng-lu-jing-bei-shell-jie-xi-pi-liao"><span class="toc-text">4. Windows 下最容易踩的坑：路径被 shell 解析坏了</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#jie-jue-fang-fa"><span class="toc-text">解决方法</span></a><ol class="toc-child"><li class="toc-item toc-level-4"><a class="toc-link" href="#fang-fa-yi-gei-wan-zheng-lu-jing-jia-yin-hao"><span class="toc-text">方法一：给完整路径加引号</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#fang-fa-er-zhi-jie-shi-yong-zheng-xie-gang"><span class="toc-text">方法二：直接使用正斜杠</span></a></li></ol></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#5-windows-ben-di-tui-jian-de-code-settings-json-code"><span class="toc-text">5. Windows 本地推荐的 settings.json</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#6-windows-ben-di-de-ling-yi-ge-keng-utf-8-surrogate-bian-ma-bao-cuo"><span class="toc-text">6. Windows 本地的另一个坑：UTF-8 surrogate 编码报错</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#wo-de-jie-jue-fang-fa"><span class="toc-text">我的解决方法</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#7-windows-ben-di-de-ce-shi-fang-shi"><span class="toc-text">7. Windows 本地的测试方式</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#di-yi-bu-xian-dan-du-ce-jiao-ben"><span class="toc-text">第一步：先单独测脚本</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#di-er-bu-zai-ce-claude-code"><span class="toc-text">第二步：再测 Claude Code</span></a></li></ol></li></ol></li><li class="toc-item toc-level-1"><a class="toc-link" href="#liu-vs-code-zhong-de-claude-code-shi-fou-ye-neng-fu-yong-zhe-tao-tong-zhi-pei-zhi"><span class="toc-text">六、VS Code 中的 Claude Code 是否也能复用这套通知配置</span></a></li><li class="toc-item toc-level-1"><a class="toc-link" href="#qi-wo-zui-hou-de-tui-jian-pei-zhi-si-lu"><span class="toc-text">七、我最后的推荐配置思路</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#1-yuan-cheng-linux"><span class="toc-text">1. 远程 Linux</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-ben-di-windows"><span class="toc-text">2. 本地 Windows</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#3-ru-guo-ni-zhi-xiang-rang-tong-zhi-zui-an-jing"><span class="toc-text">3. 如果你只想让通知最安静</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#4-ru-guo-ni-xiang-jin-ke-neng-bu-cuo-guo-ren-he-zhuang-tai"><span class="toc-text">4. 如果你想尽可能不错过任何状态</span></a></li></ol></li><li class="toc-item toc-level-1"><a class="toc-link" href="#ba-zong-jie"><span class="toc-text">八、总结</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/cb95409d/" title="Claude Code 任务完成通知实战：SSH 远程服务器与本地环境接入飞书机器人"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/claude.jpeg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Claude Code 任务完成通知实战：SSH 远程服务器与本地环境接入飞书机器人"/></a><div class="content"><a class="title" href="/posts/cb95409d/" title="Claude Code 任务完成通知实战：SSH 远程服务器与本地环境接入飞书机器人">Claude Code 任务完成通知实战：SSH 远程服务器与本地环境接入飞书机器人</a><time datetime="2026-03-19T06:28:24.000Z" title="发表于 2026-03-19 14:28:24">2026-03-19</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/4fefc094/" title="Clash 终端工作流续篇：为什么 cx off 了代理却“还在”"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Clash.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Clash 终端工作流续篇：为什么 cx off 了代理却“还在”"/></a><div class="content"><a class="title" href="/posts/4fefc094/" title="Clash 终端工作流续篇：为什么 cx off 了代理却“还在”">Clash 终端工作流续篇：为什么 cx off 了代理却“还在”</a><time datetime="2026-03-19T00:21:37.000Z" title="发表于 2026-03-19 08:21:37">2026-03-19</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/2ae34a54/" title="Clash 终端工作流进阶：把开启代理、切换节点、查询状态统一成 cx"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Clash.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Clash 终端工作流进阶：把开启代理、切换节点、查询状态统一成 cx"/></a><div class="content"><a class="title" href="/posts/2ae34a54/" title="Clash 终端工作流进阶：把开启代理、切换节点、查询状态统一成 cx">Clash 终端工作流进阶：把开启代理、切换节点、查询状态统一成 cx</a><time datetime="2026-03-19T00:21:27.000Z" title="发表于 2026-03-19 08:21:27">2026-03-19</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">从 Self-Attention、位置编码到 Encoder-Decoder，系统梳理 Transformer 的核心结构、设计动机与理解路径</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/d6fa227a/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-16</span><a class="blog-slider__title" href="posts/d6fa227a/" alt="">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</a><div class="blog-slider__text">从访存优化到多卡通信，一篇看清 CUDA 实践系列的结构与学习路线</div><a class="blog-slider__button" href="posts/d6fa227a/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/92dc1028/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/CUDA_C.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-02-05</span><a class="blog-slider__title" href="posts/92dc1028/" alt="">CUDA C编程权威指南-导读</a><div class="blog-slider__text">从异构并行到多 GPU 实践，串起 CUDA C 权威指南的核心学习路线</div><a class="blog-slider__button" href="posts/92dc1028/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">从全书视角出发，一篇看清 PMPP 的章节结构、核心主题与学习主线</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/aac6e27d/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Computer_System.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/aac6e27d/" alt="">深入理解计算机系统知识点总结</a><div class="blog-slider__text">从程序员视角梳理 CSAPP 的知识脉络、系统抽象与性能理解</div><a class="blog-slider__button" href="posts/aac6e27d/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">围绕类型推导、移动语义与并发，提炼现代 C++ 的核心实践</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>
