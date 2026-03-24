@@ -1,0 +1,796 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="使用飞书与本地 Agent 对话，远程也要让本地 Agent 干活，当一名狠狠的资本家">
+<meta property="og:type" content="article">
+<meta property="og:title" content="从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路">
+<meta property="og:url" content="https://smarter.xin/posts/43c4b52e/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="使用飞书与本地 Agent 对话，远程也要让本地 Agent 干活，当一名狠狠的资本家">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/agent.webp">
+<meta property="article:published_time" content="2026-03-24T01:39:40.000Z">
+<meta property="article:modified_time" content="2026-03-24T02:32:55.851Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="Claude Code">
+<meta property="article:tag" content="Codex">
+<meta property="article:tag" content="cc-connect">
+<meta property="article:tag" content="飞书机器人">
+<meta property="article:tag" content="Agent">
+<meta property="article:tag" content="Hook">
+<meta property="article:tag" content="Linux">
+<meta property="article:tag" content="自动化">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/agent.webp"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路",
+  "url": "https://smarter.xin/posts/43c4b52e/",
+  "image": "https://smarter.xin/img/agent.webp",
+  "datePublished": "2026-03-24T01:39:40.000Z",
+  "dateModified": "2026-03-24T02:32:55.851Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/43c4b52e/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: '从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">121</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">257</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">23</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/agent.webp);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-03-24T01:39:40.000Z" title="发表于 2026-03-24 09:39:40">2026-03-24</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-03-24T02:32:55.851Z" title="更新于 2026-03-24 10:32:55">2026-03-24</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-agent/">AI Agent</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">3.7k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>11分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="cong-claude-code-tong-zhi-dao-codex-fei-shu-jiao-hu-ben-di-agent-jie-ru-fei-shu-de-liang-tiao-lian-lu" tabindex="-1">从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路</h1>
+<p>最近我把两条看起来很像、实际上完全不同的飞书接入方式都跑了一遍：</p>
+<ul>
+<li><code>Claude Code Hook -&gt; 飞书通知</code></li>
+<li><code>Codex + cc-connect -&gt; 飞书内交互</code></li>
+</ul>
+<p>它们都和“飞书接入 Agent”有关，但定位完全不同。</p>
+<ul>
+<li>前者解决的是“任务结束了没有、是否需要我介入”</li>
+<li>后者解决的是“我能不能直接在飞书里继续让本地 Agent 干活”</li>
+</ul>
+<p>这篇文章目标只有三个：</p>
+<ol>
+<li>帮你快速判断自己到底该用哪一条路</li>
+<li>给出 <code>Codex + cc-connect</code> 这条线的最小可用接法</li>
+<li>把环境边界写清楚，避免 Linux 跑通的命令被误当成 Windows 可直接照抄</li>
+</ol>
+<blockquote>
+<p>环境说明</p>
+<ul>
+<li>下面这套完整截图和实际接入过程，最初是在 Linux 本地环境跑通的</li>
+<li>我现在是在 Windows 环境里整理文章，没有重新做整套链路复测</li>
+<li>所以本文里的路径、<code>~/.claude</code>、<code>~/.cc-connect</code>、<code>chmod</code>、<code>tail -f</code>、<code>env -u</code> 等写法都以 Bash/Linux 为准</li>
+<li>如果你现在主要在 Windows 上使用 PowerShell、Git Bash 或 WSL，需要自己替换路径和 shell 命令</li>
+</ul>
+</blockquote>
+<hr>
+<h2 id="yi-xian-ba-liang-tiao-lian-lu-fen-kai" tabindex="-1" id="一、先把两条链路分开">一、先把两条链路分开</h2>
+<h3 id="1-claude-code-hook-dan-xiang-tong-zhi" tabindex="-1" id="1-Claude-Code-Hook：单向通知">1. Claude Code Hook：单向通知</h3>
+<p>如果你的诉求是下面这些事：</p>
+<ul>
+<li>任务完成时提醒我</li>
+<li>失败时提醒我</li>
+<li>需要授权时提醒我</li>
+<li>需要我补一句话时提醒我</li>
+</ul>
+<p>那你要的是 <strong>通知链路</strong>，不是会话链路。</p>
+<pre><code class="highlight mermaid">flowchart LR
+    A[Claude Code] --&gt; B[Hook 事件]
+    B --&gt; C[本地通知脚本]
+    C --&gt; D[飞书 Webhook]
+    D --&gt; E[飞书群 / 私聊]</code></pre>
+<p>这条路的特点是：</p>
+<ul>
+<li>配置简单</li>
+<li>适合关键节点提醒</li>
+<li>飞书是结果终点</li>
+<li>不能在飞书里继续接着聊</li>
+</ul>
+<h3 id="2-codex-cc-connect-fei-shu-nei-jiao-hu" tabindex="-1" id="2-Codex-cc-connect：飞书内交互">2. Codex + cc-connect：飞书内交互</h3>
+<p>如果你的诉求是下面这些事：</p>
+<ul>
+<li>人不在电脑前，也想从飞书里继续安排任务</li>
+<li>想在飞书里切会话、切目录、切模式</li>
+<li>想把飞书当成本地 Agent 的远程入口</li>
+</ul>
+<p>那你要的是 <strong>交互链路</strong>。</p>
+<pre><code class="highlight mermaid">flowchart LR
+    A[飞书机器人] &lt;--&gt; B[cc-connect 常驻进程]
+    B &lt;--&gt; C[本地 Codex]
+    C &lt;--&gt; D[项目目录]</code></pre>
+<p>这条路的特点是：</p>
+<ul>
+<li>飞书不再只是通知终点</li>
+<li>本地机器必须在线</li>
+<li>需要一个常驻桥接进程</li>
+<li>更适合远程协作和移动端入口</li>
+</ul>
+<h3 id="3-zen-yao-xuan" tabindex="-1" id="3-怎么选">3. 怎么选</h3>
+<table>
+<thead>
+<tr>
+<th>诉求</th>
+<th>建议方案</th>
+<th>原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>我只想知道任务做完没有</td>
+<td>Claude Hook</td>
+<td>单向通知就够了，结构最简单</td>
+</tr>
+<tr>
+<td>我想在飞书里继续指挥本地 Agent</td>
+<td>Codex + cc-connect</td>
+<td>需要会话、目录、模式这些交互能力</td>
+</tr>
+<tr>
+<td>我两者都要</td>
+<td>两条链路分开上</td>
+<td>通知和交互本来就不是一回事</td>
+</tr>
+<tr>
+<td>我希望飞书替代本地终端</td>
+<td>不建议这样理解</td>
+<td>飞书只是入口，本地执行环境仍然是核心</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="er-ru-guo-ni-zhi-yao-tong-zhi-zhi-jie-yong-claude-hook" tabindex="-1" id="二、如果你只要通知，直接用-Claude-Hook">二、如果你只要通知，直接用 Claude Hook</h2>
+<p>Claude Hook 这条线，我已经单独写过完整实战：</p>
+<ul>
+<li><a href="/posts/cb95409d/">Claude Code 任务完成通知实战：SSH 远程服务器与本地环境接入飞书机器人</a></li>
+</ul>
+<p>那篇文章里已经把下面这些内容拆开讲清楚了：</p>
+<ul>
+<li><code>Stop</code>、<code>StopFailure</code>、<code>PermissionRequest</code>、<code>Elicitation</code> 这些事件怎么用</li>
+<li><code>notify_feishu.py</code> 的脚本思路</li>
+<li><code>settings.json</code> 怎么挂 Hook</li>
+<li>SSH、代理、Windows 路径这些坑怎么排</li>
+</ul>
+<p>这篇就不再把 Hook 教程整篇重写一遍，只保留一个判断：</p>
+<blockquote>
+<p>如果你要的是“Claude 有结果了提醒我”，Hook 足够。<br>
+如果你要的是“我在飞书里还能继续发命令”，Hook 不够。</p>
+</blockquote>
+<p>下面这张图就是通知链路的效果。它很好用，但它不是会话入口：</p>
+<p><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="https://cdn.jsdelivr.net/gh/psmarter/blog-imgs/%E4%BB%8E-Claude-Code-%E9%80%9A%E7%9F%A5%E5%88%B0-Codex-%E9%A3%9E%E4%B9%A6%E4%BA%A4%E4%BA%92%EF%BC%9A%E4%B8%80%E5%A5%97%E7%9C%9F%E6%AD%A3%E8%83%BD%E8%90%BD%E5%9C%B0%E7%9A%84%E6%9C%AC%E5%9C%B0-Agent-%E6%8E%A5%E5%85%A5%E6%96%B9%E6%A1%88/2026-03-24-09-56-07-b0d9d2.png" alt="Claude Hook 通知效果"></p>
+<hr>
+<h2 id="san-codex-cc-connect-zhe-tiao-xian-zhen-zheng-jie-jue-shi-yao" tabindex="-1" id="三、Codex-cc-connect-这条线真正解决什么">三、Codex + cc-connect 这条线真正解决什么</h2>
+<p><code>Codex + cc-connect</code> 解决的是“远程交互入口”，不是“更高级的通知”。</p>
+<p>你得到的是：</p>
+<ul>
+<li>飞书里发一句话，可以驱动本地 Codex 工作</li>
+<li>可以查看当前会话</li>
+<li>可以切换会话</li>
+<li>可以切换工作目录</li>
+<li>可以调整执行模式</li>
+</ul>
+<p>你得不到的是：</p>
+<ul>
+<li>一台离线机器还能继续工作</li>
+<li>终端里的旧对话自动无损搬到飞书</li>
+<li>一套完全不依赖本地环境的云端 Agent</li>
+</ul>
+<p>所以这条线最准确的理解是：</p>
+<blockquote>
+<p>飞书只是入口，<code>cc-connect</code> 是桥，Codex 才是真正执行的人，本地机器仍然要保持在线。</p>
+</blockquote>
+<hr>
+<h2 id="si-kai-shi-qian-xian-que-ren-qian-ti" tabindex="-1" id="四、开始前先确认前提">四、开始前先确认前提</h2>
+<p>在动手之前，先确认这几件事：</p>
+<ol>
+<li>你的本地 <code>codex</code> 已经能正常运行</li>
+<li>你有一台会长期在线的 Linux 主机或本地开发机</li>
+<li>你有飞书企业自建应用的创建和发布权限</li>
+<li>你接受先按 Linux 命令跑通，再自己映射到 Windows</li>
+</ol>
+<p>这里特别强调第四点。</p>
+<p>当前这篇文章里的启动命令、目录结构、日志查看方式，都是按 Linux/Bash 写的。如果你现在在 Windows 上做这件事，原理不变，但下面这些东西都要自己替换：</p>
+<ul>
+<li><code>~/.cc-connect/config.toml</code> 的路径</li>
+<li><code>chmod</code>、<code>tail -f</code> 这类命令</li>
+<li>后台常驻进程的管理方式</li>
+<li>shell 环境变量写法</li>
+</ul>
+<p>如果你现在的目标是“先把链路跑通”，仍然建议先在 Linux 侧完成一次端到端验证。</p>
+<hr>
+<h2 id="wu-fei-shu-ce-de-zui-xiao-pei-zhi" tabindex="-1" id="五、飞书侧的最小配置">五、飞书侧的最小配置</h2>
+<h3 id="1-chuang-jian-qi-ye-zi-jian-ying-yong" tabindex="-1" id="1-创建企业自建应用">1. 创建企业自建应用</h3>
+<p>先在飞书开放平台里创建一个企业自建应用。</p>
+<p>名字你可以自己取，我这里当时用的是：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">cc-connect-codex</span><br></pre></td></tr></table></figure>
+<p>接着启用机器人能力，并准备后面的权限和事件订阅。</p>
+<h3 id="2-ji-lu-code-app-id-code-he-code-app-secret-code" tabindex="-1" id="2-记录-App-ID-和-App-Secret">2. 记录 <code>App ID</code> 和 <code>App Secret</code></h3>
+<p>创建完应用后，先记下两项凭据：</p>
+<ul>
+<li><code>App ID</code></li>
+<li><code>App Secret</code></li>
+</ul>
+<p>后面要写进 <code>config.toml</code>。</p>
+<p><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="https://cdn.jsdelivr.net/gh/psmarter/blog-imgs/%E4%BB%8E-Claude-Code-%E9%80%9A%E7%9F%A5%E5%88%B0-Codex-%E9%A3%9E%E4%B9%A6%E4%BA%A4%E4%BA%92%EF%BC%9A%E4%B8%80%E5%A5%97%E7%9C%9F%E6%AD%A3%E8%83%BD%E8%90%BD%E5%9C%B0%E7%9A%84%E6%9C%AC%E5%9C%B0-Agent-%E6%8E%A5%E5%85%A5%E6%96%B9%E6%A1%88/2026-03-24-09-56-07-136624.png" alt="飞书应用凭据页面"></p>
+<h3 id="3-da-kai-ji-qi-ren-quan-xian-he-shi-jian-ding-yue" tabindex="-1" id="3-打开机器人、权限和事件订阅">3. 打开机器人、权限和事件订阅</h3>
+<p>这一段最容易漏，建议一次性确认三件事：</p>
+<ol>
+<li>机器人能力已经启用</li>
+<li>消息接收、消息发送相关权限已经配置</li>
+<li>事件订阅使用的是 <strong>长连接</strong></li>
+</ol>
+<p>这里最关键的判断是：</p>
+<blockquote>
+<p><code>cc-connect</code> 接飞书，重点是长连接，不是公网 Webhook 回调。</p>
+</blockquote>
+<p>也就是说，你不需要专门暴露一个公网回调地址给飞书，而是让本地桥接进程主动连出去。</p>
+<p><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="https://cdn.jsdelivr.net/gh/psmarter/blog-imgs/%E4%BB%8E-Claude-Code-%E9%80%9A%E7%9F%A5%E5%88%B0-Codex-%E9%A3%9E%E4%B9%A6%E4%BA%A4%E4%BA%92%EF%BC%9A%E4%B8%80%E5%A5%97%E7%9C%9F%E6%AD%A3%E8%83%BD%E8%90%BD%E5%9C%B0%E7%9A%84%E6%9C%AC%E5%9C%B0-Agent-%E6%8E%A5%E5%85%A5%E6%96%B9%E6%A1%88/2026-03-24-09-56-07-b2e823.png" alt="飞书事件订阅与长连接配置"></p>
+<h3 id="4-bie-wang-liao-fa-bu-ban-ben" tabindex="-1" id="4-别忘了发布版本">4. 别忘了发布版本</h3>
+<p>很多人把前面都配好了，但机器人就是没反应，最后问题其实不是权限，而是应用版本根本没发布。</p>
+<p>这一步一定要确认：</p>
+<ul>
+<li>当前修改已经发布</li>
+<li>机器人所在的目标范围可用</li>
+</ul>
+<p><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="https://cdn.jsdelivr.net/gh/psmarter/blog-imgs/%E4%BB%8E-Claude-Code-%E9%80%9A%E7%9F%A5%E5%88%B0-Codex-%E9%A3%9E%E4%B9%A6%E4%BA%A4%E4%BA%92%EF%BC%9A%E4%B8%80%E5%A5%97%E7%9C%9F%E6%AD%A3%E8%83%BD%E8%90%BD%E5%9C%B0%E7%9A%84%E6%9C%AC%E5%9C%B0-Agent-%E6%8E%A5%E5%85%A5%E6%96%B9%E6%A1%88/2026-03-24-09-56-07-793881.png" alt="飞书应用版本发布页面"></p>
+<hr>
+<h2 id="liu-an-zhuang-codex-he-cc-connect" tabindex="-1" id="六、安装-Codex-和-cc-connect">六、安装 Codex 和 cc-connect</h2>
+<p>先让本地 Codex 可用，再谈飞书接入。因为 <code>cc-connect</code> 只是桥接层，真正执行任务的是 Codex。</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">npm install -g @openai/codex</span><br><span class="line">codex --version</span><br></pre></td></tr></table></figure>
+<p>然后再装 <code>cc-connect</code>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">npm install -g cc-connect</span><br><span class="line">cc-connect --version</span><br></pre></td></tr></table></figure>
+<p>这里有两个边界要说明：</p>
+<ul>
+<li><code>codex</code> 相关命令我在当前环境里核过帮助信息，<code>codex resume</code>、<code>codex exec resume</code> 这些写法和本机 CLI 是对得上的</li>
+<li><code>cc-connect</code> 的字段和命令可能随版本调整，下面给的是我当时跑通这条链路时采用的最小结构，具体以你安装版本的帮助和示例为准</li>
+</ul>
+<hr>
+<h2 id="qi-xie-yi-fen-zui-xiao-code-config-toml-code" tabindex="-1" id="七、写一份最小-config-toml">七、写一份最小 <code>config.toml</code></h2>
+<p>下面这份配置重点不是“功能最全”，而是“先把链路跑通，便于排障”。</p>
+<figure class="highlight toml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">language</span> = <span class="string">&quot;zh&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="section">[log]</span></span><br><span class="line"><span class="attr">level</span> = <span class="string">&quot;info&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="section">[[projects]]</span></span><br><span class="line"><span class="attr">name</span> = <span class="string">&quot;codex-project&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="section">[projects.agent]</span></span><br><span class="line"><span class="attr">type</span> = <span class="string">&quot;codex&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="section">[projects.agent.options]</span></span><br><span class="line"><span class="attr">work_dir</span> = <span class="string">&quot;/home/your-user/projects/your-repo&quot;</span></span><br><span class="line"><span class="attr">mode</span> = <span class="string">&quot;suggest&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="section">[[projects.platforms]]</span></span><br><span class="line"><span class="attr">type</span> = <span class="string">&quot;feishu&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="section">[projects.platforms.options]</span></span><br><span class="line"><span class="attr">app_id</span> = <span class="string">&quot;cli_xxxxxxxxxxxx&quot;</span></span><br><span class="line"><span class="attr">app_secret</span> = <span class="string">&quot;xxxxxxxxxxxxxxxx&quot;</span></span><br></pre></td></tr></table></figure>
+<p>这几个字段最重要：</p>
+<ul>
+<li><code>name</code>：<code>cc-connect</code> 里的项目别名</li>
+<li><code>type = &quot;codex&quot;</code>：表示后端执行者是 Codex</li>
+<li><code>work_dir</code>：真正让 Agent 干活的目录</li>
+<li><code>mode = &quot;suggest&quot;</code>：建议先从保守模式开始，先把权限边界和消息链路跑通</li>
+<li><code>app_id</code> / <code>app_secret</code>：飞书应用凭据</li>
+</ul>
+<p>为什么我建议先用 <code>suggest</code>：</p>
+<ul>
+<li>权限更保守</li>
+<li>排障时更容易判断问题在桥接层还是执行层</li>
+<li>不容易在刚接好机器人时就触发高风险操作</li>
+</ul>
+<p>如果你后面确认场景确实需要，再逐步放开权限，不要一上来就把整套流程建立在高权限模式上。</p>
+<hr>
+<h2 id="ba-qi-dong-shun-xu-bu-yao-fan" tabindex="-1" id="八、启动顺序不要反">八、启动顺序不要反</h2>
+<p>建议按下面这个顺序启动：</p>
+<ol>
+<li>先确认本地 Codex 自己能工作</li>
+<li>再启动 <code>cc-connect</code></li>
+<li>最后去飞书里发第一条命令</li>
+</ol>
+<p>启动命令示例：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">cc-connect -config ~/.cc-connect/config.toml</span><br></pre></td></tr></table></figure>
+<p>如果链路正常，日志里一般会看到类似这些关键信息：</p>
+<ul>
+<li>配置文件已加载</li>
+<li><code>feishu</code> 机器人已识别</li>
+<li><code>engine started</code></li>
+<li><code>cc-connect is running</code></li>
+<li>成功连上飞书长连接</li>
+</ul>
+<p><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="https://cdn.jsdelivr.net/gh/psmarter/blog-imgs/%E4%BB%8E-Claude-Code-%E9%80%9A%E7%9F%A5%E5%88%B0-Codex-%E9%A3%9E%E4%B9%A6%E4%BA%A4%E4%BA%92%EF%BC%9A%E4%B8%80%E5%A5%97%E7%9C%9F%E6%AD%A3%E8%83%BD%E8%90%BD%E5%9C%B0%E7%9A%84%E6%9C%AC%E5%9C%B0-Agent-%E6%8E%A5%E5%85%A5%E6%96%B9%E6%A1%88/2026-03-24-09-56-07-80d3b4.png" alt="cc-connect 启动日志"></p>
+<p>这里不要反过来做。</p>
+<p>如果你先去飞书里戳机器人、再回头排查本地进程，大概率只会把问题范围越搞越大。先把本地桥接层跑起来，飞书侧验证会轻松很多。</p>
+<hr>
+<h2 id="jiu-fei-shu-li-zui-chang-yong-de-ji-tiao-ming-ling" tabindex="-1" id="九、飞书里最常用的几条命令">九、飞书里最常用的几条命令</h2>
+<p>不同版本的 <code>cc-connect</code> 命令可能会有差异，但从日常使用看，下面这些是最值得先掌握的：</p>
+<table>
+<thead>
+<tr>
+<th>命令</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/current</code></td>
+<td>查看当前会话</td>
+</tr>
+<tr>
+<td><code>/list</code></td>
+<td>查看当前项目的会话列表</td>
+</tr>
+<tr>
+<td><code>/new [名称]</code></td>
+<td>新建一个会话</td>
+</tr>
+<tr>
+<td><code>/switch &lt;id&gt;</code></td>
+<td>切换到指定会话</td>
+</tr>
+<tr>
+<td><code>/dir</code></td>
+<td>查看当前工作目录</td>
+</tr>
+<tr>
+<td><code>/dir &lt;路径&gt;</code></td>
+<td>切换工作目录</td>
+</tr>
+<tr>
+<td><code>/mode</code></td>
+<td>查看当前模式</td>
+</tr>
+<tr>
+<td><code>/mode suggest</code></td>
+<td>切回保守模式</td>
+</tr>
+<tr>
+<td><code>/stop</code></td>
+<td>停止当前执行</td>
+</tr>
+</tbody>
+</table>
+<p>第一次进来，建议先做三步：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">/current</span><br><span class="line">/list</span><br><span class="line">/new demo-session</span><br></pre></td></tr></table></figure>
+<p>这样你先确认三件事：</p>
+<ul>
+<li>机器人能回消息</li>
+<li>会话层已经工作</li>
+<li>新会话创建逻辑正常</li>
+</ul>
+<p>下面这张图里可以看到 <code>/current</code> 和 <code>/list</code> 的基本效果：</p>
+<p><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="https://cdn.jsdelivr.net/gh/psmarter/blog-imgs/%E4%BB%8E-Claude-Code-%E9%80%9A%E7%9F%A5%E5%88%B0-Codex-%E9%A3%9E%E4%B9%A6%E4%BA%A4%E4%BA%92%EF%BC%9A%E4%B8%80%E5%A5%97%E7%9C%9F%E6%AD%A3%E8%83%BD%E8%90%BD%E5%9C%B0%E7%9A%84%E6%9C%AC%E5%9C%B0-Agent-%E6%8E%A5%E5%85%A5%E6%96%B9%E6%A1%88/2026-03-24-09-57-50-5e6712.png" alt="飞书中的当前会话与会话列表"></p>
+<p>关于 <code>/switch</code>，本文只建议一种做法：</p>
+<ol>
+<li>先 <code>/list</code></li>
+<li>看到会话 ID</li>
+<li>再 <code>/switch &lt;id&gt;</code></li>
+</ol>
+<p>不要默认“名称匹配”“前缀匹配”“摘要关键字匹配”一定可用，因为这些行为更容易受版本差异影响。</p>
+<p><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="https://cdn.jsdelivr.net/gh/psmarter/blog-imgs/%E4%BB%8E-Claude-Code-%E9%80%9A%E7%9F%A5%E5%88%B0-Codex-%E9%A3%9E%E4%B9%A6%E4%BA%A4%E4%BA%92%EF%BC%9A%E4%B8%80%E5%A5%97%E7%9C%9F%E6%AD%A3%E8%83%BD%E8%90%BD%E5%9C%B0%E7%9A%84%E6%9C%AC%E5%9C%B0-Agent-%E6%8E%A5%E5%85%A5%E6%96%B9%E6%A1%88/2026-03-24-09-56-07-492ff1.png" alt="飞书中的会话切换"></p>
+<hr>
+<h2 id="shi-hui-hua-he-shang-xia-wen-dao-di-zen-yao-li-jie" tabindex="-1" id="十、会话和上下文到底怎么理解">十、会话和上下文到底怎么理解</h2>
+<p>这部分是最容易被误解的地方。</p>
+<h3 id="1-claude-hook-fang-an-li-mei-you-fei-shu-hui-hua" tabindex="-1" id="1-Claude-Hook-方案里没有飞书会话">1. Claude Hook 方案里没有飞书会话</h3>
+<p>在 Hook 链路里：</p>
+<ul>
+<li>Claude 的会话在本地</li>
+<li>飞书只是接收通知</li>
+<li>飞书不是上下文入口</li>
+</ul>
+<p>也就是说，你在飞书里看到一条通知，不等于你能在那条消息下面继续把原来的任务接着做完。</p>
+<h3 id="2-code-cc-connect-code-fang-an-li-you-qiao-jie-hui-hua" tabindex="-1" id="2-cc-connect-方案里有桥接会话">2. <code>cc-connect</code> 方案里有桥接会话</h3>
+<p>在 <code>Codex + cc-connect</code> 里，至少有两层东西需要区分：</p>
+<ol>
+<li><code>cc-connect</code> 自己管理的桥接会话</li>
+<li>Codex 本地执行时对应的实际上下文</li>
+</ol>
+<p>对日常使用来说，你首先应该盯住第一层，也就是：</p>
+<ul>
+<li>当前会话是谁</li>
+<li>当前目录在哪</li>
+<li>当前模式是什么</li>
+</ul>
+<p>先把这三件事稳定住，你才谈得上“在飞书里继续工作”。</p>
+<h3 id="3-bu-yao-mo-ren-zhong-duan-jiu-dui-hua-hui-zi-dong-wu-feng-jie-shang" tabindex="-1" id="3-不要默认终端旧对话会自动无缝接上">3. 不要默认终端旧对话会自动无缝接上</h3>
+<p>如果你之前一直在终端里和 Codex CLI 对话，现在想切到飞书继续，建议先按下面这个边界理解：</p>
+<ul>
+<li>Codex CLI 自己有会话恢复能力</li>
+<li><code>cc-connect</code> 也有自己的桥接会话</li>
+<li>但你不应该默认“我刚才在终端里开的那条对话”一定会自动原样出现在飞书里</li>
+</ul>
+<p>如果你只是想在终端里继续旧任务，先用 Codex 自己的恢复能力确认它没问题：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">codex resume --last</span><br><span class="line">codex <span class="built_in">exec</span> resume --last <span class="string">&quot;继续刚才的任务&quot;</span></span><br></pre></td></tr></table></figure>
+<p>如果你想把工作切到飞书里继续，我更建议这样做：</p>
+<ol>
+<li>先在终端确认旧会话本身还能恢复</li>
+<li>再启动 <code>cc-connect</code></li>
+<li>在飞书里新建一个明确命名的会话</li>
+<li>把关键上下文重新补进去</li>
+</ol>
+<p>例如：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">/new mini-infer-followup</span><br></pre></td></tr></table></figure>
+<p>然后把这些信息补一段进去：</p>
+<ul>
+<li>当前仓库或目录</li>
+<li>当前分支</li>
+<li>已完成到哪一步</li>
+<li>下一步要继续做什么</li>
+</ul>
+<p>这样做的好处是可控，而不是把整条链路建立在“希望它自动接上”这种不稳定预期上。</p>
+<hr>
+<h2 id="shi-yi-chang-jian-wen-ti-zen-yao-pai" tabindex="-1" id="十一、常见问题怎么排">十一、常见问题怎么排</h2>
+<h3 id="1-code-feishu-app-id-and-app-secret-are-required-code" tabindex="-1" id="1-feishu-app-id-and-app-secret-are-required">1. <code>feishu: app_id and app_secret are required</code></h3>
+<p>优先检查三件事：</p>
+<ul>
+<li><code>config.toml</code> 是否真的被加载到了</li>
+<li><code>projects.platforms.options</code> 下面是否真的写了 <code>app_id</code> 和 <code>app_secret</code></li>
+<li>配置路径是否写错</li>
+</ul>
+<h3 id="2-fei-shu-li-wan-quan-mei-you-fan-ying" tabindex="-1" id="2-飞书里完全没有反应">2. 飞书里完全没有反应</h3>
+<p>优先排查顺序建议固定成这样：</p>
+<ol>
+<li><code>cc-connect</code> 是否正在运行</li>
+<li>飞书应用是否已经发布版本</li>
+<li>事件订阅是否用的是长连接</li>
+<li>机器人权限是否配齐</li>
+<li>本地 <code>codex</code> 是否本身可用</li>
+</ol>
+<h3 id="3-si-liao-neng-yong-qun-li-mei-fan-ying" tabindex="-1" id="3-私聊能用，群里没反应">3. 私聊能用，群里没反应</h3>
+<p>这通常不是 Codex 的问题，优先看：</p>
+<ul>
+<li>机器人是否已经被拉进群</li>
+<li>群聊消息接收权限是否生效</li>
+<li>群里触发范围和私聊触发范围是否一致</li>
+</ul>
+<h3 id="4-ji-qi-ren-hui-hui-fu-dan-zong-gan-jue-shang-xia-wen-jie-bu-shang" tabindex="-1" id="4-机器人会回复，但总感觉上下文接不上">4. 机器人会回复，但总感觉上下文接不上</h3>
+<p>先不要急着怀疑模型。</p>
+<p>先在飞书里做这三件事：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">/current</span><br><span class="line">/list</span><br><span class="line">/dir</span><br></pre></td></tr></table></figure>
+<p>很多“上下文没接上”的问题，本质上不是模型忘了，而是：</p>
+<ul>
+<li>你切到了另一个会话</li>
+<li>当前目录不是你以为的那个仓库</li>
+<li>你本来想续的是终端旧任务，但飞书里开的其实是新桥接会话</li>
+</ul>
+<hr>
+<h2 id="shi-er-wo-geng-tui-jian-de-luo-di-shun-xu" tabindex="-1" id="十二、我更推荐的落地顺序">十二、我更推荐的落地顺序</h2>
+<p>如果你是第一次把飞书接到本地 Agent 上，我建议按这个顺序来：</p>
+<h3 id="1-xian-ba-tong-zhi-pao-tong" tabindex="-1" id="1-先把通知跑通">1. 先把通知跑通</h3>
+<p>目标只有一个：</p>
+<blockquote>
+<p>任务结束后，我在飞书里能收到消息。</p>
+</blockquote>
+<p>这样你先解决“人不在终端前，不知道任务跑到哪了”的问题。</p>
+<h3 id="2-zai-ba-jiao-hu-pao-tong" tabindex="-1" id="2-再把交互跑通">2. 再把交互跑通</h3>
+<p>目标也只有一个：</p>
+<blockquote>
+<p>我在飞书里发一句话，机器人能把结果回给我。</p>
+</blockquote>
+<p>先不要一上来就追多项目、多机器人、多群聊协作，先把单项目、单目录、单会话跑顺。</p>
+<h3 id="3-zui-hou-zai-zuo-hui-hua-he-mu-lu-guan-li" tabindex="-1" id="3-最后再做会话和目录管理">3. 最后再做会话和目录管理</h3>
+<p>等最小链路稳定后，再去做这些事：</p>
+<ul>
+<li>给不同仓库拆不同项目配置</li>
+<li>用 <code>/new</code> 给任务分会话</li>
+<li>用 <code>/dir</code> 在多个仓库间切换</li>
+<li>用 <code>/mode</code> 管理权限边界</li>
+</ul>
+<p>这三步分开做，出问题时会清楚很多。</p>
+<hr>
+<h2 id="jie-yu" tabindex="-1" id="结语">结语</h2>
+<p>把飞书接到本地 Agent 上，最容易混淆的不是命令本身，而是目标本身。</p>
+<p>你到底要的是：</p>
+<ul>
+<li><strong>通知</strong></li>
+<li>还是 <strong>交互</strong></li>
+</ul>
+<p>如果只是通知，<code>Claude Hook</code> 已经足够直接。</p>
+<p>如果要把飞书变成一个真正的远程入口，那就走 <code>Codex + cc-connect</code>，但要接受它依然依赖本地机器、依赖本地目录、依赖本地执行环境这个事实。</p>
+<p>把这个边界先想清楚，后面的配置反而不难。</p>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/43c4b52e/">https://smarter.xin/posts/43c4b52e/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/claude-code/">Claude Code</a><a class="post-meta__tags" href="/tags/codex/">Codex</a><a class="post-meta__tags" href="/tags/cc-connect/">cc-connect</a><a class="post-meta__tags" href="/tags/feishu-bot/">飞书机器人</a><a class="post-meta__tags" href="/tags/agent/">Agent</a><a class="post-meta__tags" href="/tags/hook/">Hook</a><a class="post-meta__tags" href="/tags/linux/">Linux</a><a class="post-meta__tags" href="/tags/automation/">自动化</a></div><div class="post-share"><div class="social-share" data-image="/img/agent.webp" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related full-width no-desc" href="/posts/223ba430/" title="常见算法-单调栈"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Algorithm.svg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">常见算法-单调栈</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/cb95409d/" title="Claude Code 任务完成通知实战：SSH 远程服务器与本地环境接入飞书机器人"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/claude.jpeg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-19</div><div class="info-item-2">Claude Code 任务完成通知实战：SSH 远程服务器与本地环境接入飞书机器人</div></div></div></a><a class="pagination-related no-desc" href="/posts/2ae34a54/" title="Clash 终端工作流进阶：把开启代理、切换节点、查询状态统一成 cx"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Clash.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-19</div><div class="info-item-2">Clash 终端工作流进阶：把开启代理、切换节点、查询状态统一成 cx</div></div></div></a><a class="pagination-related no-desc" href="/posts/4fefc094/" title="Clash 终端工作流续篇：为什么 cx off 了代理却“还在”"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Clash.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-19</div><div class="info-item-2">Clash 终端工作流续篇：为什么 cx off 了代理却“还在”</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">121</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">257</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">23</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#cong-claude-code-tong-zhi-dao-codex-fei-shu-jiao-hu-ben-di-agent-jie-ru-fei-shu-de-liang-tiao-lian-lu"><span class="toc-text">从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#yi-xian-ba-liang-tiao-lian-lu-fen-kai"><span class="toc-text">一、先把两条链路分开</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-claude-code-hook-dan-xiang-tong-zhi"><span class="toc-text">1. Claude Code Hook：单向通知</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-codex-cc-connect-fei-shu-nei-jiao-hu"><span class="toc-text">2. Codex + cc-connect：飞书内交互</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-zen-yao-xuan"><span class="toc-text">3. 怎么选</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#er-ru-guo-ni-zhi-yao-tong-zhi-zhi-jie-yong-claude-hook"><span class="toc-text">二、如果你只要通知，直接用 Claude Hook</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#san-codex-cc-connect-zhe-tiao-xian-zhen-zheng-jie-jue-shi-yao"><span class="toc-text">三、Codex + cc-connect 这条线真正解决什么</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#si-kai-shi-qian-xian-que-ren-qian-ti"><span class="toc-text">四、开始前先确认前提</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#wu-fei-shu-ce-de-zui-xiao-pei-zhi"><span class="toc-text">五、飞书侧的最小配置</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-chuang-jian-qi-ye-zi-jian-ying-yong"><span class="toc-text">1. 创建企业自建应用</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-ji-lu-code-app-id-code-he-code-app-secret-code"><span class="toc-text">2. 记录 App ID 和 App Secret</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-da-kai-ji-qi-ren-quan-xian-he-shi-jian-ding-yue"><span class="toc-text">3. 打开机器人、权限和事件订阅</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-bie-wang-liao-fa-bu-ban-ben"><span class="toc-text">4. 别忘了发布版本</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#liu-an-zhuang-codex-he-cc-connect"><span class="toc-text">六、安装 Codex 和 cc-connect</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#qi-xie-yi-fen-zui-xiao-code-config-toml-code"><span class="toc-text">七、写一份最小 config.toml</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#ba-qi-dong-shun-xu-bu-yao-fan"><span class="toc-text">八、启动顺序不要反</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#jiu-fei-shu-li-zui-chang-yong-de-ji-tiao-ming-ling"><span class="toc-text">九、飞书里最常用的几条命令</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-hui-hua-he-shang-xia-wen-dao-di-zen-yao-li-jie"><span class="toc-text">十、会话和上下文到底怎么理解</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-claude-hook-fang-an-li-mei-you-fei-shu-hui-hua"><span class="toc-text">1. Claude Hook 方案里没有飞书会话</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-code-cc-connect-code-fang-an-li-you-qiao-jie-hui-hua"><span class="toc-text">2. cc-connect 方案里有桥接会话</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-bu-yao-mo-ren-zhong-duan-jiu-dui-hua-hui-zi-dong-wu-feng-jie-shang"><span class="toc-text">3. 不要默认终端旧对话会自动无缝接上</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-yi-chang-jian-wen-ti-zen-yao-pai"><span class="toc-text">十一、常见问题怎么排</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-code-feishu-app-id-and-app-secret-are-required-code"><span class="toc-text">1. feishu: app_id and app_secret are required</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-fei-shu-li-wan-quan-mei-you-fan-ying"><span class="toc-text">2. 飞书里完全没有反应</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-si-liao-neng-yong-qun-li-mei-fan-ying"><span class="toc-text">3. 私聊能用，群里没反应</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-ji-qi-ren-hui-hui-fu-dan-zong-gan-jue-shang-xia-wen-jie-bu-shang"><span class="toc-text">4. 机器人会回复，但总感觉上下文接不上</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-er-wo-geng-tui-jian-de-luo-di-shun-xu"><span class="toc-text">十二、我更推荐的落地顺序</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-xian-ba-tong-zhi-pao-tong"><span class="toc-text">1. 先把通知跑通</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-zai-ba-jiao-hu-pao-tong"><span class="toc-text">2. 再把交互跑通</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-zui-hou-zai-zuo-hui-hua-he-mu-lu-guan-li"><span class="toc-text">3. 最后再做会话和目录管理</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#jie-yu"><span class="toc-text">结语</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/43c4b52e/" title="从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/agent.webp" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路"/></a><div class="content"><a class="title" href="/posts/43c4b52e/" title="从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路">从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路</a><time datetime="2026-03-24T01:39:40.000Z" title="发表于 2026-03-24 09:39:40">2026-03-24</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/223ba430/" title="常见算法-单调栈"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Algorithm.svg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="常见算法-单调栈"/></a><div class="content"><a class="title" href="/posts/223ba430/" title="常见算法-单调栈">常见算法-单调栈</a><time datetime="2026-03-23T07:52:26.000Z" title="发表于 2026-03-23 15:52:26">2026-03-23</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/4b6a0a72/" title="常见题型-区间问题"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Algorithm.svg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="常见题型-区间问题"/></a><div class="content"><a class="title" href="/posts/4b6a0a72/" title="常见题型-区间问题">常见题型-区间问题</a><time datetime="2026-03-23T07:32:39.000Z" title="发表于 2026-03-23 15:32:39">2026-03-23</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">从 Self-Attention、位置编码到 Encoder-Decoder，系统梳理 Transformer 的核心结构、设计动机与理解路径</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/d6fa227a/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-16</span><a class="blog-slider__title" href="posts/d6fa227a/" alt="">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</a><div class="blog-slider__text">从访存优化到多卡通信，一篇看清 CUDA 实践系列的结构与学习路线</div><a class="blog-slider__button" href="posts/d6fa227a/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/43c4b52e/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/agent.webp" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-24</span><a class="blog-slider__title" href="posts/43c4b52e/" alt="">从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路</a><div class="blog-slider__text">使用飞书与本地 Agent 对话，远程也要让本地 Agent 干活，当一名狠狠的资本家</div><a class="blog-slider__button" href="posts/43c4b52e/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/92dc1028/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/CUDA_C.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-02-05</span><a class="blog-slider__title" href="posts/92dc1028/" alt="">CUDA C编程权威指南-导读</a><div class="blog-slider__text">从异构并行到多 GPU 实践，串起 CUDA C 权威指南的核心学习路线</div><a class="blog-slider__button" href="posts/92dc1028/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">从全书视角出发，一篇看清 PMPP 的章节结构、核心主题与学习主线</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/aac6e27d/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Computer_System.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/aac6e27d/" alt="">深入理解计算机系统知识点总结</a><div class="blog-slider__text">从程序员视角梳理 CSAPP 的知识脉络、系统抽象与性能理解</div><a class="blog-slider__button" href="posts/aac6e27d/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">围绕类型推导、移动语义与并发，提炼现代 C++ 的核心实践</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>
