@@ -1,0 +1,796 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>现代大模型推理的核心技术全景 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="现代大模型推理的核心技术全景  一、为什么要讲这篇文章 大模型推理这个方向，变化速度比很多人想象得快得多。 如果只用 2024 年甚至 2025 年初的视角去理解推理系统，通常会得出一个“半对半错”的印象： 知道 continuous batching、KV cache、quantization、speculative decoding 这些关键词，但对下面这些近一年明显升温、甚至已经进入主线的内">
+<meta property="og:type" content="article">
+<meta property="og:title" content="现代大模型推理的核心技术全景">
+<meta property="og:url" content="https://smarter.xin/posts/9d0ab4a7/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="现代大模型推理的核心技术全景  一、为什么要讲这篇文章 大模型推理这个方向，变化速度比很多人想象得快得多。 如果只用 2024 年甚至 2025 年初的视角去理解推理系统，通常会得出一个“半对半错”的印象： 知道 continuous batching、KV cache、quantization、speculative decoding 这些关键词，但对下面这些近一年明显升温、甚至已经进入主线的内">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/AI-Infra.png">
+<meta property="article:published_time" content="2026-03-26T12:56:15.000Z">
+<meta property="article:modified_time" content="2026-03-26T13:03:16.992Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="推理优化">
+<meta property="article:tag" content="LLM Serving">
+<meta property="article:tag" content="分布式推理">
+<meta property="article:tag" content="量化">
+<meta property="article:tag" content="MoE">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/AI-Infra.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "现代大模型推理的核心技术全景",
+  "url": "https://smarter.xin/posts/9d0ab4a7/",
+  "image": "https://smarter.xin/img/AI-Infra.png",
+  "datePublished": "2026-03-26T12:56:15.000Z",
+  "dateModified": "2026-03-26T13:03:16.992Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/9d0ab4a7/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: '现代大模型推理的核心技术全景',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">122</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">260</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">23</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/AI-Infra.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">现代大模型推理的核心技术全景</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">现代大模型推理的核心技术全景</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-03-26T12:56:15.000Z" title="发表于 2026-03-26 20:56:15">2026-03-26</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-03-26T13:03:16.992Z" title="更新于 2026-03-26 21:03:16">2026-03-26</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/">AI Infra</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">5.5k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>18分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="xian-dai-da-mo-xing-tui-li-de-he-xin-ji-zhu-quan-jing" tabindex="-1">现代大模型推理的核心技术全景</h1>
+<hr>
+<h2 id="yi-wei-shi-yao-yao-jiang-zhe-pian-wen-zhang" tabindex="-1" id="一、为什么要讲这篇文章">一、为什么要讲这篇文章</h2>
+<p>大模型推理这个方向，变化速度比很多人想象得快得多。</p>
+<p>如果只用 2024 年甚至 2025 年初的视角去理解推理系统，通常会得出一个“半对半错”的印象：<br>
+知道 continuous batching、KV cache、quantization、speculative decoding 这些关键词，但对下面这些近一年明显升温、甚至已经进入主线的内容把握不足：</p>
+<ul>
+<li><strong>KV cache-aware routing</strong></li>
+<li><strong>disaggregated serving / PD 分离</strong></li>
+<li><strong>multi-tier KV cache</strong></li>
+<li><strong>distributed KV cache</strong></li>
+<li><strong>KV cache offloading</strong></li>
+<li><strong>guided decoding 与 speculative decoding 的组合</strong></li>
+<li><strong>MoE 大规模 expert parallel 与通信优化</strong></li>
+<li><strong>结构化输出成为正式生产能力</strong></li>
+<li><strong>控制平面开始从“普通 K8s 运维”升级为“推理状态感知型编排”</strong></li>
+</ul>
+<p>这说明今天谈“推理”，已经不能只停留在单机引擎视角。<br>
+更准确地说：</p>
+<p><strong>现代大模型推理 = 单机执行优化 + 缓存体系 + 请求调度 + 分布式并行 + 状态感知路由 + 集群级控制平面。</strong></p>
+<p>这篇文章的目标，就是把这几层放在同一张图里讲清楚。</p>
+<hr>
+<h2 id="er-xian-gei-jie-lun-2026-nian-zui-zhong-yao-de-bu-shi-geng-duo-ming-ci-er-shi-8-tiao-zhu-ji-zhu-zhu-xian" tabindex="-1" id="二、先给结论：2026-年最重要的，不是更多名词，而是-8-条主技术主线">二、先给结论：2026 年最重要的，不是更多名词，而是 8 条主技术主线</h2>
+<p>如果先不看细节，可以把现代大模型推理压缩成下面 8 条主线：</p>
+<ol>
+<li><strong>请求级调度与连续合批</strong></li>
+<li><strong>KV Cache 与缓存体系</strong></li>
+<li><strong>Attention / Kernel / Runtime 优化</strong></li>
+<li><strong>长上下文与前缀复用</strong></li>
+<li><strong>Decode 加速</strong></li>
+<li><strong>量化与低比特推理</strong></li>
+<li><strong>分布式推理与 MoE Serving</strong></li>
+<li><strong>状态感知路由、分离式部署与控制平面</strong></li>
+</ol>
+<p>这 8 条线不是并列堆出来的，而是顺着 Transformer 的执行路径自然长出来的：</p>
+<ul>
+<li>因为生成是自回归的，所以需要 <strong>batching</strong> 与 <strong>decode 优化</strong>；</li>
+<li>因为 attention 依赖历史上下文，所以需要 <strong>KV cache</strong>；</li>
+<li>因为 KV cache 会膨胀，所以需要 <strong>paged / offloading / distributed KV</strong>；</li>
+<li>因为请求共享前缀越来越常见，所以需要 <strong>prefix caching 与 KV-aware routing</strong>；</li>
+<li>因为模型更大、结构更复杂，所以需要 <strong>量化、MoE、expert parallel</strong>；</li>
+<li>因为单机不够，所以需要 <strong>分布式 serving、PD 分离、控制平面与 autoscaling</strong>。</li>
+</ul>
+<p>也就是说，今天的推理技术虽然看起来很散，但本质上都在回答同一个问题：</p>
+<p><strong>如何把 Transformer 的高成本自回归执行过程，改造成一个可并发、可复用、可扩展、可控成本的在线系统。</strong></p>
+<pre><code class="highlight mermaid">flowchart TD
+    InputLayer[&quot;输入与请求层&quot;] --&gt; SchedulerLayer[&quot;调度层&quot;]
+    SchedulerLayer --&gt; ExecuteLayer[&quot;模型执行层&quot;]
+    ExecuteLayer --&gt; CacheLayer[&quot;缓存层&quot;]
+    ExecuteLayer --&gt; DecodeLayer[&quot;Decode 加速层&quot;]
+    ExecuteLayer --&gt; PerfLayer[&quot;低层性能层&quot;]
+    CacheLayer --&gt; StateLayer[&quot;状态感知系统层&quot;]
+    DecodeLayer --&gt; StateLayer
+    PerfLayer --&gt; StateLayer
+    ParallelLayer[&quot;并行与扩展层&quot;] --&gt; StateLayer</code></pre>
+<hr>
+<h2 id="san-di-yi-tiao-zhu-xian-qing-qiu-ji-diao-du-yu-lian-xu-he-pi" tabindex="-1" id="三、第一条主线：请求级调度与连续合批">三、第一条主线：请求级调度与连续合批</h2>
+<h3 id="1-wei-shi-yao-he-pi-zai-da-mo-xing-shi-dai-bian-de-geng-nan-liao" tabindex="-1" id="1-为什么“合批”在大模型时代变得更难了">1. 为什么“合批”在大模型时代变得更难了</h3>
+<p>传统推理服务也讲 batching，但到了大语言模型时代，batching 的难度明显上升。<br>
+因为请求不再只是“输入一个张量、输出一个张量”，而是：</p>
+<ul>
+<li>到达时间不同；</li>
+<li>输入长度不同；</li>
+<li>输出长度不同；</li>
+<li>生命周期不同；</li>
+<li>生成过程逐 token 推进；</li>
+<li>一个请求可能还带多轮历史、工具 schema、结构化输出约束。</li>
+</ul>
+<p>这意味着静态 batch 很难高效。<br>
+如果你还沿用“凑齐一批再跑到底”的思路，通常会遇到：</p>
+<ul>
+<li>长请求拖慢整批；</li>
+<li>短请求完成后留下空洞；</li>
+<li>新请求不能自然插入；</li>
+<li>GPU 利用率偏低；</li>
+<li>decode 阶段效率尤其差。</li>
+</ul>
+<h3 id="2-wei-shi-yao-continuous-batching-reng-ran-shi-zhu-xian" tabindex="-1" id="2-为什么-continuous-batching-仍然是主线">2. 为什么 continuous batching 仍然是主线</h3>
+<p>因此，<strong>continuous batching / in-flight batching</strong> 依然是主线，而不是过渡技术。</p>
+<p>SGLang 当前仍把 continuous batching 和 zero-overhead CPU scheduler 放在核心特性里；其文档首页把连续合批、prefill-decode disaggregation、structured outputs、multi-LoRA batching 等放在同一层级，说明它不是一个局部优化，而是 serving runtime 的骨架之一。<br>
+TensorRT-LLM 也把 <strong>In-Flight Batching &amp; Paged Attention</strong> 明确列为高级优化与生产特性。</p>
+<h3 id="3-zhe-tiao-xian-zai-2026-nian-de-xin-bian-hua" tabindex="-1" id="3-这条线在-2026-年的新变化">3. 这条线在 2026 年的新变化</h3>
+<p>相较于更早的“动态合批”理解，今天的连续合批已经不再只是吞吐优化，而是越来越和下面这些能力耦合：</p>
+<ul>
+<li>prefix cache 命中情况</li>
+<li>chunked prefill</li>
+<li>structured outputs</li>
+<li>speculative decoding</li>
+<li>多 LoRA 并发</li>
+<li>MoE 路由与并行</li>
+<li>KV-aware routing</li>
+</ul>
+<p>也就是说，现代调度器不是“把请求凑一凑”那么简单，而是在做 <strong>状态感知的、推理特化的、资源与缓存联合优化</strong>。</p>
+<hr>
+<h2 id="si-di-er-tiao-zhu-xian-kv-cache-yi-jing-cong-you-hua-ji-qiao-sheng-ji-wei-xi-tong-ji-zi-chan" tabindex="-1" id="四、第二条主线：KV-Cache-已经从“优化技巧”升级为“系统级资产”">四、第二条主线：KV Cache 已经从“优化技巧”升级为“系统级资产”</h2>
+<h3 id="1-wei-shi-yao-kv-cache-huan-shi-zhong-xin-wen-ti" tabindex="-1" id="1-为什么-KV-Cache-还是中心问题">1. 为什么 KV Cache 还是中心问题</h3>
+<p>今天的大模型推理，如果你只记住一个系统关键词，那大概率就是 <strong>KV Cache</strong>。</p>
+<p>原因不复杂：<br>
+大语言模型的 decode 是逐 token 的。如果每一步都把前面所有 token 再完整算一遍，推理成本会高得不可接受。<br>
+所以模型会保存历史 token 的 Key / Value，并在后续步骤中复用它们。</p>
+<p>这在模型层是一个自然机制，但在系统层，它会立刻变成以下问题：</p>
+<ul>
+<li>cache 占多少显存？</li>
+<li>cache 如何分配与回收？</li>
+<li>cache 能否复用？</li>
+<li>cache 是否能跨实例共享？</li>
+<li>cache 是否能跨内存层级迁移？</li>
+<li>cache 能否跨 prefill / decode 节点传输？</li>
+<li>cache 如何参与路由决策？</li>
+</ul>
+<p>因此，现代推理很多时候并不是在“管理模型权重”，而是在 <strong>管理 cache 生命周期与 cache 命中率</strong>。</p>
+<h3 id="2-paged-kv-prefix-caching-reng-shi-ji-chu-she-shi-ji-neng-li" tabindex="-1" id="2-Paged-KV-Prefix-Caching-仍是基础设施级能力">2. Paged KV / Prefix Caching 仍是基础设施级能力</h3>
+<p>vLLM 仍然把 <strong>Paged Attention</strong> 和 <strong>Automatic Prefix Caching</strong> 作为核心设计内容。<br>
+其最新文档继续强调，prefix caching 是通过缓存已处理请求的 KV block，在新请求前缀相同时直接复用，从而避免重复 prompt 计算。</p>
+<p>这说明到了 2026 年，prefix caching 并没有“过时”，反而已经被默认视为现代开源 serving 框架的基础能力之一。</p>
+<h3 id="3-huan-cun-ti-xi-yi-jing-cong-dan-ceng-zou-xiang-duo-ceng" tabindex="-1" id="3-缓存体系已经从单层走向多层">3. 缓存体系已经从单层走向多层</h3>
+<p>更大的变化在于：<br>
+<strong>KV cache 已经不再只是 GPU 显存里的一块临时状态，而是在往多层存储体系演进。</strong></p>
+<p>Hugging Face 现在把 cache 官方拆成多个类型来讲，包括：</p>
+<ul>
+<li>dynamic cache</li>
+<li>static cache</li>
+<li>quantized cache</li>
+<li>sliding-window cache</li>
+<li>offloaded cache</li>
+</ul>
+<p>这说明 cache 管理已经形成一个完整设计空间，而不是“开还是不开”的单选题。</p>
+<h3 id="4-fen-bu-shi-kv-yu-kua-yin-qing-fu-yong-zheng-zai-cong-qian-yan-zou-xiang-shi-yong" tabindex="-1" id="4-分布式-KV-与跨引擎复用正在从前沿走向实用">4. 分布式 KV 与跨引擎复用正在从前沿走向实用</h3>
+<p>近一年最值得注意的，是 <strong>distributed KV cache</strong> 与 <strong>cross-engine reuse</strong> 正在从研究概念走向工程实现。</p>
+<p>LMCache 的定位就是把 KV cache 复用提升到系统级，强调“prefill once, reuse everywhere”；NVIDIA Dynamo 官方文档也把 LMCache、SGLang HiCache、FlexKV 等列入它支持的 memory management 生态。</p>
+<p>AIBrix 也在其 KVCache Offloading 设计中明确强调：为了应对超大规模动态工作负载，单机内存 offloading 已不够，需要 <strong>可横向扩展的 L2Cache / distributed KV service</strong>，同时支持 <strong>cross-engine KV reuse</strong>。</p>
+<h3 id="5-wei-shi-yao-zhe-yi-wei-zhao-tui-li-xi-tong-si-lu-bian-liao" tabindex="-1" id="5-为什么这意味着推理系统思路变了">5. 为什么这意味着推理系统思路变了</h3>
+<p>这意味着一个非常重要的变化：</p>
+<p><strong>KV cache 正在从“引擎内部细节”演化为“平台级共享状态”。</strong></p>
+<p>一旦这一点成立，推理系统的上层设计就会跟着改变：</p>
+<ul>
+<li>路由不再只看负载，也要看 cache overlap；</li>
+<li>autoscaling 不再只看副本数，也要看 cache 命中与阶段拆分；</li>
+<li>serving 不再只是启动多个模型实例，而是要考虑状态共享与状态转移成本。</li>
+</ul>
+<p>这正是 2026 年推理系统和早期“部署一个大模型 API”最大的区别之一。</p>
+<hr>
+<h2 id="wu-di-san-tiao-zhu-xian-attention-kernel-runtime-you-hua-yi-jing-cong-suan-zi-ji-kuo-zhan-dao-zhi-xing-lu-jing-ji" tabindex="-1" id="五、第三条主线：Attention-Kernel-Runtime-优化已经从算子级扩展到执行路径级">五、第三条主线：Attention / Kernel / Runtime 优化已经从算子级扩展到执行路径级</h2>
+<h3 id="1-attention-reng-ran-shi-re-dian-dan-re-dian-yi-jing-xi-hua" tabindex="-1" id="1-Attention-仍然是热点，但热点已经细化">1. Attention 仍然是热点，但热点已经细化</h3>
+<p>Attention 依然是推理系统的主战场之一，但今天讨论 attention 已经不能停留在 “FlashAttention 很快” 这一层了。<br>
+因为在现代 serving 场景里，attention 优化至少分成三层：</p>
+<ol>
+<li><strong>kernel 层优化</strong></li>
+<li><strong>cache / 内存布局优化</strong></li>
+<li><strong>runtime 路径优化</strong></li>
+</ol>
+<p>vLLM 的 Paged Attention 文档仍然强调其 kernel 对内存布局和 shared memory 访问方式做了专门设计；FlashInfer 则已不再只是 attention kernel 的集合，而是面向 serving 的统一 kernel library / generator，覆盖 attention、GEMM 和 MoE 操作，并支持多种 backend。</p>
+<h3 id="2-xian-zai-de-runtime-you-hua-yi-jing-bu-zhi-shi-geng-kuai-zhi-xing" tabindex="-1" id="2-现在的-runtime-优化，已经不只是“更快执行”">2. 现在的 runtime 优化，已经不只是“更快执行”</h3>
+<p>vLLM 的文档首页和 features 页面都持续把 <strong>CUDA graph</strong>、<strong>chunked prefill</strong>、<strong>automatic prefix caching</strong>、<strong>speculative decoding</strong>、<strong>LoRA</strong> 等能力列入正式特性矩阵。</p>
+<p>这意味着 runtime 优化正在从 “如何更快执行同一条前向” 扩展到 “如何让不同 workload 在同一引擎里高效共存”。<br>
+也就是说，runtime 不只是一个执行器，而是已经开始承担：</p>
+<ul>
+<li>批处理调度</li>
+<li>cache 生命周期管理</li>
+<li>特性组合兼容性</li>
+<li>多类型模型 / 多后端支持</li>
+<li>硬件适配</li>
+</ul>
+<h3 id="3-yi-ge-zhong-yao-qu-shi-attention-backend-he-neng-li-ju-zhen-geng-xian-xing-liao" tabindex="-1" id="3-一个重要趋势：Attention-Backend-和能力矩阵更显性了">3. 一个重要趋势：Attention Backend 和能力矩阵更显性了</h3>
+<p>vLLM 甚至专门有 attention backend feature support 页面，用于描述不同 attention backend 的特性支持矩阵。<br>
+这类文档的出现本身就说明：<br>
+<strong>现在的推理系统不仅在“做优化”，还在“管理优化组合的兼容性”。</strong></p>
+<p>这也是为什么“懂一点 CUDA”已经不够了——你还得理解不同 backend、不同 feature 组合在什么条件下能共存，什么条件下会被降级或关闭。</p>
+<hr>
+<h2 id="liu-di-si-tiao-zhu-xian-chang-shang-xia-wen-yu-qian-zhui-fu-yong-yi-jing-cong-ke-xuan-you-hua-bian-cheng-mo-ren-chang-jing" tabindex="-1" id="六、第四条主线：长上下文与前缀复用，已经从“可选优化”变成“默认场景”">六、第四条主线：长上下文与前缀复用，已经从“可选优化”变成“默认场景”</h2>
+<h3 id="1-wei-shi-yao-chang-shang-xia-wen-bu-zai-shi-te-shu-xu-qiu" tabindex="-1" id="1-为什么长上下文不再是特殊需求">1. 为什么长上下文不再是特殊需求</h3>
+<p>过去长上下文往往被视为高级场景，但现在它越来越接近默认场景。<br>
+原因很现实：</p>
+<ul>
+<li>多轮对话上下文自然累积；</li>
+<li>RAG 场景会带入长文档；</li>
+<li>agent 会带长 system prompt、工具 schema 和中间状态；</li>
+<li>编程助手会带整段仓库上下文；</li>
+<li>多模态输入还会额外引入 image embedding blocks。</li>
+</ul>
+<p>这意味着长上下文不再只是“窗口更大”，而是 <strong>更频繁、更复杂、更依赖缓存与路由协同</strong>。</p>
+<h3 id="2-chunked-prefill-reng-ran-hen-zhong-yao" tabindex="-1" id="2-Chunked-Prefill-仍然很重要">2. Chunked Prefill 仍然很重要</h3>
+<p>SGLang 仍然把 <strong>chunked prefill</strong> 放在核心特性中；vLLM 也在 features 中持续支持 chunked prefill。<br>
+它的重要性并没有下降，反而更强了。因为长输入越常见，prefill 对显存和调度的冲击就越突出。</p>
+<h3 id="3-qian-zhui-fu-yong-zheng-zai-he-lu-you-qiang-ou-he" tabindex="-1" id="3-前缀复用正在和路由强耦合">3. 前缀复用正在和路由强耦合</h3>
+<p>更大的变化是：prefix caching 不再只是“命中了就省一点算力”，而开始进入 <strong>路由层</strong>。</p>
+<p>NVIDIA Dynamo 现在直接把 <strong>KV Cache-Aware Routing</strong> 做成正式组件与用户指南，明确指出路由需要综合 worker load 和 existing cache hits；它的 Router 文档还明确提到，路由要同时考虑 decode cost 和 prefill cost，并利用 KV overlap 来最小化重复计算。</p>
+<p>这意味着“共享前缀”不再只是一种引擎内部的 cache hit 行为，而是在驱动整个平台的请求分配策略。</p>
+<h3 id="4-duo-mo-tai-ye-yi-jing-ba-zhe-jian-shi-tui-de-geng-yuan" tabindex="-1" id="4-多模态也已经把这件事推得更远">4. 多模态也已经把这件事推得更远</h3>
+<p>Dynamo 甚至已经提供 <strong>multimodal KV routing</strong> 文档，说明它会把图像内容哈希纳入 block-level overlap 计算。</p>
+<p>这说明：</p>
+<p><strong>在 2026 年，KV-aware routing 已经不再只是文本前缀复用，而是在向更广义的“多模态上下文状态复用”扩展。</strong></p>
+<hr>
+<h2 id="qi-di-wu-tiao-zhu-xian-decode-jia-su-cong-speculative-decoding-zou-xiang-zu-he-shi-decode-you-hua" tabindex="-1" id="七、第五条主线：Decode-加速从-speculative-decoding-走向“组合式-decode-优化”">七、第五条主线：Decode 加速从 speculative decoding 走向“组合式 decode 优化”</h2>
+<h3 id="1-speculative-decoding-reng-ran-shi-zhu-xian-dan-bu-zai-zhi-shi-yi-ge-gu-li-feature" tabindex="-1" id="1-Speculative-decoding-仍然是主线，但不再只是一个孤立-feature">1. Speculative decoding 仍然是主线，但不再只是一个孤立 feature</h3>
+<p>Speculative decoding 还在，而且比以前更重要。<br>
+但现在它的价值不只是“让 decode 更快”，而是开始和其他特性组合起来用。</p>
+<p>TensorRT-LLM 最新 release notes 明确提到：</p>
+<ul>
+<li>speculative decoding 与 guided decoding 可以协同工作；</li>
+<li>支持 2-model 和 draft model chunked prefill 场景；</li>
+<li>增加了 Eagle 的多层支持与优化。</li>
+</ul>
+<p>这说明 speculative decoding 已经不再是“单独开一个优化选项”，而是在和：</p>
+<ul>
+<li>guided decoding</li>
+<li>structured outputs</li>
+<li>chunked prefill</li>
+<li>disaggregated serving</li>
+</ul>
+<p>做组合式优化。</p>
+<h3 id="2-wei-shi-yao-zhe-jian-shi-hen-guan-jian" tabindex="-1" id="2-为什么这件事很关键">2. 为什么这件事很关键</h3>
+<p>它说明 decode 优化的目标已经变了。<br>
+以前更多是在追求 “每 token 更快”；<br>
+现在则开始追求：</p>
+<ul>
+<li>decode 与结构化输出兼容</li>
+<li>decode 与分离式部署兼容</li>
+<li>decode 与不同 draft / verifier 路径兼容</li>
+<li>decode 与 MoE / 多并行场景兼容</li>
+</ul>
+<p>也就是说，<strong>decode 加速正在从单点算法优化，走向生产路径组合优化。</strong></p>
+<h3 id="3-structured-outputs-cheng-wei-zheng-shi-te-xing-ben-shen-jiu-shi-bian-hua" tabindex="-1" id="3-Structured-outputs-成为“正式特性”本身就是变化">3. Structured outputs 成为“正式特性”本身就是变化</h3>
+<p>SGLang 官方特性里持续列着 <strong>structured outputs</strong>；TensorRT-LLM 最近也在 guided decoding 方向持续增强。<br>
+这件事的重要性在于：</p>
+<p>今天很多生产系统不是在生成“自由文本”，而是在生成：</p>
+<ul>
+<li>JSON</li>
+<li>函数调用参数</li>
+<li>工具 schema</li>
+<li>固定格式命令</li>
+<li>合规的结构化响应</li>
+</ul>
+<p>因此，decode 不再只是 sampling 问题，而是越来越成为 <strong>受约束的 token 搜索与验证问题</strong>。</p>
+<hr>
+<h2 id="ba-di-liu-tiao-zhu-xian-liang-hua-reng-ran-zhong-yao-dan-zhong-dian-yi-jing-cong-neng-bu-neng-liang-hua-bian-cheng-ru-he-he-zheng-ge-xi-tong-xie-tong" tabindex="-1" id="八、第六条主线：量化仍然重要，但重点已经从“能不能量化”变成“如何和整个系统协同”">八、第六条主线：量化仍然重要，但重点已经从“能不能量化”变成“如何和整个系统协同”</h2>
+<h3 id="1-wei-shi-yao-liang-hua-reng-shi-zhu-zhan-chang" tabindex="-1" id="1-为什么量化仍是主战场">1. 为什么量化仍是主战场</h3>
+<p>模型没有变小，反而越来越大；<br>
+多卡和显存仍然昂贵；<br>
+MoE 与长上下文进一步拉高了服务成本。<br>
+所以量化依然是推理主战场之一。</p>
+<p>SGLang 当前特性仍明确包括 FP4 / FP8 / INT4 / AWQ / GPTQ；TensorRT-LLM 也持续把 advanced quantization 放在核心能力中。</p>
+<h3 id="2-2026-nian-liang-hua-si-lu-de-bian-hua" tabindex="-1" id="2-2026-年量化思路的变化">2. 2026 年量化思路的变化</h3>
+<p>现在真正关键的问题，不再是“能不能把模型量化到某个位数”，而是：</p>
+<ul>
+<li>量化后的模型和哪些 kernel 最配？</li>
+<li>decode / prefill 两阶段收益是否一样？</li>
+<li>MoE 下 expert 权重如何量化？</li>
+<li>cache 是否也需要量化？</li>
+<li>不同硬件的低比特支持是否一致？</li>
+<li>量化是否和特定 runtime 特性兼容？</li>
+</ul>
+<p>TensorRT-LLM 新版本 release notes 中甚至提到：</p>
+<ul>
+<li>对 DeepEP 的低精度（FP4）联合 kernel 与 all-to-all 通信做优化；</li>
+<li>支持 KV cache reuse for MLA；</li>
+<li>提供 host offloading 示例。</li>
+</ul>
+<p>这说明量化已经从“权重量化”进一步和：</p>
+<ul>
+<li>通信</li>
+<li>offloading</li>
+<li>KV reuse</li>
+<li>特定模型结构（如 MLA）</li>
+<li>特定硬件</li>
+</ul>
+<p>紧密耦合。</p>
+<h3 id="3-ni-ying-gai-zen-yao-li-jie-zhe-tiao-xian" tabindex="-1" id="3-你应该怎么理解这条线">3. 你应该怎么理解这条线</h3>
+<p>现在的量化，更像是 <strong>系统级成本优化手段</strong>，而不是一个单独的模型压缩技术。<br>
+它必须和 runtime、kernel、通信、并行策略一起看，才有意义。</p>
+<hr>
+<h2 id="jiu-di-qi-tiao-zhu-xian-mo-e-serving-yi-jing-cong-zhi-chi-yi-xia-jiu-xing-jin-ru-tong-xin-yu-kuo-zhan-neng-li-jing-zheng" tabindex="-1" id="九、第七条主线：MoE-Serving-已经从“支持一下就行”进入“通信与扩展能力竞争”">九、第七条主线：MoE Serving 已经从“支持一下就行”进入“通信与扩展能力竞争”</h2>
+<h3 id="1-wei-shi-yao-mo-e-bu-zhi-shi-geng-da-de-mo-xing" tabindex="-1" id="1-为什么-MoE-不只是“更大的模型”">1. 为什么 MoE 不只是“更大的模型”</h3>
+<p>MoE 的关键不是总参数更大，而是 <strong>每个 token 要被路由到不同 expert</strong>。<br>
+这会带来一整套新的系统问题：</p>
+<ul>
+<li>dispatch</li>
+<li>all-to-all</li>
+<li>expert load balance</li>
+<li>expert parallel</li>
+<li>多机多卡拓扑</li>
+<li>prefill / decode 阶段 dispatch 策略不同</li>
+</ul>
+<p>所以 MoE serving 一开始看像“模型结构问题”，很快就会变成 <strong>通信与集群问题</strong>。</p>
+<h3 id="2-2026-nian-zhen-zheng-zhi-de-zhu-yi-de-bian-hua" tabindex="-1" id="2-2026-年真正值得注意的变化">2. 2026 年真正值得注意的变化</h3>
+<p>vLLM 当前已明确支持 <strong>Expert Parallel Deployment</strong> 与大规模 parallelism scaling，并在并行/扩展文档中明确写出 attention 层与 expert 层可采用不同并行策略。</p>
+<p>TensorRT-LLM 则持续把 <strong>large-scale expert parallelism</strong> 作为其重要方向，并在 release notes 中不断更新与 DeepEP、all-to-all、低精度 combined kernels 相关的优化。</p>
+<p>这说明 MoE serving 已经不只是“引擎支持某些模型格式”，而是进入了：</p>
+<ul>
+<li>expert parallel 策略</li>
+<li>dispatch / load balance</li>
+<li>通信库优化</li>
+<li>动态 GPU 扩缩</li>
+<li>异构配置搜索</li>
+</ul>
+<p>这些更偏核心 infra 的竞争点。</p>
+<h3 id="3-yi-ge-hen-ming-xian-de-xin-hao-zhuan-jia-bing-xing-kai-shi-zou-xiang-dan-xing-hua" tabindex="-1" id="3-一个很明显的信号：专家并行开始走向弹性化">3. 一个很明显的信号：专家并行开始走向弹性化</h3>
+<p>vLLM 最近的 releases 甚至提到 <strong>Elastic Expert Parallelism</strong> 与 NIXL-EP integration。<br>
+这类能力意味着：</p>
+<p><strong>MoE expert 不再只是固定绑在一组 GPU 上，而是在尝试进入“可弹性扩缩、可动态调度”的阶段。</strong></p>
+<p>这对未来大规模多租户 MoE serving 影响很大。</p>
+<hr>
+<h2 id="shi-di-ba-tiao-zhu-xian-kong-zhi-ping-mian-yu-zhuang-tai-gan-zhi-lu-you-yi-jing-cheng-wei-tui-li-xi-tong-de-shang-ceng-gu-jia" tabindex="-1" id="十、第八条主线：控制平面与状态感知路由，已经成为推理系统的上层骨架">十、第八条主线：控制平面与状态感知路由，已经成为推理系统的上层骨架</h2>
+<h3 id="1-wei-shi-yao-you-yin-qing-bu-deng-yu-you-xi-tong" tabindex="-1" id="1-为什么“有引擎”不等于“有系统”">1. 为什么“有引擎”不等于“有系统”</h3>
+<p>很多人会把 vLLM、SGLang、TensorRT-LLM 当成完整答案。<br>
+但在真正的生产环境里，你很快会碰到更高一层的问题：</p>
+<ul>
+<li>请求应该路由到哪个副本？</li>
+<li>哪个副本已有可复用 cache？</li>
+<li>Prefill 和 Decode 是否应该拆开？</li>
+<li>如果 SLA 关注 TTFT 与 TPOT，该如何自动扩缩？</li>
+<li>长请求与短请求如何共存？</li>
+<li>多引擎混合部署时如何统一管理？</li>
+</ul>
+<p>这些问题不是单个引擎内部就能解决的。<br>
+于是，控制平面开始变成现代推理系统的重要组成部分。</p>
+<h3 id="2-dynamo-ba-zhuang-tai-gan-zhi-tui-li-xi-tong-jiang-qing-chu-liao" tabindex="-1" id="2-Dynamo：把“状态感知推理系统”讲清楚了">2. Dynamo：把“状态感知推理系统”讲清楚了</h3>
+<p>NVIDIA Dynamo 的文档非常值得看，因为它把近一年推理系统上层骨架说得很清楚。</p>
+<p>其 introduction 直接强调：<br>
+Dynamo 做的是 <strong>single-GPU engine 之上的 distributed layer</strong>，核心包括：</p>
+<ul>
+<li>disaggregated serving</li>
+<li>smart routing</li>
+<li>KV cache management across memory tiers</li>
+<li>auto-scaling</li>
+</ul>
+<p>并且它把三项核心技术明确概括为：</p>
+<ul>
+<li><strong>Disaggregated Serving</strong></li>
+<li><strong>KV Cache-Aware Routing</strong></li>
+<li><strong>KV Cache Offloading</strong></li>
+</ul>
+<p>还强调这些技术不是孤立的，而是 <strong>组合后会产生复合收益</strong>。</p>
+<p>更重要的是，Dynamo 不是只说理念，它把：</p>
+<ul>
+<li>Router</li>
+<li>KV Router</li>
+<li>Planner</li>
+<li>AIConfigurator</li>
+<li>多模态 KV routing</li>
+<li>生态集成（vLLM / SGLang / TensorRT-LLM / LMCache / Mooncake）</li>
+</ul>
+<p>都做成了正式组件或文档。<br>
+这说明今天的推理控制平面，已经不是“监控 + K8s”那么简单，而是在做 <strong>状态感知型推理编排</strong>。</p>
+<h3 id="3-ai-brix-ling-yi-tiao-hen-you-dai-biao-xing-de-lu-xian" tabindex="-1" id="3-AIBrix：另一条很有代表性的路线">3. AIBrix：另一条很有代表性的路线</h3>
+<p>AIBrix 现在同样把自己定义成用于构建可扩展 GenAI 推理基础设施的 cloud-native building blocks，强调：</p>
+<ul>
+<li>gateway and routing</li>
+<li>autoscaling</li>
+<li>distributed inference</li>
+<li>KV caching</li>
+</ul>
+<p>AIBrix 在 KVCache Offloading Framework 中还进一步强调：</p>
+<ul>
+<li>多级 KV cache</li>
+<li>distributed L2 cache backend</li>
+<li>cross-engine KV reuse</li>
+<li>massive-scale dynamic workloads</li>
+</ul>
+<p>这说明 AIBrix 代表的是另一种很现实的趋势：<br>
+<strong>把推理问题视为 Kubernetes / 云原生环境中的状态化服务编排问题。</strong></p>
+<h3 id="4-yi-ge-hen-zhong-yao-de-ren-shi" tabindex="-1" id="4-一个很重要的认识">4. 一个很重要的认识</h3>
+<p>过去我们会说“推理系统 = 模型引擎 + GPU 优化”。<br>
+现在更准确的说法应该是：</p>
+<p><strong>推理系统 = 引擎层 + 状态层 + 路由层 + 控制层。</strong></p>
+<p>这也是为什么 AIBrix、Dynamo、llm-d 一类项目会越来越频繁地进入讨论中心。</p>
+<hr>
+<h2 id="shi-yi-yi-ge-chi-xu-sheng-wen-de-jiao-cha-re-dian-pd-fen-chi-yu-fen-chi-shi-bu-shu" tabindex="-1" id="十一、一个持续升温的交叉热点：PD-分离与分离式部署">十一、一个持续升温的交叉热点：PD 分离与分离式部署</h2>
+<h3 id="1-wei-shi-yao-pd-fen-chi-zai-2026-nian-geng-zhong-yao-liao" tabindex="-1" id="1-为什么-PD-分离在-2026-年更重要了">1. 为什么 PD 分离在 2026 年更重要了</h3>
+<p>Prefill 和 Decode 的资源特征本来就不同：</p>
+<ul>
+<li>Prefill 更像大吞吐计算；</li>
+<li>Decode 更像低延迟、小步推进、重缓存读取。</li>
+</ul>
+<p>当请求更复杂、长上下文更常见、MoE 更普遍以后，这种差异会被进一步放大。<br>
+因此，<strong>Prefill / Decode Disaggregation（PD 分离）</strong> 在 2026 年显得比早期更重要。</p>
+<p>SGLang 仍把 prefill-decode disaggregation 放在核心特性中；TensorRT-LLM 当前文档与博客也持续提供 <strong>Disaggregated Serving</strong> 的说明与调优内容。</p>
+<h3 id="2-pd-fen-chi-dai-lai-de-xi-tong-tiao-zhan-ye-geng-ming-que-liao" tabindex="-1" id="2-PD-分离带来的系统挑战也更明确了">2. PD 分离带来的系统挑战也更明确了</h3>
+<p>一旦分离，你必须解决：</p>
+<ul>
+<li>KV cache 如何跨节点传输；</li>
+<li>prefill 与 decode worker 如何调度而不互相干扰；</li>
+<li>uneven pipeline parallelism 下的 cache transfer 如何做；</li>
+<li>TTFT 与 TPOT 如何重新平衡；</li>
+<li>哪些流量适合走 PD 路径，哪些不适合。</li>
+</ul>
+<p>TensorRT-LLM 最近 release notes 中就明确提到：</p>
+<ul>
+<li>新的 KV Cache Connector API，用于 disaggregated serving 的 state transfer；</li>
+<li>对 KV cache transfer for uneven pipeline parallelism 的优化；</li>
+<li>在 disaggregated mode 下支持 guided decoding。</li>
+</ul>
+<p>这说明 PD 分离已经不只是理念，而是在落地过程中不断暴露并解决细粒度工程问题。</p>
+<hr>
+<h2 id="shi-er-mooncake-hi-cache-nixl-zhe-lei-ming-zi-wei-shi-yao-yue-lai-yue-zhi-de-guan-zhu" tabindex="-1" id="十二、Mooncake、HiCache、NIXL-这类名字为什么越来越值得关注">十二、Mooncake、HiCache、NIXL 这类名字为什么越来越值得关注</h2>
+<h3 id="1-yin-wei-ta-men-dai-biao-de-shi-tui-li-zhuang-tai-ji-chu-she-shi-hua" tabindex="-1" id="1-因为它们代表的是“推理状态基础设施化”">1. 因为它们代表的是“推理状态基础设施化”</h3>
+<p>Mooncake 的定位已经非常明确：它不是通用缓存系统，而是 <strong>面向 LLM inference 场景的 distributed KV cache / transfer engine</strong>。<br>
+其文档与示例明确展示了：</p>
+<ul>
+<li>SGLang 官方支持 Mooncake Transfer Engine 用于 disaggregated prefilling 和 KV cache transfer；</li>
+<li>Mooncake Store 是专门为 LLM 推理设计的分布式 KV 存储引擎；</li>
+<li>SGLang HiCache with Mooncake backend 可以让 KV cache 在集群实例之间共享，提升在同等内存预算下的 cache hit rate。</li>
+</ul>
+<h3 id="2-zhe-lei-xiang-mu-yi-wei-zhao-shi-yao" tabindex="-1" id="2-这类项目意味着什么">2. 这类项目意味着什么</h3>
+<p>它意味着推理系统已经越来越像数据库和分布式存储系统：</p>
+<ul>
+<li>有状态；</li>
+<li>有冷热层级；</li>
+<li>有跨实例共享；</li>
+<li>有 transfer / replication / prefetch；</li>
+<li>有命中率与容量的系统权衡。</li>
+</ul>
+<p>一旦你接受这一点，就会发现：</p>
+<p><strong>未来的推理 infra，不只是“更好的 GPU 利用率”，而是“更成熟的状态管理能力”。</strong></p>
+<hr>
+<h2 id="jie-yu-2026-nian-de-tui-li-bu-zai-zhi-shi-rang-mo-xing-geng-kuai-er-shi-zai-gou-jian-you-zhuang-tai-de-sheng-cheng-xi-tong" tabindex="-1" id="结语：2026-年的推理，不再只是“让模型更快”，而是在构建“有状态的生成系统”">结语：2026 年的推理，不再只是“让模型更快”，而是在构建“有状态的生成系统”</h2>
+<p>如果把这篇更新版压缩成一句话，我会这样总结：</p>
+<p><strong>2026 年的大模型推理，已经从“单机算子加速”升级为“状态感知、缓存驱动、分离式部署、分布式协同、控制平面统筹”的系统工程。</strong></p>
+<p>过去我们说推理优化，更多在想：</p>
+<ul>
+<li>attention 快不快；</li>
+<li>量化省不省；</li>
+<li>batch 大不大。</li>
+</ul>
+<p>现在则必须同时思考：</p>
+<ul>
+<li>cache 命中率高不高；</li>
+<li>路由是否感知状态；</li>
+<li>prefill 与 decode 是否要拆开；</li>
+<li>KV 是否可以跨实例共享；</li>
+<li>MoE 通信是否是主要瓶颈；</li>
+<li>SLA 下如何自动扩缩；</li>
+<li>多层内存和多种引擎如何协同。</li>
+</ul>
+<p>也正因为如此，推理方向不再只是“部署岗位”或者“应用岗位”的延伸，而越来越像一个独立的、技术密度极高的系统工程方向。</p>
+<p>这也是它为什么会持续成为大厂核心组重点投入的原因。</p>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/9d0ab4a7/">https://smarter.xin/posts/9d0ab4a7/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/inference-optimization/">推理优化</a><a class="post-meta__tags" href="/tags/llm-serving/">LLM Serving</a><a class="post-meta__tags" href="/tags/distributed-inference/">分布式推理</a><a class="post-meta__tags" href="/tags/quantization/">量化</a><a class="post-meta__tags" href="/tags/moe/">MoE</a></div><div class="post-share"><div class="social-share" data-image="/img/AI-Infra.png" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related full-width no-desc" href="/posts/43c4b52e/" title="从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/agent.webp" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/4854dc00/" title="AI Infra学习之旅-Transformer知识地图"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-04</div><div class="info-item-2">AI Infra学习之旅-Transformer知识地图</div></div></div></a><a class="pagination-related no-desc" href="/posts/9729c03f/" title="CUDA-Practice：11 推理优化、融合与键值缓存——算子融合、PagedAttention 与连续批处理"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-12</div><div class="info-item-2">CUDA-Practice：11 推理优化、融合与键值缓存——算子融合、PagedAttention 与连续批处理</div></div></div></a><a class="pagination-related no-desc" href="/posts/ef325d2f/" title="CUDA-Practice：07 量化、半精度与整数推理——FP16 带宽与 INT8 dp4a"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-12</div><div class="info-item-2">CUDA-Practice：07 量化、半精度与整数推理——FP16 带宽与 INT8 dp4a</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">我就是要爬这座山<br>再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">122</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">260</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">23</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#xian-dai-da-mo-xing-tui-li-de-he-xin-ji-zhu-quan-jing"><span class="toc-text">现代大模型推理的核心技术全景</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#yi-wei-shi-yao-yao-jiang-zhe-pian-wen-zhang"><span class="toc-text">一、为什么要讲这篇文章</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#er-xian-gei-jie-lun-2026-nian-zui-zhong-yao-de-bu-shi-geng-duo-ming-ci-er-shi-8-tiao-zhu-ji-zhu-zhu-xian"><span class="toc-text">二、先给结论：2026 年最重要的，不是更多名词，而是 8 条主技术主线</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#san-di-yi-tiao-zhu-xian-qing-qiu-ji-diao-du-yu-lian-xu-he-pi"><span class="toc-text">三、第一条主线：请求级调度与连续合批</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-wei-shi-yao-he-pi-zai-da-mo-xing-shi-dai-bian-de-geng-nan-liao"><span class="toc-text">1. 为什么“合批”在大模型时代变得更难了</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-wei-shi-yao-continuous-batching-reng-ran-shi-zhu-xian"><span class="toc-text">2. 为什么 continuous batching 仍然是主线</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-zhe-tiao-xian-zai-2026-nian-de-xin-bian-hua"><span class="toc-text">3. 这条线在 2026 年的新变化</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#si-di-er-tiao-zhu-xian-kv-cache-yi-jing-cong-you-hua-ji-qiao-sheng-ji-wei-xi-tong-ji-zi-chan"><span class="toc-text">四、第二条主线：KV Cache 已经从“优化技巧”升级为“系统级资产”</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-wei-shi-yao-kv-cache-huan-shi-zhong-xin-wen-ti"><span class="toc-text">1. 为什么 KV Cache 还是中心问题</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-paged-kv-prefix-caching-reng-shi-ji-chu-she-shi-ji-neng-li"><span class="toc-text">2. Paged KV &#x2F; Prefix Caching 仍是基础设施级能力</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-huan-cun-ti-xi-yi-jing-cong-dan-ceng-zou-xiang-duo-ceng"><span class="toc-text">3. 缓存体系已经从单层走向多层</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-fen-bu-shi-kv-yu-kua-yin-qing-fu-yong-zheng-zai-cong-qian-yan-zou-xiang-shi-yong"><span class="toc-text">4. 分布式 KV 与跨引擎复用正在从前沿走向实用</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-wei-shi-yao-zhe-yi-wei-zhao-tui-li-xi-tong-si-lu-bian-liao"><span class="toc-text">5. 为什么这意味着推理系统思路变了</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#wu-di-san-tiao-zhu-xian-attention-kernel-runtime-you-hua-yi-jing-cong-suan-zi-ji-kuo-zhan-dao-zhi-xing-lu-jing-ji"><span class="toc-text">五、第三条主线：Attention &#x2F; Kernel &#x2F; Runtime 优化已经从算子级扩展到执行路径级</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-attention-reng-ran-shi-re-dian-dan-re-dian-yi-jing-xi-hua"><span class="toc-text">1. Attention 仍然是热点，但热点已经细化</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-xian-zai-de-runtime-you-hua-yi-jing-bu-zhi-shi-geng-kuai-zhi-xing"><span class="toc-text">2. 现在的 runtime 优化，已经不只是“更快执行”</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-yi-ge-zhong-yao-qu-shi-attention-backend-he-neng-li-ju-zhen-geng-xian-xing-liao"><span class="toc-text">3. 一个重要趋势：Attention Backend 和能力矩阵更显性了</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#liu-di-si-tiao-zhu-xian-chang-shang-xia-wen-yu-qian-zhui-fu-yong-yi-jing-cong-ke-xuan-you-hua-bian-cheng-mo-ren-chang-jing"><span class="toc-text">六、第四条主线：长上下文与前缀复用，已经从“可选优化”变成“默认场景”</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-wei-shi-yao-chang-shang-xia-wen-bu-zai-shi-te-shu-xu-qiu"><span class="toc-text">1. 为什么长上下文不再是特殊需求</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-chunked-prefill-reng-ran-hen-zhong-yao"><span class="toc-text">2. Chunked Prefill 仍然很重要</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-qian-zhui-fu-yong-zheng-zai-he-lu-you-qiang-ou-he"><span class="toc-text">3. 前缀复用正在和路由强耦合</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-duo-mo-tai-ye-yi-jing-ba-zhe-jian-shi-tui-de-geng-yuan"><span class="toc-text">4. 多模态也已经把这件事推得更远</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#qi-di-wu-tiao-zhu-xian-decode-jia-su-cong-speculative-decoding-zou-xiang-zu-he-shi-decode-you-hua"><span class="toc-text">七、第五条主线：Decode 加速从 speculative decoding 走向“组合式 decode 优化”</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-speculative-decoding-reng-ran-shi-zhu-xian-dan-bu-zai-zhi-shi-yi-ge-gu-li-feature"><span class="toc-text">1. Speculative decoding 仍然是主线，但不再只是一个孤立 feature</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-wei-shi-yao-zhe-jian-shi-hen-guan-jian"><span class="toc-text">2. 为什么这件事很关键</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-structured-outputs-cheng-wei-zheng-shi-te-xing-ben-shen-jiu-shi-bian-hua"><span class="toc-text">3. Structured outputs 成为“正式特性”本身就是变化</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#ba-di-liu-tiao-zhu-xian-liang-hua-reng-ran-zhong-yao-dan-zhong-dian-yi-jing-cong-neng-bu-neng-liang-hua-bian-cheng-ru-he-he-zheng-ge-xi-tong-xie-tong"><span class="toc-text">八、第六条主线：量化仍然重要，但重点已经从“能不能量化”变成“如何和整个系统协同”</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-wei-shi-yao-liang-hua-reng-shi-zhu-zhan-chang"><span class="toc-text">1. 为什么量化仍是主战场</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-2026-nian-liang-hua-si-lu-de-bian-hua"><span class="toc-text">2. 2026 年量化思路的变化</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-ni-ying-gai-zen-yao-li-jie-zhe-tiao-xian"><span class="toc-text">3. 你应该怎么理解这条线</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#jiu-di-qi-tiao-zhu-xian-mo-e-serving-yi-jing-cong-zhi-chi-yi-xia-jiu-xing-jin-ru-tong-xin-yu-kuo-zhan-neng-li-jing-zheng"><span class="toc-text">九、第七条主线：MoE Serving 已经从“支持一下就行”进入“通信与扩展能力竞争”</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-wei-shi-yao-mo-e-bu-zhi-shi-geng-da-de-mo-xing"><span class="toc-text">1. 为什么 MoE 不只是“更大的模型”</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-2026-nian-zhen-zheng-zhi-de-zhu-yi-de-bian-hua"><span class="toc-text">2. 2026 年真正值得注意的变化</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-yi-ge-hen-ming-xian-de-xin-hao-zhuan-jia-bing-xing-kai-shi-zou-xiang-dan-xing-hua"><span class="toc-text">3. 一个很明显的信号：专家并行开始走向弹性化</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-di-ba-tiao-zhu-xian-kong-zhi-ping-mian-yu-zhuang-tai-gan-zhi-lu-you-yi-jing-cheng-wei-tui-li-xi-tong-de-shang-ceng-gu-jia"><span class="toc-text">十、第八条主线：控制平面与状态感知路由，已经成为推理系统的上层骨架</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-wei-shi-yao-you-yin-qing-bu-deng-yu-you-xi-tong"><span class="toc-text">1. 为什么“有引擎”不等于“有系统”</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-dynamo-ba-zhuang-tai-gan-zhi-tui-li-xi-tong-jiang-qing-chu-liao"><span class="toc-text">2. Dynamo：把“状态感知推理系统”讲清楚了</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-ai-brix-ling-yi-tiao-hen-you-dai-biao-xing-de-lu-xian"><span class="toc-text">3. AIBrix：另一条很有代表性的路线</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-yi-ge-hen-zhong-yao-de-ren-shi"><span class="toc-text">4. 一个很重要的认识</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-yi-yi-ge-chi-xu-sheng-wen-de-jiao-cha-re-dian-pd-fen-chi-yu-fen-chi-shi-bu-shu"><span class="toc-text">十一、一个持续升温的交叉热点：PD 分离与分离式部署</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-wei-shi-yao-pd-fen-chi-zai-2026-nian-geng-zhong-yao-liao"><span class="toc-text">1. 为什么 PD 分离在 2026 年更重要了</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-pd-fen-chi-dai-lai-de-xi-tong-tiao-zhan-ye-geng-ming-que-liao"><span class="toc-text">2. PD 分离带来的系统挑战也更明确了</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-er-mooncake-hi-cache-nixl-zhe-lei-ming-zi-wei-shi-yao-yue-lai-yue-zhi-de-guan-zhu"><span class="toc-text">十二、Mooncake、HiCache、NIXL 这类名字为什么越来越值得关注</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-yin-wei-ta-men-dai-biao-de-shi-tui-li-zhuang-tai-ji-chu-she-shi-hua"><span class="toc-text">1. 因为它们代表的是“推理状态基础设施化”</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-zhe-lei-xiang-mu-yi-wei-zhao-shi-yao"><span class="toc-text">2. 这类项目意味着什么</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#jie-yu-2026-nian-de-tui-li-bu-zai-zhi-shi-rang-mo-xing-geng-kuai-er-shi-zai-gou-jian-you-zhuang-tai-de-sheng-cheng-xi-tong"><span class="toc-text">结语：2026 年的推理，不再只是“让模型更快”，而是在构建“有状态的生成系统”</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/9d0ab4a7/" title="现代大模型推理的核心技术全景"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="现代大模型推理的核心技术全景"/></a><div class="content"><a class="title" href="/posts/9d0ab4a7/" title="现代大模型推理的核心技术全景">现代大模型推理的核心技术全景</a><time datetime="2026-03-26T12:56:15.000Z" title="发表于 2026-03-26 20:56:15">2026-03-26</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/43c4b52e/" title="从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/agent.webp" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路"/></a><div class="content"><a class="title" href="/posts/43c4b52e/" title="从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路">从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路</a><time datetime="2026-03-24T01:39:40.000Z" title="发表于 2026-03-24 09:39:40">2026-03-24</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/223ba430/" title="常见算法-单调栈"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Algorithm.svg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="常见算法-单调栈"/></a><div class="content"><a class="title" href="/posts/223ba430/" title="常见算法-单调栈">常见算法-单调栈</a><time datetime="2026-03-23T07:52:26.000Z" title="发表于 2026-03-23 15:52:26">2026-03-23</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">从 Self-Attention、位置编码到 Encoder-Decoder，系统梳理 Transformer 的核心结构、设计动机与理解路径</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/d6fa227a/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-16</span><a class="blog-slider__title" href="posts/d6fa227a/" alt="">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</a><div class="blog-slider__text">从访存优化到多卡通信，一篇看清 CUDA 实践系列的结构与学习路线</div><a class="blog-slider__button" href="posts/d6fa227a/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/43c4b52e/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/agent.webp" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-24</span><a class="blog-slider__title" href="posts/43c4b52e/" alt="">从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路</a><div class="blog-slider__text">使用飞书与本地 Agent 对话，远程也要让本地 Agent 干活，当一名狠狠的资本家</div><a class="blog-slider__button" href="posts/43c4b52e/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/92dc1028/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/CUDA_C.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-02-05</span><a class="blog-slider__title" href="posts/92dc1028/" alt="">CUDA C编程权威指南-导读</a><div class="blog-slider__text">从异构并行到多 GPU 实践，串起 CUDA C 权威指南的核心学习路线</div><a class="blog-slider__button" href="posts/92dc1028/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">从全书视角出发，一篇看清 PMPP 的章节结构、核心主题与学习主线</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/aac6e27d/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Computer_System.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/aac6e27d/" alt="">深入理解计算机系统知识点总结</a><div class="blog-slider__text">从程序员视角梳理 CSAPP 的知识脉络、系统抽象与性能理解</div><a class="blog-slider__button" href="posts/aac6e27d/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">围绕类型推导、移动语义与并发，提炼现代 C++ 的核心实践</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>
