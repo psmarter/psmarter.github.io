@@ -1,0 +1,806 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>AI Infra学习之旅-从模型执行到推理系统的桥接 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="AI Infra学习之旅-从模型执行到推理系统的桥接  这是“Transformer 原理深讲系列”的第 5 篇。 前面 4 篇我们已经把 Transformer 的核心结构拆开讲清楚了： 从为什么需要 Transformer，到文本如何进入模型；从位置编码、Q&#x2F;K&#x2F;V 和 Attention，到多头、Mask、FFN；再到残差、LayerNorm、一层完整 Transformer Block，以">
+<meta property="og:type" content="article">
+<meta property="og:title" content="AI Infra学习之旅-从模型执行到推理系统的桥接">
+<meta property="og:url" content="https://smarter.xin/posts/d3059af7/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="AI Infra学习之旅-从模型执行到推理系统的桥接  这是“Transformer 原理深讲系列”的第 5 篇。 前面 4 篇我们已经把 Transformer 的核心结构拆开讲清楚了： 从为什么需要 Transformer，到文本如何进入模型；从位置编码、Q&#x2F;K&#x2F;V 和 Attention，到多头、Mask、FFN；再到残差、LayerNorm、一层完整 Transformer Block，以">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/AI-Infra.png">
+<meta property="article:published_time" content="2026-03-27T06:00:24.000Z">
+<meta property="article:modified_time" content="2026-03-27T06:04:38.392Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="KV Cache">
+<meta property="article:tag" content="Transformer">
+<meta property="article:tag" content="推理优化">
+<meta property="article:tag" content="大模型推理">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/AI-Infra.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "AI Infra学习之旅-从模型执行到推理系统的桥接",
+  "url": "https://smarter.xin/posts/d3059af7/",
+  "image": "https://smarter.xin/img/AI-Infra.png",
+  "datePublished": "2026-03-27T06:00:24.000Z",
+  "dateModified": "2026-03-27T06:04:38.392Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/d3059af7/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'AI Infra学习之旅-从模型执行到推理系统的桥接',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">127</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">260</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">23</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/AI-Infra.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">AI Infra学习之旅-从模型执行到推理系统的桥接</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">AI Infra学习之旅-从模型执行到推理系统的桥接</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-03-27T06:00:24.000Z" title="发表于 2026-03-27 14:00:24">2026-03-27</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-03-27T06:04:38.392Z" title="更新于 2026-03-27 14:04:38">2026-03-27</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/">AI Infra</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">4.2k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>13分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="ai-infra-xue-xi-zhi-lu-cong-mo-xing-zhi-xing-dao-tui-li-xi-tong-de-qiao-jie" tabindex="-1">AI Infra学习之旅-从模型执行到推理系统的桥接</h1>
+<blockquote>
+<p>这是“Transformer 原理深讲系列”的第 5 篇。<br>
+前面 4 篇我们已经把 Transformer 的核心结构拆开讲清楚了：<br>
+从为什么需要 Transformer，到文本如何进入模型；从位置编码、Q/K/V 和 Attention，到多头、Mask、FFN；再到残差、LayerNorm、一层完整 Transformer Block，以及 Encoder/Decoder 的结构分化。<br>
+这一篇不再继续拆单个模块，而是回答一个更关键的问题：<br>
+<strong>同样是 Decoder-only Transformer，为什么训练时能高吞吐并行，而推理时却常常慢、贵、吃显存？</strong><br>
+也正是这个问题，把“模型原理”真正连接到了“推理系统”。</p>
+</blockquote>
+<hr>
+<h2 id="yi-xian-gei-jie-lun-xun-lian-he-tui-li-sui-ran-du-zai-zuo-next-token-prediction-dan-zhi-xing-fang-shi-wan-quan-bu-tong" tabindex="-1" id="一、先给结论：训练和推理虽然都在做-Next-Token-Prediction，但执行方式完全不同">一、先给结论：训练和推理虽然都在做 Next-Token Prediction，但执行方式完全不同</h2>
+<p>如果先用一句话概括这一篇的核心，那就是：</p>
+<p><strong>训练时，模型在已知完整序列上并行学习多个位置的“下一个 token 预测”；推理时，模型只能根据当前已有前缀，一个 token 一个 token 地向前生成。</strong></p>
+<p>这句话非常重要。<br>
+因为今天大模型推理系统中的大多数核心问题——例如：</p>
+<ul>
+<li>Prefill / Decode</li>
+<li>TTFT / TPOT</li>
+<li>KV Cache</li>
+<li>Paged Attention</li>
+<li>continuous batching</li>
+<li>speculative decoding</li>
+<li>prefix caching</li>
+</ul>
+<p>几乎都能追溯到这条结构事实：</p>
+<blockquote>
+<p><strong>训练看的是完整已知序列，推理面对的是尚未存在的未来。</strong></p>
+</blockquote>
+<p>所以，如果你真的想理解 AI 推理 / Infra，这一篇必须吃透。</p>
+<hr>
+<h2 id="er-cong-xun-lian-mu-biao-kai-shi-decoder-only-transformer-dao-di-zai-xue-shi-yao" tabindex="-1" id="二、从训练目标开始：Decoder-only-Transformer-到底在学什么">二、从训练目标开始：Decoder-only Transformer 到底在学什么</h2>
+<p>今天主流大语言模型基本都属于 <strong>Decoder-only Transformer</strong>。<br>
+这类模型的训练目标，本质上是标准的语言建模目标：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>P</mi><mo stretchy="false">(</mo><msub><mi>x</mi><mi>t</mi></msub><mo>∣</mo><msub><mi>x</mi><mn>1</mn></msub><mo separator="true">,</mo><mo>…</mo><mo separator="true">,</mo><msub><mi>x</mi><mrow><mi>t</mi><mo>−</mo><mn>1</mn></mrow></msub><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">P(x_t \mid x_1,\dots,x_{t-1})
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">P</span><span class="mopen">(</span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.2806em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">t</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">∣</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">1</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="minner">…</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight">t</span><span class="mbin mtight">−</span><span class="mord mtight">1</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.2083em;"><span></span></span></span></span></span></span><span class="mclose">)</span></span></span></span></span></p>
+<p>也就是：</p>
+<ul>
+<li>给定前面的 token</li>
+<li>预测当前位置应该是什么 token</li>
+</ul>
+<p>如果一段序列是：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><msub><mi>x</mi><mn>1</mn></msub><mo separator="true">,</mo><msub><mi>x</mi><mn>2</mn></msub><mo separator="true">,</mo><msub><mi>x</mi><mn>3</mn></msub><mo separator="true">,</mo><mo>…</mo><mo separator="true">,</mo><msub><mi>x</mi><mi>T</mi></msub></mrow><annotation encoding="application/x-tex">x_1, x_2, x_3, \dots, x_T
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.625em;vertical-align:-0.1944em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">1</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">3</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="minner">…</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3283em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.13889em;">T</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span></span></p>
+<p>那么模型学习的是一串条件概率：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>P</mi><mo stretchy="false">(</mo><msub><mi>x</mi><mn>2</mn></msub><mi mathvariant="normal">∣</mi><msub><mi>x</mi><mn>1</mn></msub><mo stretchy="false">)</mo><mo separator="true">,</mo><mspace width="1em"/><mi>P</mi><mo stretchy="false">(</mo><msub><mi>x</mi><mn>3</mn></msub><mi mathvariant="normal">∣</mi><msub><mi>x</mi><mn>1</mn></msub><mo separator="true">,</mo><msub><mi>x</mi><mn>2</mn></msub><mo stretchy="false">)</mo><mo separator="true">,</mo><mspace width="1em"/><mo>…</mo><mo separator="true">,</mo><mspace width="1em"/><mi>P</mi><mo stretchy="false">(</mo><msub><mi>x</mi><mi>T</mi></msub><mi mathvariant="normal">∣</mi><msub><mi>x</mi><mn>1</mn></msub><mo separator="true">,</mo><mo>…</mo><mo separator="true">,</mo><msub><mi>x</mi><mrow><mi>T</mi><mo>−</mo><mn>1</mn></mrow></msub><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">P(x_2|x_1),\quad
+P(x_3|x_1,x_2),\quad
+\dots,\quad
+P(x_T|x_1,\dots,x_{T-1})
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">P</span><span class="mopen">(</span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mord">∣</span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">1</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mclose">)</span><span class="mpunct">,</span><span class="mspace" style="margin-right:1em;"></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">P</span><span class="mopen">(</span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">3</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mord">∣</span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">1</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mclose">)</span><span class="mpunct">,</span><span class="mspace" style="margin-right:1em;"></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="minner">…</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mpunct">,</span><span class="mspace" style="margin-right:1em;"></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">P</span><span class="mopen">(</span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3283em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.13889em;">T</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mord">∣</span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">1</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="minner">…</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3283em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight" style="margin-right:0.13889em;">T</span><span class="mbin mtight">−</span><span class="mord mtight">1</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.2083em;"><span></span></span></span></span></span></span><span class="mclose">)</span></span></span></span></span></p>
+<p>这就是“Next-Token Prediction”。</p>
+<p>很多人只记住这点，但没有再往下想一步：</p>
+<blockquote>
+<p><strong>既然每个位置都依赖前缀，为什么训练时还能并行？</strong></p>
+</blockquote>
+<p>这正是 Transformer 相比 RNN 的关键优势之一。</p>
+<hr>
+<h2 id="san-wei-shi-yao-xun-lian-shi-ke-yi-bing-xing-yin-wei-wan-zheng-xu-lie-yi-jing-yi-zhi" tabindex="-1" id="三、为什么训练时可以并行：因为完整序列已经已知">三、为什么训练时可以并行：因为完整序列已经已知</h2>
+<p>这是整个问题的第一关键点。</p>
+<p>设真实训练样本是：</p>
+<blockquote>
+<p>我 喜欢 学习 Transformer</p>
+</blockquote>
+<p>训练时，这整段序列是完整已知的。<br>
+也就是说，虽然模型目标是“根据前缀预测下一个 token”，但前缀和目标 token 在训练数据里都已经给定。</p>
+<p>于是，Transformer 可以一次性把整段序列送入网络。<br>
+通过 <strong>causal mask</strong> 保证每个位置只能看到自己和前面的 token，而不能偷看未来。</p>
+<p>例如长度为 4 的序列：</p>
+<ul>
+<li>位置 1 只能看位置 1</li>
+<li>位置 2 只能看位置 1,2</li>
+<li>位置 3 只能看位置 1,2,3</li>
+<li>位置 4 只能看位置 1,2,3,4</li>
+</ul>
+<p>这样一来，虽然逻辑上模型学的是自回归条件概率，但计算上却可以通过一个大矩阵完成整段并行前向。</p>
+<p>也就是说：</p>
+<ul>
+<li><strong>目标是因果的</strong></li>
+<li><strong>计算是并行的</strong></li>
+</ul>
+<p>这是 Transformer 训练效率极高的根本原因。</p>
+<hr>
+<h2 id="si-teacher-forcing-shi-shi-yao-xun-lian-wei-shi-yao-xiang-lao-shi-gei-da-an-zuo-lian-xi" tabindex="-1" id="四、Teacher-Forcing-是什么：训练为什么像“老师给答案做练习”">四、Teacher Forcing 是什么：训练为什么像“老师给答案做练习”</h2>
+<p>上面的并行训练方式，有一个非常重要的名字：</p>
+<h3 id="teacher-forcing-jiao-shi-qiang-zhi" tabindex="-1" id="Teacher-Forcing（教师强制）">Teacher Forcing（教师强制）</h3>
+<p>它的意思是：</p>
+<blockquote>
+<p>在训练中，模型在每一步看到的前缀，不是“自己上一轮生成出来的结果”，而是“数据集中真实存在的标准答案前缀”。</p>
+</blockquote>
+<p>例如句子：</p>
+<blockquote>
+<p>我 喜欢 学习 Transformer</p>
+</blockquote>
+<p>模型训练时并不是先生成“喜欢”，再拿自己生成的“喜欢”去预测“学习”。<br>
+而是直接用真实的：</p>
+<ul>
+<li>“我” 去预测 “喜欢”</li>
+<li>“我 喜欢” 去预测 “学习”</li>
+<li>“我 喜欢 学习” 去预测 “Transformer”</li>
+</ul>
+<p>这意味着，训练过程本质上是在做：</p>
+<p><strong>给定真实历史，学习下一个 token 的条件分布。</strong></p>
+<p>Teacher Forcing 的优点是非常直接的：</p>
+<ol>
+<li>可以并行训练整段序列</li>
+<li>不需要等待模型一步步生成</li>
+<li>训练更稳定，梯度更容易对齐到真实目标</li>
+</ol>
+<p>但它也隐含了一个重要事实：</p>
+<blockquote>
+<p><strong>训练时模型看到的前缀是“标准答案前缀”，而推理时看到的是“自己生成出来的前缀”。</strong></p>
+</blockquote>
+<p>这就导致训练和推理之间有明显的执行差异。</p>
+<hr>
+<h2 id="wu-xun-lian-shi-shu-chu-he-sun-shi-shi-zen-yao-dui-qi-de" tabindex="-1" id="五、训练时输出和损失是怎么对齐的">五、训练时输出和损失是怎么对齐的</h2>
+<p>在实现上，语言模型训练常常可以理解成“输入和目标右移一位”。</p>
+<p>例如序列：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mo stretchy="false">[</mo><msub><mi>x</mi><mn>1</mn></msub><mo separator="true">,</mo><msub><mi>x</mi><mn>2</mn></msub><mo separator="true">,</mo><msub><mi>x</mi><mn>3</mn></msub><mo separator="true">,</mo><msub><mi>x</mi><mn>4</mn></msub><mo stretchy="false">]</mo></mrow><annotation encoding="application/x-tex">[x_1, x_2, x_3, x_4]
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">[</span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">1</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">3</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">4</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mclose">]</span></span></span></span></span></p>
+<p>可以理解成：</p>
+<ul>
+<li>输入给模型的是：</li>
+</ul>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mo stretchy="false">[</mo><msub><mi>x</mi><mn>1</mn></msub><mo separator="true">,</mo><msub><mi>x</mi><mn>2</mn></msub><mo separator="true">,</mo><msub><mi>x</mi><mn>3</mn></msub><mo stretchy="false">]</mo></mrow><annotation encoding="application/x-tex">[x_1, x_2, x_3]
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">[</span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">1</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">3</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mclose">]</span></span></span></span></span></p>
+<ul>
+<li>监督目标是：</li>
+</ul>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mo stretchy="false">[</mo><msub><mi>x</mi><mn>2</mn></msub><mo separator="true">,</mo><msub><mi>x</mi><mn>3</mn></msub><mo separator="true">,</mo><msub><mi>x</mi><mn>4</mn></msub><mo stretchy="false">]</mo></mrow><annotation encoding="application/x-tex">[x_2, x_3, x_4]
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">[</span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">3</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">4</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mclose">]</span></span></span></span></span></p>
+<p>当然，在具体实现中，也常常把整段都送进去，再让每个位置的输出负责预测下一个 token。<br>
+无论怎么写，本质都一样：</p>
+<p><strong>第 (t) 个位置的 hidden state，用来预测第 (t+1) 个 token。</strong></p>
+<p>形式上，每个位置最终会输出一个词表大小维度的 logits：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><msub><mi>z</mi><mi>t</mi></msub><mo>∈</mo><msup><mi mathvariant="double-struck">R</mi><mi>V</mi></msup></mrow><annotation encoding="application/x-tex">z_t \in \mathbb{R}^{V}
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6891em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.04398em;">z</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.2806em;"><span style="top:-2.55em;margin-left:-0.044em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">t</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">∈</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8913em;"></span><span class="mord"><span class="mord mathbb">R</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8913em;"><span style="top:-3.113em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight" style="margin-right:0.22222em;">V</span></span></span></span></span></span></span></span></span></span></span></span></span></p>
+<p>然后通过 softmax 变成概率分布，再与真实 token 做交叉熵损失。</p>
+<p>所以训练时模型做的事情可以概括为：</p>
+<blockquote>
+<p><strong>在真实完整序列上，并行学习每一个位置的 next-token 预测。</strong></p>
+</blockquote>
+<hr>
+<h2 id="liu-wei-shi-yao-tui-li-shi-bu-neng-xiang-xun-lian-na-yang-bing-xing" tabindex="-1" id="六、为什么推理时不能像训练那样并行">六、为什么推理时不能像训练那样并行</h2>
+<p>现在进入真正和大模型推理密切相关的部分。</p>
+<p>推理时，你给模型的是一个 prompt，例如：</p>
+<blockquote>
+<p>我想系统学习 Transformer，请先从整体结构讲起。</p>
+</blockquote>
+<p>然后模型需要继续生成回答。<br>
+这时，与训练最大的不同出现了：</p>
+<p><strong>未来 token 根本还不存在。</strong></p>
+<p>训练时你已经知道完整句子，所以可以把后面 token 也送进去；<br>
+但推理时，模型必须自己先生成第一个新 token，才能知道下一步的输入长什么样。</p>
+<p>也就是说，推理时只能这样做：</p>
+<ol>
+<li>根据当前前缀，预测下一个 token</li>
+<li>把这个 token 拼接回序列</li>
+<li>再基于更长的前缀预测下一个 token</li>
+<li>重复以上步骤</li>
+</ol>
+<p>这就是 <strong>自回归生成</strong> 的真实运行方式。</p>
+<p>所以，推理不能像训练那样一次性并行算完整未来，不是因为工程还不够好，而是因为：</p>
+<blockquote>
+<p><strong>未来 token 在推理开始时本来就不存在。</strong></p>
+</blockquote>
+<hr>
+<h2 id="qi-tui-li-wei-shi-yao-tian-ran-chuan-xing-zi-hui-gui-yi-lai-de-jie-gou-hou-guo" tabindex="-1" id="七、推理为什么天然串行：自回归依赖的结构后果">七、推理为什么天然串行：自回归依赖的结构后果</h2>
+<p>设当前已有前缀是：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><msub><mi>x</mi><mn>1</mn></msub><mo separator="true">,</mo><mo>…</mo><mo separator="true">,</mo><msub><mi>x</mi><mi>t</mi></msub></mrow><annotation encoding="application/x-tex">x_1,\dots,x_t
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.625em;vertical-align:-0.1944em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">1</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="minner">…</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.2806em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">t</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span></span></p>
+<p>模型可以计算：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>P</mi><mo stretchy="false">(</mo><msub><mi>x</mi><mrow><mi>t</mi><mo>+</mo><mn>1</mn></mrow></msub><mo>∣</mo><msub><mi>x</mi><mn>1</mn></msub><mo separator="true">,</mo><mo>…</mo><mo separator="true">,</mo><msub><mi>x</mi><mi>t</mi></msub><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">P(x_{t+1} \mid x_1,\dots,x_t)
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">P</span><span class="mopen">(</span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight">t</span><span class="mbin mtight">+</span><span class="mord mtight">1</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.2083em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">∣</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">1</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="minner">…</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.2806em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">t</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mclose">)</span></span></span></span></span></p>
+<p>然后采样或选择得到 (\hat{x}_{t+1})。<br>
+接下来第 (t+2) 个 token 的分布变成：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>P</mi><mo stretchy="false">(</mo><msub><mi>x</mi><mrow><mi>t</mi><mo>+</mo><mn>2</mn></mrow></msub><mo>∣</mo><msub><mi>x</mi><mn>1</mn></msub><mo separator="true">,</mo><mo>…</mo><mo separator="true">,</mo><msub><mi>x</mi><mi>t</mi></msub><mo separator="true">,</mo><msub><mover accent="true"><mi>x</mi><mo>^</mo></mover><mrow><mi>t</mi><mo>+</mo><mn>1</mn></mrow></msub><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">P(x_{t+2} \mid x_1,\dots,x_t,\hat{x}_{t+1})
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">P</span><span class="mopen">(</span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight">t</span><span class="mbin mtight">+</span><span class="mord mtight">2</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.2083em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">∣</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">1</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="minner">…</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.2806em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">t</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord accent"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.6944em;"><span style="top:-3em;"><span class="pstrut" style="height:3em;"></span><span class="mord mathnormal">x</span></span><span style="top:-3em;"><span class="pstrut" style="height:3em;"></span><span class="accent-body" style="left:-0.2222em;"><span class="mord">^</span></span></span></span></span></span></span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight">t</span><span class="mbin mtight">+</span><span class="mord mtight">1</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.2083em;"><span></span></span></span></span></span></span><span class="mclose">)</span></span></span></span></span></p>
+<p>注意，这里第 (t+2) 个 token 的计算，依赖刚刚生成出来的 (\hat{x}<em>{t+1})。<br>
+而 (\hat{x}</em>{t+1}) 在上一时刻之前并不存在。</p>
+<p>所以第 (t+2) 步不可能提前完全展开。</p>
+<p>这意味着：</p>
+<ul>
+<li>第一步要先走完</li>
+<li>第二步才能开始</li>
+<li>第三步又依赖第二步</li>
+<li>于是形成时间上的严格串行链</li>
+</ul>
+<p>这就是推理天然慢于训练的根本原因之一。</p>
+<p>不是“模型不够优化”，而是：</p>
+<p><strong>Decoder-only Transformer 的自回归生成，本身就带有不可消除的时间依赖。</strong></p>
+<hr>
+<h2 id="ba-prefill-he-decode-wei-shi-yao-tui-li-jie-duan-hui-bei-zi-ran-fen-lie-cheng-liang-bu-fen" tabindex="-1" id="八、Prefill-和-Decode：为什么推理阶段会被自然分裂成两部分">八、Prefill 和 Decode：为什么推理阶段会被自然分裂成两部分</h2>
+<p>一旦真正站在推理执行角度看 Transformer，就会发现，模型在服务一个请求时其实会经历两个性质非常不同的阶段：</p>
+<p><strong>Prefill</strong>和<strong>Decode</strong>这两个词你以后做推理系统会一直见到。</p>
+<hr>
+<h3 id="1-prefill-shi-shi-yao" tabindex="-1" id="1-Prefill-是什么">1. Prefill 是什么</h3>
+<p>假设用户给了一个 prompt，长度可能已经很长。<br>
+模型首先必须把这段 prompt 整段读入并处理，建立当前上下文状态。</p>
+<p>这一步就是 <strong>Prefill</strong>。</p>
+<p>它的本质是：</p>
+<blockquote>
+<p><strong>对已知完整前缀做一次并行前向，得到最后位置的输出基础，并建立所有历史 token 的 attention 状态。</strong></p>
+</blockquote>
+<p>换句话说，Prefill 更像训练时的那种“整段并行处理”。</p>
+<hr>
+<h3 id="2-decode-shi-shi-yao" tabindex="-1" id="2-Decode-是什么">2. Decode 是什么</h3>
+<p>当 Prefill 完成后，模型开始生成第一个新 token。<br>
+之后每一步都只新增一个位置，并基于已有上下文继续往后生成。</p>
+<p>这一阶段就是 <strong>Decode</strong>。</p>
+<p>它的本质是：</p>
+<blockquote>
+<p><strong>在已有上下文状态基础上，逐 token 自回归延长序列。</strong></p>
+</blockquote>
+<p>所以：</p>
+<ul>
+<li>Prefill 更像“大块已知上下文的并行读入”</li>
+<li>Decode 更像“严格串行的小步推进”</li>
+</ul>
+<p>这两者的资源画像差异非常大，后面很多系统设计都由此而来。</p>
+<hr>
+<h2 id="jiu-wei-shi-yao-kv-cache-hui-cheng-wei-tui-li-he-xin" tabindex="-1" id="九、为什么-KV-Cache-会成为推理核心">九、为什么 KV Cache 会成为推理核心</h2>
+<p>这是整个推理系统最核心的概念之一。</p>
+<p>Attention 的结构决定了：</p>
+<blockquote>
+<p>当前新 token 做 Self-Attention 时，它需要和所有历史 token 的 Key / Value 交互。</p>
+</blockquote>
+<p>也就是说，当前 token 的 query 要去匹配历史所有 key，再聚合历史所有 value。</p>
+<p>如果你在每一步 Decode 时，都把所有历史 token 从头再经过每一层重新计算一遍，会发生什么？</p>
+<p>成本会迅速爆炸。</p>
+<p>因为随着序列越来越长，每一步都重复计算越来越长的前缀，非常浪费。</p>
+<p>于是，一个极其自然的工程想法出现了：</p>
+<blockquote>
+<p><strong>把历史 token 已经算好的 Key 和 Value 缓存起来。</strong></p>
+</blockquote>
+<p>这就是：</p>
+<h3 id="kv-cache" tabindex="-1" id="KV-Cache">KV Cache</h3>
+<hr>
+<h2 id="shi-kv-cache-de-ben-zhi-dao-di-shi-shi-yao" tabindex="-1" id="十、KV-Cache-的本质到底是什么">十、KV Cache 的本质到底是什么</h2>
+<p>KV Cache 不是别的东西，它就是：</p>
+<p><strong>每一层中，历史 token 已计算好的 Key 和 Value 的缓存。</strong></p>
+<p>有了它之后：</p>
+<ul>
+<li>历史 token 的 K/V 不用重算</li>
+<li>当前步只需要为“新 token”计算它自己的 Q/K/V</li>
+<li>然后用新 token 的 Q 去和历史缓存的 K 做匹配</li>
+<li>再用匹配结果去加权读取历史缓存的 V</li>
+</ul>
+<p>也就是说，KV Cache 的核心价值是：</p>
+<p><strong>避免在 Decode 阶段重复计算历史上下文。</strong></p>
+<p>这就是它为什么是现代大模型推理几乎不可缺少的东西。</p>
+<hr>
+<h2 id="shi-yi-wei-shi-yao-zhi-huan-cun-k-v-er-bu-shi-huan-cun-q" tabindex="-1" id="十一、为什么只缓存-K-V，而不是缓存-Q">十一、为什么只缓存 K/V，而不是缓存 Q</h2>
+<p>这是一个非常值得问的问题。</p>
+<p>原因在于 Decode 的查询方向是：</p>
+<ul>
+<li><strong>当前新 token 的 Query</strong><br>
+去查询</li>
+<li><strong>历史 token 的 Key</strong><br>
+并读取</li>
+<li><strong>历史 token 的 Value</strong></li>
+</ul>
+<p>所以：</p>
+<ul>
+<li>历史 K/V 会被反复使用</li>
+<li>历史 Q 一般不会再参与未来 token 的主查询路径</li>
+</ul>
+<p>因此，缓存最有价值的是：</p>
+<ul>
+<li>K</li>
+<li>V</li>
+</ul>
+<p>而不是 Q。</p>
+<p>所以名字叫 KV Cache，不叫 QKV Cache，这并不是命名习惯问题，而是由 attention 的使用方式直接决定的。</p>
+<hr>
+<h2 id="shi-er-prefill-he-decode-de-chai-yi-wei-shi-yao-hui-jin-yi-bu-dao-chu-xi-tong-wen-ti" tabindex="-1" id="十二、Prefill-和-Decode-的差异，为什么会进一步导出系统问题">十二、Prefill 和 Decode 的差异，为什么会进一步导出系统问题</h2>
+<p>现在我们可以更精确地看 Prefill 和 Decode 的资源特征。</p>
+<h3 id="prefill-de-te-zheng" tabindex="-1" id="Prefill-的特征">Prefill 的特征</h3>
+<ul>
+<li>输入序列通常较长</li>
+<li>可以对整段已知前缀并行处理</li>
+<li>更偏“大矩阵吞吐型计算”</li>
+<li>对 TTFT（首 token 延迟）影响很大</li>
+</ul>
+<h3 id="decode-de-te-zheng" tabindex="-1" id="Decode-的特征">Decode 的特征</h3>
+<ul>
+<li>每一步只新增一个 token</li>
+<li>强依赖 KV Cache</li>
+<li>时间上严格串行</li>
+<li>更偏“低延迟小步推进”</li>
+<li>对 TPOT（每 token 时间）影响很大</li>
+</ul>
+<p>所以你会发现：</p>
+<p>同一个模型，在 Prefill 和 Decode 阶段，其实像是在做两种不同风格的计算。</p>
+<p>这就是为什么现代推理系统会围绕它们做大量设计，例如：</p>
+<ul>
+<li>Chunked Prefill</li>
+<li>PD 分离</li>
+<li>TTFT / TPOT 分别优化</li>
+<li>KV transfer</li>
+<li>Decode-Specific Scheduling</li>
+</ul>
+<p>这些都不是额外加戏，而是 Transformer 自身执行阶段异质性带来的自然工程后果。</p>
+<hr>
+<h2 id="shi-san-wei-shi-yao-xun-lian-he-tui-li-de-chai-yi-hui-zhi-jie-dao-chu-tui-li-xi-tong-de-ji-zhu-shu" tabindex="-1" id="十三、为什么训练和推理的差异会直接导出推理系统的技术树">十三、为什么训练和推理的差异会直接导出推理系统的技术树</h2>
+<p>如果把上面的结构事实再往系统层推进一步，就会得到今天很多非常熟悉的工程技术。</p>
+<h3 id="1-yin-wei-decode-chuan-xing" tabindex="-1" id="1-因为-Decode-串行">1. 因为 Decode 串行</h3>
+<p>所以会有：</p>
+<ul>
+<li>inter-token latency 问题</li>
+<li>speculative decoding</li>
+<li>MTP</li>
+<li>各类 Decode Acceleration 路线</li>
+</ul>
+<h3 id="2-yin-wei-attention-yi-lai-li-shi-k-v" tabindex="-1" id="2-因为-Attention-依赖历史-K-V">2. 因为 Attention 依赖历史 K/V</h3>
+<p>所以会有：</p>
+<ul>
+<li>KV Cache</li>
+<li>Paged Attention</li>
+<li>cache offloading</li>
+<li>quantized cache</li>
+<li>Distributed KV Cache</li>
+</ul>
+<h3 id="3-yin-wei-prompt-tong-chang-hen-chang" tabindex="-1" id="3-因为-prompt-通常很长">3. 因为 prompt 通常很长</h3>
+<p>所以会有：</p>
+<ul>
+<li>Prefill</li>
+<li>TTFT 优化</li>
+<li>Chunked Prefill</li>
+</ul>
+<h3 id="4-yin-wei-bu-tong-qing-qiu-chang-du-he-sheng-cheng-chang-du-chai-yi-ju-da" tabindex="-1" id="4-因为不同请求长度和生成长度差异巨大">4. 因为不同请求长度和生成长度差异巨大</h3>
+<p>所以会有：</p>
+<ul>
+<li>continuous batching</li>
+<li>inflight batching</li>
+<li>cache-aware scheduling</li>
+</ul>
+<h3 id="5-yin-wei-prefill-he-decode-zi-yuan-hua-xiang-chai-yi-da" tabindex="-1" id="5-因为-Prefill-和-Decode-资源画像差异大">5. 因为 Prefill 和 Decode 资源画像差异大</h3>
+<p>所以会有：</p>
+<ul>
+<li>disaggregated serving</li>
+<li>Prefill/Decode 分离</li>
+</ul>
+<p>这说明一个非常关键的事实：</p>
+<blockquote>
+<p><strong>推理系统的很多工程名词，本质上都是对 Decoder-only Transformer 执行方式的回应。</strong></p>
+</blockquote>
+<hr>
+<h2 id="shi-si-wei-shi-yao-shuo-xian-dai-tui-li-xi-tong-qi-shi-shi-zai-ti-transformer-zuo-gong-cheng-shan-hou" tabindex="-1" id="十四、为什么说现代推理系统其实是在替-Transformer-“做工程善后”">十四、为什么说现代推理系统其实是在替 Transformer “做工程善后”</h2>
+<p>这是一个非常适合 AI 推理 / Infra 视角的说法。</p>
+<p>Transformer 结构本身已经决定了很多事情：</p>
+<ul>
+<li>自回归生成带来时间串行性</li>
+<li>attention 带来历史状态依赖</li>
+<li>长上下文带来 cache 膨胀</li>
+<li>Decoder-only 执行路径自然分裂为 Prefill 和 Decode</li>
+</ul>
+<p>而现代推理系统做的事情，几乎就是围绕这些结构事实去优化：</p>
+<ul>
+<li>怎么让 Prefill 更快</li>
+<li>怎么让 Decode 更稳</li>
+<li>怎么管理 KV Cache</li>
+<li>怎么让很多请求共享 GPU</li>
+<li>怎么减少重复 prefix 计算</li>
+<li>怎么在大规模集群里感知和复用 cache 状态</li>
+</ul>
+<p>所以推理系统不是脱离模型结构“另起炉灶”，而是：</p>
+<p><strong>Transformer 在工程世界中的展开。</strong></p>
+<hr>
+<h2 id="shi-wu-cong-wu-li-he-xi-tong-zhi-jue-kan-xun-lian-yu-tui-li-de-chai-bie" tabindex="-1" id="十五、从物理和系统直觉看训练与推理的差别">十五、从物理和系统直觉看训练与推理的差别</h2>
+<p>如果你喜欢更统一的理解方式，可以这样看。</p>
+<h3 id="xun-lian" tabindex="-1" id="训练">训练</h3>
+<p>更像“已知完整轨迹下的并行拟合”。</p>
+<ul>
+<li>整段序列已知</li>
+<li>mask 约束信息方向</li>
+<li>但整段可以同时计算</li>
+</ul>
+<h3 id="tui-li" tabindex="-1" id="推理">推理</h3>
+<p>更像“系统状态沿时间向前推进”。</p>
+<ul>
+<li>未来状态尚不存在</li>
+<li>每一步都依赖上一时刻新产生的状态</li>
+<li>所以只能一步一步演化</li>
+</ul>
+<p>这也是为什么从动力系统视角看，推理比训练更像一个真正的“时间推进过程”。</p>
+<hr>
+<h2 id="shi-liu-dao-zhe-li-qian-mian-4-pian-bo-ke-he-zhe-yi-pian-ying-gai-zhen-zheng-chuan-qi-lai-liao" tabindex="-1" id="十六、到这里，前面-4-篇博客和这一篇应该真正串起来了">十六、到这里，前面 4 篇博客和这一篇应该真正串起来了</h2>
+<p>把整个系列连起来看，主线其实已经非常清晰：</p>
+<ol>
+<li>为什么需要 Transformer</li>
+<li>文本如何变成向量</li>
+<li>为什么要位置编码</li>
+<li>Q/K/V 和 Attention 如何工作</li>
+<li>多头、Mask、FFN 为什么必要</li>
+<li>一层 Transformer Block 如何被稳定地组织起来</li>
+<li>Encoder / Decoder / Decoder-only 如何分化</li>
+<li>训练时为什么能并行</li>
+<li>推理时为什么必须逐 token</li>
+<li>为什么 KV Cache、Prefill、Decode 会自然出现</li>
+<li>为什么现代推理系统会长成今天这样</li>
+</ol>
+<p>也就是说：</p>
+<p><strong>Transformer 不只是模型结构，它其实决定了整个大模型推理系统的问题形状。</strong></p>
+<p>这就是这套原理系列最想带你到达的位置。</p>
+<hr>
+<h2 id="shi-qi-ben-pian-zhen-zheng-yao-ji-zhu-de-si-tiao-zhu-xian" tabindex="-1" id="十七、本篇真正要记住的四条主线">十七、本篇真正要记住的四条主线</h2>
+<h3 id="di-yi-tiao-xun-lian-wei-shi-yao-neng-bing-xing" tabindex="-1" id="第一条：训练为什么能并行">第一条：训练为什么能并行</h3>
+<ul>
+<li>因为训练数据中的完整序列是已知的</li>
+<li>Transformer 可以在 causal mask 约束下一次并行计算所有位置</li>
+<li>这正是 Teacher Forcing 的核心</li>
+</ul>
+<h3 id="di-er-tiao-tui-li-wei-shi-yao-bi-xu-chuan-xing" tabindex="-1" id="第二条：推理为什么必须串行">第二条：推理为什么必须串行</h3>
+<ul>
+<li>因为未来 token 尚不存在</li>
+<li>第 (t+1) 步必须先生成，(t+2) 才有定义</li>
+<li>所以 Decode 天然是逐 token 推进</li>
+</ul>
+<h3 id="di-san-tiao-wei-shi-yao-hui-you-prefill-decode-kv-cache" tabindex="-1" id="第三条：为什么会有-Prefill-Decode-KV-Cache">第三条：为什么会有 Prefill / Decode / KV Cache</h3>
+<ul>
+<li>Prefill 负责读入整段 prompt</li>
+<li>Decode 负责逐 token 延长序列</li>
+<li>KV Cache 负责避免重复计算历史 K/V</li>
+</ul>
+<h3 id="di-si-tiao-wei-shi-yao-hui-you-xian-dai-tui-li-xi-tong" tabindex="-1" id="第四条：为什么会有现代推理系统">第四条：为什么会有现代推理系统</h3>
+<ul>
+<li>因为 Decoder-only Transformer 的执行方式天然会引出
+<ul>
+<li>串行瓶颈</li>
+<li>KV Cache 管理</li>
+<li>显存压力</li>
+<li>调度与批处理问题</li>
+<li>阶段异质性问题</li>
+</ul>
+</li>
+</ul>
+<hr>
+<h2 id="shi-ba-yong-yi-ju-hua-ya-suo-ben-pian" tabindex="-1" id="十八、用一句话压缩本篇">十八、用一句话压缩本篇</h2>
+<p><strong>Decoder-only Transformer 在训练时依靠完整已知序列和 causal mask 实现并行 Next-Token 学习，而在推理时由于未来 token 尚不存在，只能经历“Prefill 读入上下文、Decode 逐 token 生成”的过程；KV Cache 则是在这一过程中避免重复计算历史 Attention 状态的核心机制。</strong></p>
+<hr>
+<h2 id="shi-jiu-ben-pian-xiao-jie" tabindex="-1" id="十九、本篇小结">十九、本篇小结</h2>
+<p>到这里，这组“Transformer 原理深讲系列”的前 5 篇已经形成了一个完整闭环。<br>
+把前 5 篇真正串起来看，你会形成一种更稳的理解方式：</p>
+<ul>
+<li>不只是会背 Transformer 模块</li>
+<li>而是能把模块、结构、训练、推理和推理系统放到同一张图里看</li>
+</ul>
+<p>这也是从“知道 Transformer”走向“理解大模型推理”的关键一步。</p>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/d3059af7/">https://smarter.xin/posts/d3059af7/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/kv-cache/">KV Cache</a><a class="post-meta__tags" href="/tags/transformer/">Transformer</a><a class="post-meta__tags" href="/tags/inference-optimization/">推理优化</a><a class="post-meta__tags" href="/tags/llm-inference/">大模型推理</a></div><div class="post-share"><div class="social-share" data-image="/img/AI-Infra.png" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related full-width no-desc" href="/posts/2639a5dc/" title="AI Infra学习之旅-残差、LayerNorm与Encoder-Decoder全貌"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">AI Infra学习之旅-残差、LayerNorm与Encoder-Decoder全貌</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/4854dc00/" title="AI Infra学习之旅-Transformer知识地图"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-04</div><div class="info-item-2">AI Infra学习之旅-Transformer知识地图</div></div></div></a><a class="pagination-related no-desc" href="/posts/9729c03f/" title="CUDA-Practice：11 推理优化、融合与键值缓存——算子融合、PagedAttention 与连续批处理"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-12</div><div class="info-item-2">CUDA-Practice：11 推理优化、融合与键值缓存——算子融合、PagedAttention 与连续批处理</div></div></div></a><a class="pagination-related no-desc" href="/posts/fbab2bc4/" title="AI Infra学习之旅-PagedAttention详解"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-03</div><div class="info-item-2">AI Infra学习之旅-PagedAttention详解</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">我就是要爬这座山<br>再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">127</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">260</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">23</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#ai-infra-xue-xi-zhi-lu-cong-mo-xing-zhi-xing-dao-tui-li-xi-tong-de-qiao-jie"><span class="toc-text">AI Infra学习之旅-从模型执行到推理系统的桥接</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#yi-xian-gei-jie-lun-xun-lian-he-tui-li-sui-ran-du-zai-zuo-next-token-prediction-dan-zhi-xing-fang-shi-wan-quan-bu-tong"><span class="toc-text">一、先给结论：训练和推理虽然都在做 Next-Token Prediction，但执行方式完全不同</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#er-cong-xun-lian-mu-biao-kai-shi-decoder-only-transformer-dao-di-zai-xue-shi-yao"><span class="toc-text">二、从训练目标开始：Decoder-only Transformer 到底在学什么</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#san-wei-shi-yao-xun-lian-shi-ke-yi-bing-xing-yin-wei-wan-zheng-xu-lie-yi-jing-yi-zhi"><span class="toc-text">三、为什么训练时可以并行：因为完整序列已经已知</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#si-teacher-forcing-shi-shi-yao-xun-lian-wei-shi-yao-xiang-lao-shi-gei-da-an-zuo-lian-xi"><span class="toc-text">四、Teacher Forcing 是什么：训练为什么像“老师给答案做练习”</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#teacher-forcing-jiao-shi-qiang-zhi"><span class="toc-text">Teacher Forcing（教师强制）</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#wu-xun-lian-shi-shu-chu-he-sun-shi-shi-zen-yao-dui-qi-de"><span class="toc-text">五、训练时输出和损失是怎么对齐的</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#liu-wei-shi-yao-tui-li-shi-bu-neng-xiang-xun-lian-na-yang-bing-xing"><span class="toc-text">六、为什么推理时不能像训练那样并行</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#qi-tui-li-wei-shi-yao-tian-ran-chuan-xing-zi-hui-gui-yi-lai-de-jie-gou-hou-guo"><span class="toc-text">七、推理为什么天然串行：自回归依赖的结构后果</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#ba-prefill-he-decode-wei-shi-yao-tui-li-jie-duan-hui-bei-zi-ran-fen-lie-cheng-liang-bu-fen"><span class="toc-text">八、Prefill 和 Decode：为什么推理阶段会被自然分裂成两部分</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-prefill-shi-shi-yao"><span class="toc-text">1. Prefill 是什么</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-decode-shi-shi-yao"><span class="toc-text">2. Decode 是什么</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#jiu-wei-shi-yao-kv-cache-hui-cheng-wei-tui-li-he-xin"><span class="toc-text">九、为什么 KV Cache 会成为推理核心</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#kv-cache"><span class="toc-text">KV Cache</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-kv-cache-de-ben-zhi-dao-di-shi-shi-yao"><span class="toc-text">十、KV Cache 的本质到底是什么</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-yi-wei-shi-yao-zhi-huan-cun-k-v-er-bu-shi-huan-cun-q"><span class="toc-text">十一、为什么只缓存 K&#x2F;V，而不是缓存 Q</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-er-prefill-he-decode-de-chai-yi-wei-shi-yao-hui-jin-yi-bu-dao-chu-xi-tong-wen-ti"><span class="toc-text">十二、Prefill 和 Decode 的差异，为什么会进一步导出系统问题</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#prefill-de-te-zheng"><span class="toc-text">Prefill 的特征</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#decode-de-te-zheng"><span class="toc-text">Decode 的特征</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-san-wei-shi-yao-xun-lian-he-tui-li-de-chai-yi-hui-zhi-jie-dao-chu-tui-li-xi-tong-de-ji-zhu-shu"><span class="toc-text">十三、为什么训练和推理的差异会直接导出推理系统的技术树</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-yin-wei-decode-chuan-xing"><span class="toc-text">1. 因为 Decode 串行</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-yin-wei-attention-yi-lai-li-shi-k-v"><span class="toc-text">2. 因为 Attention 依赖历史 K&#x2F;V</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-yin-wei-prompt-tong-chang-hen-chang"><span class="toc-text">3. 因为 prompt 通常很长</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-yin-wei-bu-tong-qing-qiu-chang-du-he-sheng-cheng-chang-du-chai-yi-ju-da"><span class="toc-text">4. 因为不同请求长度和生成长度差异巨大</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-yin-wei-prefill-he-decode-zi-yuan-hua-xiang-chai-yi-da"><span class="toc-text">5. 因为 Prefill 和 Decode 资源画像差异大</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-si-wei-shi-yao-shuo-xian-dai-tui-li-xi-tong-qi-shi-shi-zai-ti-transformer-zuo-gong-cheng-shan-hou"><span class="toc-text">十四、为什么说现代推理系统其实是在替 Transformer “做工程善后”</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-wu-cong-wu-li-he-xi-tong-zhi-jue-kan-xun-lian-yu-tui-li-de-chai-bie"><span class="toc-text">十五、从物理和系统直觉看训练与推理的差别</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#xun-lian"><span class="toc-text">训练</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#tui-li"><span class="toc-text">推理</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-liu-dao-zhe-li-qian-mian-4-pian-bo-ke-he-zhe-yi-pian-ying-gai-zhen-zheng-chuan-qi-lai-liao"><span class="toc-text">十六、到这里，前面 4 篇博客和这一篇应该真正串起来了</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-qi-ben-pian-zhen-zheng-yao-ji-zhu-de-si-tiao-zhu-xian"><span class="toc-text">十七、本篇真正要记住的四条主线</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#di-yi-tiao-xun-lian-wei-shi-yao-neng-bing-xing"><span class="toc-text">第一条：训练为什么能并行</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#di-er-tiao-tui-li-wei-shi-yao-bi-xu-chuan-xing"><span class="toc-text">第二条：推理为什么必须串行</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#di-san-tiao-wei-shi-yao-hui-you-prefill-decode-kv-cache"><span class="toc-text">第三条：为什么会有 Prefill &#x2F; Decode &#x2F; KV Cache</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#di-si-tiao-wei-shi-yao-hui-you-xian-dai-tui-li-xi-tong"><span class="toc-text">第四条：为什么会有现代推理系统</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-ba-yong-yi-ju-hua-ya-suo-ben-pian"><span class="toc-text">十八、用一句话压缩本篇</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-jiu-ben-pian-xiao-jie"><span class="toc-text">十九、本篇小结</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/d3059af7/" title="AI Infra学习之旅-从模型执行到推理系统的桥接"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="AI Infra学习之旅-从模型执行到推理系统的桥接"/></a><div class="content"><a class="title" href="/posts/d3059af7/" title="AI Infra学习之旅-从模型执行到推理系统的桥接">AI Infra学习之旅-从模型执行到推理系统的桥接</a><time datetime="2026-03-27T06:00:24.000Z" title="发表于 2026-03-27 14:00:24">2026-03-27</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/2639a5dc/" title="AI Infra学习之旅-残差、LayerNorm与Encoder-Decoder全貌"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="AI Infra学习之旅-残差、LayerNorm与Encoder-Decoder全貌"/></a><div class="content"><a class="title" href="/posts/2639a5dc/" title="AI Infra学习之旅-残差、LayerNorm与Encoder-Decoder全貌">AI Infra学习之旅-残差、LayerNorm与Encoder-Decoder全貌</a><time datetime="2026-03-27T05:55:35.000Z" title="发表于 2026-03-27 13:55:35">2026-03-27</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/d37fa53a/" title="AI Infra学习之旅-Transformer为什么不只是一个Attention公式"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="AI Infra学习之旅-Transformer为什么不只是一个Attention公式"/></a><div class="content"><a class="title" href="/posts/d37fa53a/" title="AI Infra学习之旅-Transformer为什么不只是一个Attention公式">AI Infra学习之旅-Transformer为什么不只是一个Attention公式</a><time datetime="2026-03-27T05:49:36.000Z" title="发表于 2026-03-27 13:49:36">2026-03-27</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">从 Self-Attention、位置编码到 Encoder-Decoder，系统梳理 Transformer 的核心结构、设计动机与理解路径</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/d6fa227a/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-16</span><a class="blog-slider__title" href="posts/d6fa227a/" alt="">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</a><div class="blog-slider__text">从访存优化到多卡通信，一篇看清 CUDA 实践系列的结构与学习路线</div><a class="blog-slider__button" href="posts/d6fa227a/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/43c4b52e/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/agent.webp" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-24</span><a class="blog-slider__title" href="posts/43c4b52e/" alt="">从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路</a><div class="blog-slider__text">使用飞书与本地 Agent 对话，远程也要让本地 Agent 干活，当一名狠狠的资本家</div><a class="blog-slider__button" href="posts/43c4b52e/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/92dc1028/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/CUDA_C.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-02-05</span><a class="blog-slider__title" href="posts/92dc1028/" alt="">CUDA C编程权威指南-导读</a><div class="blog-slider__text">从异构并行到多 GPU 实践，串起 CUDA C 权威指南的核心学习路线</div><a class="blog-slider__button" href="posts/92dc1028/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">从全书视角出发，一篇看清 PMPP 的章节结构、核心主题与学习主线</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/aac6e27d/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Computer_System.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/aac6e27d/" alt="">深入理解计算机系统知识点总结</a><div class="blog-slider__text">从程序员视角梳理 CSAPP 的知识脉络、系统抽象与性能理解</div><a class="blog-slider__button" href="posts/aac6e27d/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">围绕类型推导、移动语义与并发，提炼现代 C++ 的核心实践</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>

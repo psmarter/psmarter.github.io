@@ -1,0 +1,960 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>AI Infra学习之旅-残差、LayerNorm与Encoder-Decoder全貌 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="AI Infra学习之旅-残差、LayerNorm与Encoder-Decoder全貌  这是“Transformer 原理深讲系列”的第 4 篇。 前三篇我们已经依次讲清楚了：为什么需要 Transformer，文本如何进入模型，位置编码和 Attention 的核心计算机制，以及多头、Mask、FFN 为什么是 Transformer 不可缺少的组成部分。 到了这一篇，我们要完成两件更“总装”">
+<meta property="og:type" content="article">
+<meta property="og:title" content="AI Infra学习之旅-残差、LayerNorm与Encoder-Decoder全貌">
+<meta property="og:url" content="https://smarter.xin/posts/2639a5dc/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="AI Infra学习之旅-残差、LayerNorm与Encoder-Decoder全貌  这是“Transformer 原理深讲系列”的第 4 篇。 前三篇我们已经依次讲清楚了：为什么需要 Transformer，文本如何进入模型，位置编码和 Attention 的核心计算机制，以及多头、Mask、FFN 为什么是 Transformer 不可缺少的组成部分。 到了这一篇，我们要完成两件更“总装”">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/AI-Infra.png">
+<meta property="article:published_time" content="2026-03-27T05:55:35.000Z">
+<meta property="article:modified_time" content="2026-03-27T06:04:38.394Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="Transformer">
+<meta property="article:tag" content="深度学习">
+<meta property="article:tag" content="LayerNorm">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/AI-Infra.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "AI Infra学习之旅-残差、LayerNorm与Encoder-Decoder全貌",
+  "url": "https://smarter.xin/posts/2639a5dc/",
+  "image": "https://smarter.xin/img/AI-Infra.png",
+  "datePublished": "2026-03-27T05:55:35.000Z",
+  "dateModified": "2026-03-27T06:04:38.394Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/2639a5dc/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'AI Infra学习之旅-残差、LayerNorm与Encoder-Decoder全貌',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">127</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">260</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">23</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/AI-Infra.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">AI Infra学习之旅-残差、LayerNorm与Encoder-Decoder全貌</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">AI Infra学习之旅-残差、LayerNorm与Encoder-Decoder全貌</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-03-27T05:55:35.000Z" title="发表于 2026-03-27 13:55:35">2026-03-27</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-03-27T06:04:38.394Z" title="更新于 2026-03-27 14:04:38">2026-03-27</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/">AI Infra</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">4.4k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>15分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="ai-infra-xue-xi-zhi-lu-can-chai-layer-norm-yu-encoder-decoder-quan-mao" tabindex="-1">AI Infra学习之旅-残差、LayerNorm与Encoder-Decoder全貌</h1>
+<blockquote>
+<p>这是“Transformer 原理深讲系列”的第 4 篇。<br>
+前三篇我们已经依次讲清楚了：为什么需要 Transformer，文本如何进入模型，位置编码和 Attention 的核心计算机制，以及多头、Mask、FFN 为什么是 Transformer 不可缺少的组成部分。<br>
+到了这一篇，我们要完成两件更“总装”的事情：<br>
+<strong>第一，把这些零件真正拼成一层完整的 Transformer block；第二，把 Encoder、Decoder、Encoder-only、Decoder-only、Encoder-Decoder 这几种结构放到同一张图里讲清楚。</strong></p>
+</blockquote>
+<hr>
+<h2 id="yi-wei-shi-yao-li-jie-yi-ceng-transformer-block-bi-ji-yi-dui-mo-kuai-geng-zhong-yao" tabindex="-1" id="一、为什么“理解一层-Transformer-Block”比记一堆模块更重要">一、为什么“理解一层 Transformer Block”比记一堆模块更重要</h2>
+<p>很多人学 Transformer 时，会变成下面这种状态：</p>
+<ul>
+<li>知道什么是 Q/K/V</li>
+<li>知道什么是 Attention</li>
+<li>知道有 Multi-Head</li>
+<li>知道有 FFN</li>
+<li>知道有 LayerNorm 和残差</li>
+</ul>
+<p>但真正问一句：</p>
+<blockquote>
+<p>一层 Transformer block 从输入到输出，到底完整经历了什么？</p>
+</blockquote>
+<p>往往就开始糊了。</p>
+<p>这是因为前面那些模块虽然都懂一点，但还没有真正被组织成一个动态系统。</p>
+<p>而 Transformer 真正的力量，恰恰不在于某一个单点模块，而在于：</p>
+<p><strong>这些模块被怎样稳定地组合起来，并且能够一层一层不断堆叠。</strong></p>
+<p>所以这一篇的目标，是把前面那些“零部件”真正安装到一台能工作的机器里。</p>
+<hr>
+<h2 id="er-xian-hui-gu-yi-ceng-transformer-block-li-zhi-shao-you-na-liang-ge-he-xin-gong-neng-mo-kuai" tabindex="-1" id="二、先回顾：一层-Transformer-Block-里至少有哪两个核心功能模块">二、先回顾：一层 Transformer Block 里至少有哪两个核心功能模块</h2>
+<p>如果先不管残差和归一化，一层 Transformer block 至少包含两个核心子层：</p>
+<h3 id="1-attention-zi-ceng" tabindex="-1" id="1-Attention-子层">1. Attention 子层</h3>
+<p>作用：</p>
+<ul>
+<li>让每个位置和上下文中其他位置建立关系</li>
+<li>完成跨位置的信息交换</li>
+<li>生成上下文化表示</li>
+</ul>
+<h3 id="2-ffn-zi-ceng" tabindex="-1" id="2-FFN-子层">2. FFN 子层</h3>
+<p>作用：</p>
+<ul>
+<li>对每个位置的表示单独做进一步非线性加工</li>
+<li>强化和重组该位置内部的特征模式</li>
+</ul>
+<p>也就是说，block 的本体骨架是：</p>
+<blockquote>
+<p><strong>跨位置交互 + 逐位置加工</strong></p>
+</blockquote>
+<p>这是你必须记住的一条主线。</p>
+<p>但如果只有这两样，还不够。<br>
+因为深层网络会遇到训练稳定性问题。</p>
+<p>于是我们就需要另外两个支撑件：</p>
+<ul>
+<li>残差连接（Residual）</li>
+<li>LayerNorm</li>
+</ul>
+<hr>
+<h2 id="san-wei-shi-yao-shen-ceng-wang-luo-hui-nan-xun-lian" tabindex="-1" id="三、为什么深层网络会难训练">三、为什么深层网络会难训练</h2>
+<p>要理解残差和 LayerNorm，必须先理解一个背景事实：</p>
+<p><strong>网络一深，训练就容易变难。</strong></p>
+<p>这不是 Transformer 特有的问题，而是深层神经网络的共性问题。<br>
+常见困难包括：</p>
+<h3 id="1-xin-xi-rong-yi-bei-ceng-ceng-fu-gai" tabindex="-1" id="1-信息容易被层层覆盖">1. 信息容易被层层覆盖</h3>
+<p>如果每一层都强行把输入改写成全新的表示，那么前面层的重要信息可能会被逐渐冲掉。</p>
+<h3 id="2-ti-du-chuan-bo-rong-yi-bian-chai" tabindex="-1" id="2-梯度传播容易变差">2. 梯度传播容易变差</h3>
+<p>反向传播时，梯度要穿过很多层。<br>
+如果每一层都让梯度缩小或扭曲一点，前面层拿到的有效训练信号就会越来越弱。</p>
+<h3 id="3-shu-zhi-fen-bu-rong-yi-piao-yi" tabindex="-1" id="3-数值分布容易漂移">3. 数值分布容易漂移</h3>
+<p>随着层数增加，隐藏表示的均值、方差和尺度都会不断变化。<br>
+这会让训练：</p>
+<ul>
+<li>更难稳定</li>
+<li>更难调学习率</li>
+<li>更容易发散或收敛很慢</li>
+</ul>
+<p>所以深层 Transformer 要真正好用，必须解决两个问题：</p>
+<ol>
+<li>信息和梯度怎么顺畅穿过去</li>
+<li>每层输入输出的数值分布怎么维持稳定</li>
+</ol>
+<p>这就对应：</p>
+<ul>
+<li>残差连接</li>
+<li>LayerNorm</li>
+</ul>
+<hr>
+<h2 id="si-can-chai-lian-jie-dao-di-shi-shi-yao" tabindex="-1" id="四、残差连接到底是什么">四、残差连接到底是什么</h2>
+<p>残差连接的核心形式很简单：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>y</mi><mo>=</mo><mi>x</mi><mo>+</mo><mi>F</mi><mo stretchy="false">(</mo><mi>x</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">y = x + F(x)
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.625em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.03588em;">y</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6667em;vertical-align:-0.0833em;"></span><span class="mord mathnormal">x</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">F</span><span class="mopen">(</span><span class="mord mathnormal">x</span><span class="mclose">)</span></span></span></span></span></p>
+<p>其中：</p>
+<ul>
+<li>(x) 是输入</li>
+<li>(F(x)) 是某个子层的输出（比如 attention 或 FFN）</li>
+<li>(y) 是最终输出</li>
+</ul>
+<p>这意味着，子层不是直接把输入变成：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>y</mi><mo>=</mo><mi>F</mi><mo stretchy="false">(</mo><mi>x</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">y = F(x)
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.625em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.03588em;">y</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">F</span><span class="mopen">(</span><span class="mord mathnormal">x</span><span class="mclose">)</span></span></span></span></span></p>
+<p>而是变成：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>y</mi><mo>=</mo><mi>x</mi><mo>+</mo><mi>F</mi><mo stretchy="false">(</mo><mi>x</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">y = x + F(x)
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.625em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.03588em;">y</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6667em;vertical-align:-0.0833em;"></span><span class="mord mathnormal">x</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">F</span><span class="mopen">(</span><span class="mord mathnormal">x</span><span class="mclose">)</span></span></span></span></span></p>
+<p>也就是：</p>
+<blockquote>
+<p><strong>原表示 + 本层修正量</strong></p>
+</blockquote>
+<p>这就是 residual connection，也叫 skip connection。</p>
+<hr>
+<h2 id="wu-wei-shi-yao-jiao-can-chai" tabindex="-1" id="五、为什么叫“残差”">五、为什么叫“残差”</h2>
+<p>因为它不是让网络直接学习一个完整映射：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>y</mi><mo>=</mo><mi>G</mi><mo stretchy="false">(</mo><mi>x</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">y = G(x)
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.625em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.03588em;">y</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal">G</span><span class="mopen">(</span><span class="mord mathnormal">x</span><span class="mclose">)</span></span></span></span></span></p>
+<p>而是让网络学习：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>y</mi><mo>=</mo><mi>x</mi><mo>+</mo><mi>F</mi><mo stretchy="false">(</mo><mi>x</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">y = x + F(x)
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.625em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.03588em;">y</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6667em;vertical-align:-0.0833em;"></span><span class="mord mathnormal">x</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">F</span><span class="mopen">(</span><span class="mord mathnormal">x</span><span class="mclose">)</span></span></span></span></span></p>
+<p>于是：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>F</mi><mo stretchy="false">(</mo><mi>x</mi><mo stretchy="false">)</mo><mo>=</mo><mi>G</mi><mo stretchy="false">(</mo><mi>x</mi><mo stretchy="false">)</mo><mo>−</mo><mi>x</mi></mrow><annotation encoding="application/x-tex">F(x)=G(x)-x
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">F</span><span class="mopen">(</span><span class="mord mathnormal">x</span><span class="mclose">)</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal">G</span><span class="mopen">(</span><span class="mord mathnormal">x</span><span class="mclose">)</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">−</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.4306em;"></span><span class="mord mathnormal">x</span></span></span></span></span></p>
+<p>这说明子层真正学到的，是相对输入的<strong>修正量</strong>，也就是“残差”。</p>
+<p>从这个角度看，Transformer 的每一层不是在“推翻输入重来”，而是在：</p>
+<p><strong>已有表示的基础上，做一步增量式修正。</strong></p>
+<hr>
+<h2 id="liu-can-chai-lian-jie-wei-shi-yao-ru-ci-zhong-yao" tabindex="-1" id="六、残差连接为什么如此重要">六、残差连接为什么如此重要</h2>
+<h3 id="1-gei-yuan-shi-xin-xi-bao-liu-yi-tiao-zhi-tong-lu-jing" tabindex="-1" id="1-给原始信息保留一条直通路径">1. 给原始信息保留一条直通路径</h3>
+<p>如果没有残差，输出就是 (F(x))。<br>
+那一旦 (F) 学得不好，原信息可能被严重破坏。</p>
+<p>有了残差：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>y</mi><mo>=</mo><mi>x</mi><mo>+</mo><mi>F</mi><mo stretchy="false">(</mo><mi>x</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">y=x+F(x)
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.625em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.03588em;">y</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6667em;vertical-align:-0.0833em;"></span><span class="mord mathnormal">x</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">F</span><span class="mopen">(</span><span class="mord mathnormal">x</span><span class="mclose">)</span></span></span></span></span></p>
+<p>即使 (F(x)) 暂时不理想，原输入 (x) 至少还能保留。<br>
+所以模型不会轻易“把前面学到的东西洗掉”。</p>
+<h3 id="2-rang-wang-luo-geng-rong-yi-xue-jie-jin-heng-deng-ying-she" tabindex="-1" id="2-让网络更容易学“接近恒等映射”">2. 让网络更容易学“接近恒等映射”</h3>
+<p>并不是每一层都需要大改输入。<br>
+很多时候，最优行为只是做一点小修正。</p>
+<p>有残差时，如果本层暂时没什么要改的，只要让：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>F</mi><mo stretchy="false">(</mo><mi>x</mi><mo stretchy="false">)</mo><mo>≈</mo><mn>0</mn></mrow><annotation encoding="application/x-tex">F(x)\approx 0
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">F</span><span class="mopen">(</span><span class="mord mathnormal">x</span><span class="mclose">)</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">≈</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">0</span></span></span></span></span></p>
+<p>就行了。<br>
+这让深层网络更容易收敛。</p>
+<h3 id="3-rang-ti-du-geng-rong-yi-chuan-bo" tabindex="-1" id="3-让梯度更容易传播">3. 让梯度更容易传播</h3>
+<p>从反向传播角度看：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mfrac><mrow><mi mathvariant="normal">∂</mi><mi>y</mi></mrow><mrow><mi mathvariant="normal">∂</mi><mi>x</mi></mrow></mfrac><mo>=</mo><mi>I</mi><mo>+</mo><mfrac><mrow><mi mathvariant="normal">∂</mi><mi>F</mi><mo stretchy="false">(</mo><mi>x</mi><mo stretchy="false">)</mo></mrow><mrow><mi mathvariant="normal">∂</mi><mi>x</mi></mrow></mfrac></mrow><annotation encoding="application/x-tex">\frac{\partial y}{\partial x}
+=
+I + \frac{\partial F(x)}{\partial x}
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:2.0574em;vertical-align:-0.686em;"></span><span class="mord"><span class="mopen nulldelimiter"></span><span class="mfrac"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:1.3714em;"><span style="top:-2.314em;"><span class="pstrut" style="height:3em;"></span><span class="mord"><span class="mord" style="margin-right:0.05556em;">∂</span><span class="mord mathnormal">x</span></span></span><span style="top:-3.23em;"><span class="pstrut" style="height:3em;"></span><span class="frac-line" style="border-bottom-width:0.04em;"></span></span><span style="top:-3.677em;"><span class="pstrut" style="height:3em;"></span><span class="mord"><span class="mord" style="margin-right:0.05556em;">∂</span><span class="mord mathnormal" style="margin-right:0.03588em;">y</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.686em;"><span></span></span></span></span></span><span class="mclose nulldelimiter"></span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.7667em;vertical-align:-0.0833em;"></span><span class="mord mathnormal" style="margin-right:0.07847em;">I</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:2.113em;vertical-align:-0.686em;"></span><span class="mord"><span class="mopen nulldelimiter"></span><span class="mfrac"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:1.427em;"><span style="top:-2.314em;"><span class="pstrut" style="height:3em;"></span><span class="mord"><span class="mord" style="margin-right:0.05556em;">∂</span><span class="mord mathnormal">x</span></span></span><span style="top:-3.23em;"><span class="pstrut" style="height:3em;"></span><span class="frac-line" style="border-bottom-width:0.04em;"></span></span><span style="top:-3.677em;"><span class="pstrut" style="height:3em;"></span><span class="mord"><span class="mord" style="margin-right:0.05556em;">∂</span><span class="mord mathnormal" style="margin-right:0.13889em;">F</span><span class="mopen">(</span><span class="mord mathnormal">x</span><span class="mclose">)</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.686em;"><span></span></span></span></span></span><span class="mclose nulldelimiter"></span></span></span></span></span></span></p>
+<p>这里 (I) 是恒等映射。<br>
+这意味着，即使 (F) 的梯度路径不够理想，梯度仍然有一条较为稳定的直通通路。</p>
+<p>所以残差连接本质上是在做两件事：</p>
+<ul>
+<li>稳住前向信息流</li>
+<li>稳住反向梯度流</li>
+</ul>
+<hr>
+<h2 id="qi-cong-zhuang-tai-yan-hua-jiao-du-kan-can-chai" tabindex="-1" id="七、从“状态演化”角度看残差">七、从“状态演化”角度看残差</h2>
+<p>如果你喜欢更统一的理解方式，可以把：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>y</mi><mo>=</mo><mi>x</mi><mo>+</mo><mi>F</mi><mo stretchy="false">(</mo><mi>x</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">y = x + F(x)
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.625em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.03588em;">y</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6667em;vertical-align:-0.0833em;"></span><span class="mord mathnormal">x</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">F</span><span class="mopen">(</span><span class="mord mathnormal">x</span><span class="mclose">)</span></span></span></span></span></p>
+<p>看成一种离散状态更新：</p>
+<ul>
+<li>(x)：当前状态</li>
+<li>(F(x))：本层施加的增量修正</li>
+<li>(y)：更新后的状态</li>
+</ul>
+<p>这很像很多动力系统里的形式：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><msub><mi>x</mi><mrow><mi>t</mi><mo>+</mo><mn>1</mn></mrow></msub><mo>=</mo><msub><mi>x</mi><mi>t</mi></msub><mo>+</mo><mi mathvariant="normal">Δ</mi><msub><mi>x</mi><mi>t</mi></msub></mrow><annotation encoding="application/x-tex">x_{t+1}=x_t+\Delta x_t
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6389em;vertical-align:-0.2083em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight">t</span><span class="mbin mtight">+</span><span class="mord mtight">1</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.2083em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.7333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.2806em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">t</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.8333em;vertical-align:-0.15em;"></span><span class="mord">Δ</span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.2806em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">t</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span></span></p>
+<p>所以 Transformer 的深层堆叠，也可以看成：</p>
+<p><strong>表示状态在层与层之间不断被小步修正。</strong></p>
+<p>这种理解对后面看待“深层 Transformer 是怎样逐步形成更高语义抽象”的问题很有帮助。</p>
+<hr>
+<h2 id="ba-layer-norm-dao-di-shi-shi-yao" tabindex="-1" id="八、LayerNorm-到底是什么">八、LayerNorm 到底是什么</h2>
+<p>残差负责信息和梯度通路，<br>
+LayerNorm 负责数值稳定。</p>
+<p>它的定义如下。</p>
+<p>设某个位置上的隐藏向量是：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>x</mi><mo>=</mo><mo stretchy="false">(</mo><msub><mi>x</mi><mn>1</mn></msub><mo separator="true">,</mo><msub><mi>x</mi><mn>2</mn></msub><mo separator="true">,</mo><mo>…</mo><mo separator="true">,</mo><msub><mi>x</mi><mi>d</mi></msub><mo stretchy="false">)</mo><mo>∈</mo><msup><mi mathvariant="double-struck">R</mi><mi>d</mi></msup></mrow><annotation encoding="application/x-tex">x=(x_1,x_2,\dots,x_d)\in \mathbb{R}^d
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.4306em;"></span><span class="mord mathnormal">x</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">(</span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">1</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="minner">…</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3361em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">d</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mclose">)</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">∈</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8991em;"></span><span class="mord"><span class="mord mathbb">R</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8991em;"><span style="top:-3.113em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">d</span></span></span></span></span></span></span></span></span></span></span></span></p>
+<p>先计算它在特征维度上的均值：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>μ</mi><mo>=</mo><mfrac><mn>1</mn><mi>d</mi></mfrac><munderover><mo>∑</mo><mrow><mi>i</mi><mo>=</mo><mn>1</mn></mrow><mi>d</mi></munderover><msub><mi>x</mi><mi>i</mi></msub></mrow><annotation encoding="application/x-tex">\mu = \frac{1}{d}\sum_{i=1}^{d}x_i
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.625em;vertical-align:-0.1944em;"></span><span class="mord mathnormal">μ</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:3.1138em;vertical-align:-1.2777em;"></span><span class="mord"><span class="mopen nulldelimiter"></span><span class="mfrac"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:1.3214em;"><span style="top:-2.314em;"><span class="pstrut" style="height:3em;"></span><span class="mord"><span class="mord mathnormal">d</span></span></span><span style="top:-3.23em;"><span class="pstrut" style="height:3em;"></span><span class="frac-line" style="border-bottom-width:0.04em;"></span></span><span style="top:-3.677em;"><span class="pstrut" style="height:3em;"></span><span class="mord"><span class="mord">1</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.686em;"><span></span></span></span></span></span><span class="mclose nulldelimiter"></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mop op-limits"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:1.8361em;"><span style="top:-1.8723em;margin-left:0em;"><span class="pstrut" style="height:3.05em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight">i</span><span class="mrel mtight">=</span><span class="mord mtight">1</span></span></span></span><span style="top:-3.05em;"><span class="pstrut" style="height:3.05em;"></span><span><span class="mop op-symbol large-op">∑</span></span></span><span style="top:-4.3em;margin-left:0em;"><span class="pstrut" style="height:3.05em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight">d</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:1.2777em;"><span></span></span></span></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3117em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">i</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span></span></p>
+<p>再计算方差：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><msup><mi>σ</mi><mn>2</mn></msup><mo>=</mo><mfrac><mn>1</mn><mi>d</mi></mfrac><munderover><mo>∑</mo><mrow><mi>i</mi><mo>=</mo><mn>1</mn></mrow><mi>d</mi></munderover><mo stretchy="false">(</mo><msub><mi>x</mi><mi>i</mi></msub><mo>−</mo><mi>μ</mi><msup><mo stretchy="false">)</mo><mn>2</mn></msup></mrow><annotation encoding="application/x-tex">\sigma^2 = \frac{1}{d}\sum_{i=1}^{d}(x_i-\mu)^2
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8641em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.03588em;">σ</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8641em;"><span style="top:-3.113em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:3.1138em;vertical-align:-1.2777em;"></span><span class="mord"><span class="mopen nulldelimiter"></span><span class="mfrac"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:1.3214em;"><span style="top:-2.314em;"><span class="pstrut" style="height:3em;"></span><span class="mord"><span class="mord mathnormal">d</span></span></span><span style="top:-3.23em;"><span class="pstrut" style="height:3em;"></span><span class="frac-line" style="border-bottom-width:0.04em;"></span></span><span style="top:-3.677em;"><span class="pstrut" style="height:3em;"></span><span class="mord"><span class="mord">1</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.686em;"><span></span></span></span></span></span><span class="mclose nulldelimiter"></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mop op-limits"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:1.8361em;"><span style="top:-1.8723em;margin-left:0em;"><span class="pstrut" style="height:3.05em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight">i</span><span class="mrel mtight">=</span><span class="mord mtight">1</span></span></span></span><span style="top:-3.05em;"><span class="pstrut" style="height:3.05em;"></span><span><span class="mop op-symbol large-op">∑</span></span></span><span style="top:-4.3em;margin-left:0em;"><span class="pstrut" style="height:3.05em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight">d</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:1.2777em;"><span></span></span></span></span></span><span class="mopen">(</span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3117em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">i</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">−</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1.1141em;vertical-align:-0.25em;"></span><span class="mord mathnormal">μ</span><span class="mclose"><span class="mclose">)</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8641em;"><span style="top:-3.113em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span></span></span></span></span></span></span></span></span></p>
+<p>然后归一化：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><msub><mover accent="true"><mi>x</mi><mo>^</mo></mover><mi>i</mi></msub><mo>=</mo><mfrac><mrow><msub><mi>x</mi><mi>i</mi></msub><mo>−</mo><mi>μ</mi></mrow><msqrt><mrow><msup><mi>σ</mi><mn>2</mn></msup><mo>+</mo><mi>ϵ</mi></mrow></msqrt></mfrac></mrow><annotation encoding="application/x-tex">\hat{x}_i = \frac{x_i-\mu}{\sqrt{\sigma^2+\epsilon}}
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8444em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord accent"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.6944em;"><span style="top:-3em;"><span class="pstrut" style="height:3em;"></span><span class="mord mathnormal">x</span></span><span style="top:-3em;"><span class="pstrut" style="height:3em;"></span><span class="accent-body" style="left:-0.2222em;"><span class="mord">^</span></span></span></span></span></span></span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3117em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">i</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:2.1903em;vertical-align:-0.93em;"></span><span class="mord"><span class="mopen nulldelimiter"></span><span class="mfrac"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:1.2603em;"><span style="top:-2.1966em;"><span class="pstrut" style="height:3em;"></span><span class="mord"><span class="mord sqrt"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.9134em;"><span class="svg-align" style="top:-3em;"><span class="pstrut" style="height:3em;"></span><span class="mord" style="padding-left:0.833em;"><span class="mord"><span class="mord mathnormal" style="margin-right:0.03588em;">σ</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.7401em;"><span style="top:-2.989em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mord mathnormal">ϵ</span></span></span><span style="top:-2.8734em;"><span class="pstrut" style="height:3em;"></span><span class="hide-tail" style="min-width:0.853em;height:1.08em;"><svg xmlns="http://www.w3.org/2000/svg" width="400em" height="1.08em" viewBox="0 0 400000 1080" preserveAspectRatio="xMinYMin slice"><path d="M95,702
+c-2.7,0,-7.17,-2.7,-13.5,-8c-5.8,-5.3,-9.5,-10,-9.5,-14
+c0,-2,0.3,-3.3,1,-4c1.3,-2.7,23.83,-20.7,67.5,-54
+c44.2,-33.3,65.8,-50.3,66.5,-51c1.3,-1.3,3,-2,5,-2c4.7,0,8.7,3.3,12,10
+s173,378,173,378c0.7,0,35.3,-71,104,-213c68.7,-142,137.5,-285,206.5,-429
+c69,-144,104.5,-217.7,106.5,-221
+l0 -0
+c5.3,-9.3,12,-14,20,-14
+H400000v40H845.2724
+s-225.272,467,-225.272,467s-235,486,-235,486c-2.7,4.7,-9,7,-19,7
+c-6,0,-10,-1,-12,-3s-194,-422,-194,-422s-65,47,-65,47z
+M834 80h400000v40h-400000z"/></svg></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.1266em;"><span></span></span></span></span></span></span></span><span style="top:-3.23em;"><span class="pstrut" style="height:3em;"></span><span class="frac-line" style="border-bottom-width:0.04em;"></span></span><span style="top:-3.677em;"><span class="pstrut" style="height:3em;"></span><span class="mord"><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3117em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">i</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">−</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mord mathnormal">μ</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.93em;"><span></span></span></span></span></span><span class="mclose nulldelimiter"></span></span></span></span></span></span></p>
+<p>最后再加上可学习缩放和平移参数：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><msub><mi>y</mi><mi>i</mi></msub><mo>=</mo><msub><mi>γ</mi><mi>i</mi></msub><msub><mover accent="true"><mi>x</mi><mo>^</mo></mover><mi>i</mi></msub><mo>+</mo><msub><mi>β</mi><mi>i</mi></msub></mrow><annotation encoding="application/x-tex">y_i = \gamma_i \hat{x}_i + \beta_i
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.625em;vertical-align:-0.1944em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.03588em;">y</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3117em;"><span style="top:-2.55em;margin-left:-0.0359em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">i</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8889em;vertical-align:-0.1944em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.05556em;">γ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3117em;"><span style="top:-2.55em;margin-left:-0.0556em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">i</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mord"><span class="mord accent"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.6944em;"><span style="top:-3em;"><span class="pstrut" style="height:3em;"></span><span class="mord mathnormal">x</span></span><span style="top:-3em;"><span class="pstrut" style="height:3em;"></span><span class="accent-body" style="left:-0.2222em;"><span class="mord">^</span></span></span></span></span></span></span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3117em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">i</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.8889em;vertical-align:-0.1944em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.05278em;">β</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3117em;"><span style="top:-2.55em;margin-left:-0.0528em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">i</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span></span></p>
+<p>写成向量形式就是：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mtext>LN</mtext><mo stretchy="false">(</mo><mi>x</mi><mo stretchy="false">)</mo><mo>=</mo><mi>γ</mi><mo>⊙</mo><mfrac><mrow><mi>x</mi><mo>−</mo><mi>μ</mi></mrow><msqrt><mrow><msup><mi>σ</mi><mn>2</mn></msup><mo>+</mo><mi>ϵ</mi></mrow></msqrt></mfrac><mo>+</mo><mi>β</mi></mrow><annotation encoding="application/x-tex">\text{LN}(x)=\gamma \odot \frac{x-\mu}{\sqrt{\sigma^2+\epsilon}} + \beta
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord text"><span class="mord">LN</span></span><span class="mopen">(</span><span class="mord mathnormal">x</span><span class="mclose">)</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.7778em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.05556em;">γ</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">⊙</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:2.1903em;vertical-align:-0.93em;"></span><span class="mord"><span class="mopen nulldelimiter"></span><span class="mfrac"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:1.2603em;"><span style="top:-2.1966em;"><span class="pstrut" style="height:3em;"></span><span class="mord"><span class="mord sqrt"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.9134em;"><span class="svg-align" style="top:-3em;"><span class="pstrut" style="height:3em;"></span><span class="mord" style="padding-left:0.833em;"><span class="mord"><span class="mord mathnormal" style="margin-right:0.03588em;">σ</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.7401em;"><span style="top:-2.989em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mord mathnormal">ϵ</span></span></span><span style="top:-2.8734em;"><span class="pstrut" style="height:3em;"></span><span class="hide-tail" style="min-width:0.853em;height:1.08em;"><svg xmlns="http://www.w3.org/2000/svg" width="400em" height="1.08em" viewBox="0 0 400000 1080" preserveAspectRatio="xMinYMin slice"><path d="M95,702
+c-2.7,0,-7.17,-2.7,-13.5,-8c-5.8,-5.3,-9.5,-10,-9.5,-14
+c0,-2,0.3,-3.3,1,-4c1.3,-2.7,23.83,-20.7,67.5,-54
+c44.2,-33.3,65.8,-50.3,66.5,-51c1.3,-1.3,3,-2,5,-2c4.7,0,8.7,3.3,12,10
+s173,378,173,378c0.7,0,35.3,-71,104,-213c68.7,-142,137.5,-285,206.5,-429
+c69,-144,104.5,-217.7,106.5,-221
+l0 -0
+c5.3,-9.3,12,-14,20,-14
+H400000v40H845.2724
+s-225.272,467,-225.272,467s-235,486,-235,486c-2.7,4.7,-9,7,-19,7
+c-6,0,-10,-1,-12,-3s-194,-422,-194,-422s-65,47,-65,47z
+M834 80h400000v40h-400000z"/></svg></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.1266em;"><span></span></span></span></span></span></span></span><span style="top:-3.23em;"><span class="pstrut" style="height:3em;"></span><span class="frac-line" style="border-bottom-width:0.04em;"></span></span><span style="top:-3.677em;"><span class="pstrut" style="height:3em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">−</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mord mathnormal">μ</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.93em;"><span></span></span></span></span></span><span class="mclose nulldelimiter"></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.8889em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.05278em;">β</span></span></span></span></span></p>
+<p>其中：</p>
+<ul>
+<li>(\gamma,\beta \in \mathbb{R}^{d})</li>
+<li>(\epsilon) 是防止除零的小常数</li>
+</ul>
+<hr>
+<h2 id="jiu-layer-norm-dao-di-zai-gui-yi-hua-shi-yao" tabindex="-1" id="九、LayerNorm-到底在归一化什么">九、LayerNorm 到底在归一化什么</h2>
+<p>这个问题特别容易混淆。</p>
+<p>LayerNorm 不是：</p>
+<ul>
+<li>对整个 batch 做归一化</li>
+<li>也不是对整个序列所有 token 一起归一化</li>
+</ul>
+<p>它通常是：</p>
+<p><strong>对单个 token 的特征向量，在特征维度上做归一化。</strong></p>
+<p>也就是说，如果某个 token 当前表示是一个 4096 维向量，那么 LayerNorm 会：</p>
+<ul>
+<li>只看这 4096 个数</li>
+<li>计算它们自己的均值和方差</li>
+<li>把这个向量拉回到更规范的数值尺度</li>
+</ul>
+<p>所以 LayerNorm 的作用对象是：</p>
+<p><strong>每个位置自己的隐藏状态。</strong></p>
+<hr>
+<h2 id="shi-wei-shi-yao-layer-norm-hen-zhong-yao" tabindex="-1" id="十、为什么-LayerNorm-很重要">十、为什么 LayerNorm 很重要</h2>
+<h3 id="1-kong-zhi-shu-zhi-chi-du" tabindex="-1" id="1-控制数值尺度">1. 控制数值尺度</h3>
+<p>深层网络里，如果某层输出整体尺度突然过大，就会导致：</p>
+<ul>
+<li>attention score 爆掉</li>
+<li>softmax 过于尖锐</li>
+<li>FFN 激活失衡</li>
+</ul>
+<p>LayerNorm 能把输入重新拉回一个更稳定的数值区间。</p>
+<h3 id="2-jian-shao-ceng-jian-fen-bu-piao-yi" tabindex="-1" id="2-减少层间分布漂移">2. 减少层间分布漂移</h3>
+<p>每层看到的输入分布如果不断飘移，网络就会很难训练。<br>
+LayerNorm 帮助不同层看到更可控的输入尺度和分布。</p>
+<h3 id="3-you-hua-geng-wen-ding" tabindex="-1" id="3-优化更稳定">3. 优化更稳定</h3>
+<p>尺度被规范后，学习率更容易设，深层训练也更稳定。</p>
+<p>所以 LayerNorm 本质上是在做：</p>
+<p><strong>每层的数值环境稳定器。</strong></p>
+<hr>
+<h2 id="shi-yi-pre-ln-he-post-ln-dao-di-you-shi-yao-qu-bie" tabindex="-1" id="十一、Pre-LN-和-Post-LN-到底有什么区别">十一、Pre-LN 和 Post-LN 到底有什么区别</h2>
+<p>Transformer 里 LayerNorm 位置有两种经典写法。</p>
+<h3 id="1-post-ln-yuan-shi-lun-wen-chang-jian" tabindex="-1" id="1-Post-LN（原始论文常见）">1. Post-LN（原始论文常见）</h3>
+<p>写作：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>h</mi><mo>=</mo><mtext>LN</mtext><mo stretchy="false">(</mo><mi>x</mi><mo>+</mo><mtext>Sublayer</mtext><mo stretchy="false">(</mo><mi>x</mi><mo stretchy="false">)</mo><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">h = \text{LN}(x + \text{Sublayer}(x))
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6944em;"></span><span class="mord mathnormal">h</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord text"><span class="mord">LN</span></span><span class="mopen">(</span><span class="mord mathnormal">x</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord text"><span class="mord">Sublayer</span></span><span class="mopen">(</span><span class="mord mathnormal">x</span><span class="mclose">))</span></span></span></span></span></p>
+<p>意思是：</p>
+<ul>
+<li>先经过子层</li>
+<li>再加残差</li>
+<li>最后做 LayerNorm</li>
+</ul>
+<h3 id="2-pre-ln-xian-dai-da-mo-xing-geng-chang-jian" tabindex="-1" id="2-Pre-LN（现代大模型更常见）">2. Pre-LN（现代大模型更常见）</h3>
+<p>写作：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>h</mi><mo>=</mo><mi>x</mi><mo>+</mo><mtext>Sublayer</mtext><mo stretchy="false">(</mo><mtext>LN</mtext><mo stretchy="false">(</mo><mi>x</mi><mo stretchy="false">)</mo><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">h = x + \text{Sublayer}(\text{LN}(x))
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6944em;"></span><span class="mord mathnormal">h</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6667em;vertical-align:-0.0833em;"></span><span class="mord mathnormal">x</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord text"><span class="mord">Sublayer</span></span><span class="mopen">(</span><span class="mord text"><span class="mord">LN</span></span><span class="mopen">(</span><span class="mord mathnormal">x</span><span class="mclose">))</span></span></span></span></span></p>
+<p>意思是：</p>
+<ul>
+<li>先做 LayerNorm</li>
+<li>再进入子层</li>
+<li>再和原输入做残差相加</li>
+</ul>
+<p>现代很多 GPT / LLaMA 类模型更偏 Pre-LN，因为它通常在深层堆叠时训练更稳定。<br>
+直觉上，Pre-LN 让每个子层都能先看到一个已经被归一化好的输入。</p>
+<p>所以你可以这样记：</p>
+<ul>
+<li><strong>Post-LN 更接近原始 Transformer</strong></li>
+<li><strong>Pre-LN 更接近现代大模型工程实践</strong></li>
+</ul>
+<hr>
+<h2 id="shi-er-yi-ceng-transformer-block-dao-di-wan-zheng-chang-shi-yao-yang" tabindex="-1" id="十二、一层-Transformer-block-到底完整长什么样">十二、一层 Transformer block 到底完整长什么样</h2>
+<p>现在终于可以把 attention、FFN、残差、LayerNorm 拼起来了。</p>
+<p>我们先讲现代大模型里更常见的 <strong>Pre-LN block</strong>。</p>
+<p>设输入是：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>x</mi><mo>∈</mo><msup><mi mathvariant="double-struck">R</mi><mrow><mi>n</mi><mo>×</mo><msub><mi>d</mi><mtext>model</mtext></msub></mrow></msup></mrow><annotation encoding="application/x-tex">x \in \mathbb{R}^{n \times d_{\text{model}}}
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.5782em;vertical-align:-0.0391em;"></span><span class="mord mathnormal">x</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">∈</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8991em;"></span><span class="mord"><span class="mord mathbb">R</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8991em;"><span style="top:-3.113em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight">n</span><span class="mbin mtight">×</span><span class="mord mtight"><span class="mord mathnormal mtight">d</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3448em;"><span style="top:-2.3488em;margin-left:0em;margin-right:0.0714em;"><span class="pstrut" style="height:2.5em;"></span><span class="sizing reset-size3 size1 mtight"><span class="mord mtight"><span class="mord text mtight"><span class="mord mtight">model</span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.1512em;"><span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></p>
+<hr>
+<h3 id="di-yi-bu-layer-norm-attention-can-chai" tabindex="-1" id="第一步：LayerNorm-Attention-残差">第一步：LayerNorm + Attention + 残差</h3>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>h</mi><mo>=</mo><mi>x</mi><mo>+</mo><mtext>Attention</mtext><mo stretchy="false">(</mo><mtext>LN</mtext><mo stretchy="false">(</mo><mi>x</mi><mo stretchy="false">)</mo><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">h = x + \text{Attention}(\text{LN}(x))
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6944em;"></span><span class="mord mathnormal">h</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6667em;vertical-align:-0.0833em;"></span><span class="mord mathnormal">x</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord text"><span class="mord">Attention</span></span><span class="mopen">(</span><span class="mord text"><span class="mord">LN</span></span><span class="mopen">(</span><span class="mord mathnormal">x</span><span class="mclose">))</span></span></span></span></span></p>
+<p>这里 attention 可以是：</p>
+<ul>
+<li>Encoder 中的双向 Self-Attention</li>
+<li>Decoder 中带 causal mask 的 Self-Attention</li>
+</ul>
+<p>作用是：</p>
+<ul>
+<li>先规范输入数值</li>
+<li>再进行跨位置上下文交互</li>
+<li>最后以残差方式把修正量加回原表示</li>
+</ul>
+<hr>
+<h3 id="di-er-bu-layer-norm-ffn-can-chai" tabindex="-1" id="第二步：LayerNorm-FFN-残差">第二步：LayerNorm + FFN + 残差</h3>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>y</mi><mo>=</mo><mi>h</mi><mo>+</mo><mtext>FFN</mtext><mo stretchy="false">(</mo><mtext>LN</mtext><mo stretchy="false">(</mo><mi>h</mi><mo stretchy="false">)</mo><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">y = h + \text{FFN}(\text{LN}(h))
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.625em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.03588em;">y</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.7778em;vertical-align:-0.0833em;"></span><span class="mord mathnormal">h</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord text"><span class="mord">FFN</span></span><span class="mopen">(</span><span class="mord text"><span class="mord">LN</span></span><span class="mopen">(</span><span class="mord mathnormal">h</span><span class="mclose">))</span></span></span></span></span></p>
+<p>作用是：</p>
+<ul>
+<li>先规范 attention 后的表示</li>
+<li>再对每个位置做逐位置非线性加工</li>
+<li>最后把加工结果以残差形式叠加回去</li>
+</ul>
+<p>于是，一层完整 block 就是：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>h</mi><mo>=</mo><mi>x</mi><mo>+</mo><mtext>Attention</mtext><mo stretchy="false">(</mo><mtext>LN</mtext><mo stretchy="false">(</mo><mi>x</mi><mo stretchy="false">)</mo><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">h = x + \text{Attention}(\text{LN}(x))
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6944em;"></span><span class="mord mathnormal">h</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6667em;vertical-align:-0.0833em;"></span><span class="mord mathnormal">x</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord text"><span class="mord">Attention</span></span><span class="mopen">(</span><span class="mord text"><span class="mord">LN</span></span><span class="mopen">(</span><span class="mord mathnormal">x</span><span class="mclose">))</span></span></span></span></span></p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>y</mi><mo>=</mo><mi>h</mi><mo>+</mo><mtext>FFN</mtext><mo stretchy="false">(</mo><mtext>LN</mtext><mo stretchy="false">(</mo><mi>h</mi><mo stretchy="false">)</mo><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">y = h + \text{FFN}(\text{LN}(h))
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.625em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.03588em;">y</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.7778em;vertical-align:-0.0833em;"></span><span class="mord mathnormal">h</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord text"><span class="mord">FFN</span></span><span class="mopen">(</span><span class="mord text"><span class="mord">LN</span></span><span class="mopen">(</span><span class="mord mathnormal">h</span><span class="mclose">))</span></span></span></span></span></p>
+<p>这就是一个现代 Transformer block 的最核心写法。</p>
+<hr>
+<h2 id="shi-san-ru-guo-shi-post-ln-xie-fa-hui-zen-yang" tabindex="-1" id="十三、如果是-Post-LN，写法会怎样">十三、如果是 Post-LN，写法会怎样</h2>
+<p>原始论文风格的 block 更接近：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>h</mi><mo>=</mo><mtext>LN</mtext><mo stretchy="false">(</mo><mi>x</mi><mo>+</mo><mtext>Attention</mtext><mo stretchy="false">(</mo><mi>x</mi><mo stretchy="false">)</mo><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">h = \text{LN}(x + \text{Attention}(x))
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6944em;"></span><span class="mord mathnormal">h</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord text"><span class="mord">LN</span></span><span class="mopen">(</span><span class="mord mathnormal">x</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord text"><span class="mord">Attention</span></span><span class="mopen">(</span><span class="mord mathnormal">x</span><span class="mclose">))</span></span></span></span></span></p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>y</mi><mo>=</mo><mtext>LN</mtext><mo stretchy="false">(</mo><mi>h</mi><mo>+</mo><mtext>FFN</mtext><mo stretchy="false">(</mo><mi>h</mi><mo stretchy="false">)</mo><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">y = \text{LN}(h + \text{FFN}(h))
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.625em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.03588em;">y</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord text"><span class="mord">LN</span></span><span class="mopen">(</span><span class="mord mathnormal">h</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord text"><span class="mord">FFN</span></span><span class="mopen">(</span><span class="mord mathnormal">h</span><span class="mclose">))</span></span></span></span></span></p>
+<p>你会发现，主骨架并没有变：</p>
+<ul>
+<li>一次 attention 子层</li>
+<li>一次 FFN 子层</li>
+<li>每个子层都包着残差和 LayerNorm</li>
+</ul>
+<p>区别只是 LayerNorm 放在子层前还是子层后。</p>
+<hr>
+<h2 id="shi-si-wei-shi-yao-zhe-yang-de-yi-ceng-ke-yi-fan-fu-dui-hen-duo-ceng" tabindex="-1" id="十四、为什么这样的一层可以反复堆很多层">十四、为什么这样的一层可以反复堆很多层</h2>
+<p>这就是 block 设计最漂亮的地方。</p>
+<p>它之所以能一层层堆上去，是因为它同时具备：</p>
+<h3 id="1-kua-wei-zhi-xin-xi-jiao-huan-neng-li" tabindex="-1" id="1-跨位置信息交换能力">1. 跨位置信息交换能力</h3>
+<p>由 attention 提供。</p>
+<h3 id="2-zhu-wei-zhi-te-zheng-jia-gong-neng-li" tabindex="-1" id="2-逐位置特征加工能力">2. 逐位置特征加工能力</h3>
+<p>由 FFN 提供。</p>
+<h3 id="3-wen-ding-de-xin-xi-yu-ti-du-tong-lu" tabindex="-1" id="3-稳定的信息与梯度通路">3. 稳定的信息与梯度通路</h3>
+<p>由残差提供。</p>
+<h3 id="4-wen-ding-de-shu-zhi-fen-bu-huan-jing" tabindex="-1" id="4-稳定的数值分布环境">4. 稳定的数值分布环境</h3>
+<p>由 LayerNorm 提供。</p>
+<p>这意味着：</p>
+<ul>
+<li>每一层都能“看全局”</li>
+<li>又都能“加工自己”</li>
+<li>还不会因为太深而轻易训练崩掉</li>
+</ul>
+<p>所以 Transformer block 真正厉害的地方不只是“内部模块多”，而是：</p>
+<p><strong>它是一个经过精心稳定化设计的可堆叠单元。</strong></p>
+<hr>
+<h2 id="shi-wu-xian-zai-jin-ru-di-er-ge-da-wen-ti-encoder-he-decoder-dao-di-shi-shi-yao" tabindex="-1" id="十五、现在进入第二个大问题：Encoder-和-Decoder-到底是什么">十五、现在进入第二个大问题：Encoder 和 Decoder 到底是什么</h2>
+<p>前面我们一直在讲一个“block”，但 Transformer 并不是只包含单个 block。<br>
+真正完整的架构，必须回答：</p>
+<ul>
+<li>这些 block 是怎么堆起来的</li>
+<li>堆成 Encoder 时是什么</li>
+<li>堆成 Decoder 时又是什么</li>
+<li>原始 Transformer 为什么是 Encoder-Decoder</li>
+<li>BERT、GPT、T5 为什么会走向不同结构</li>
+</ul>
+<p>先讲原始 Transformer。</p>
+<hr>
+<h2 id="shi-liu-yuan-shi-transformer-wei-shi-yao-shi-encoder-decoder" tabindex="-1" id="十六、原始-Transformer-为什么是-Encoder-Decoder">十六、原始 Transformer 为什么是 Encoder-Decoder</h2>
+<p>原始 Transformer 最早面向的典型任务是：</p>
+<ul>
+<li>机器翻译</li>
+<li>摘要</li>
+<li>改写</li>
+</ul>
+<p>这些任务有一个共同特点：</p>
+<blockquote>
+<p>输入是一段序列，输出是另一段序列。</p>
+</blockquote>
+<p>例如：</p>
+<ul>
+<li>输入英文</li>
+<li>输出德文</li>
+</ul>
+<p>所以最自然的结构就是：</p>
+<ol>
+<li>先有一个模块把输入“读懂”</li>
+<li>再有另一个模块基于这个理解结果去“生成输出”</li>
+</ol>
+<p>于是原始 Transformer 就采用了：</p>
+<ul>
+<li><strong>Encoder</strong></li>
+<li><strong>Decoder</strong></li>
+</ul>
+<p>两个堆叠结构。</p>
+<hr>
+<h2 id="shi-qi-encoder-dao-di-zai-gan-shi-yao" tabindex="-1" id="十七、Encoder-到底在干什么">十七、Encoder 到底在干什么</h2>
+<p>Encoder 的任务是：</p>
+<p><strong>对输入序列做深层上下文化编码。</strong></p>
+<p>如果输入是：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><msub><mi>x</mi><mn>1</mn></msub><mo separator="true">,</mo><mo>…</mo><mo separator="true">,</mo><msub><mi>x</mi><mi>n</mi></msub></mrow><annotation encoding="application/x-tex">x_1,\dots,x_n
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.625em;vertical-align:-0.1944em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">1</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="minner">…</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">n</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span></span></p>
+<p>Encoder 会输出一组表示：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><msup><mi>H</mi><mrow><mi>e</mi><mi>n</mi><mi>c</mi></mrow></msup><mo>=</mo><mo stretchy="false">(</mo><msubsup><mi>h</mi><mn>1</mn><mrow><mi>e</mi><mi>n</mi><mi>c</mi></mrow></msubsup><mo separator="true">,</mo><mo>…</mo><mo separator="true">,</mo><msubsup><mi>h</mi><mi>n</mi><mrow><mi>e</mi><mi>n</mi><mi>c</mi></mrow></msubsup><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">H^{enc}=(h_1^{enc},\dots,h_n^{enc})
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.7144em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.08125em;">H</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.7144em;"><span style="top:-3.113em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight">e</span><span class="mord mathnormal mtight">n</span><span class="mord mathnormal mtight">c</span></span></span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">(</span><span class="mord"><span class="mord mathnormal">h</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.7144em;"><span style="top:-2.453em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">1</span></span></span><span style="top:-3.113em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight">e</span><span class="mord mathnormal mtight">n</span><span class="mord mathnormal mtight">c</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.247em;"><span></span></span></span></span></span></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="minner">…</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">h</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.7144em;"><span style="top:-2.453em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">n</span></span></span><span style="top:-3.113em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight">e</span><span class="mord mathnormal mtight">n</span><span class="mord mathnormal mtight">c</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.247em;"><span></span></span></span></span></span></span><span class="mclose">)</span></span></span></span></span></p>
+<p>这里每个 (h_i^{enc}) 都不只是第 (i) 个 token 本身，而是：</p>
+<ul>
+<li>它自己</li>
+<li>它和其他 token 的关系</li>
+<li>它在整句中的语义角色</li>
+</ul>
+<p>Encoder 通常使用的是：</p>
+<ul>
+<li><strong>双向 Self-Attention</strong></li>
+<li>没有 causal mask</li>
+</ul>
+<p>所以它更适合“理解整句”。</p>
+<hr>
+<h2 id="shi-ba-decoder-dao-di-zai-gan-shi-yao" tabindex="-1" id="十八、Decoder-到底在干什么">十八、Decoder 到底在干什么</h2>
+<p>Decoder 的任务是：</p>
+<p><strong>一步一步生成输出序列。</strong></p>
+<p>如果输出序列是：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><msub><mi>y</mi><mn>1</mn></msub><mo separator="true">,</mo><mo>…</mo><mo separator="true">,</mo><msub><mi>y</mi><mi>m</mi></msub></mrow><annotation encoding="application/x-tex">y_1,\dots,y_m
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.625em;vertical-align:-0.1944em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.03588em;">y</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:-0.0359em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">1</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="minner">…</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.03588em;">y</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:-0.0359em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">m</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span></span></p>
+<p>那么 Decoder 在生成第 (t) 个 token 时，需要建模：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>P</mi><mo stretchy="false">(</mo><msub><mi>y</mi><mi>t</mi></msub><mo>∣</mo><msub><mi>y</mi><mn>1</mn></msub><mo separator="true">,</mo><mo>…</mo><mo separator="true">,</mo><msub><mi>y</mi><mrow><mi>t</mi><mo>−</mo><mn>1</mn></mrow></msub><mo separator="true">,</mo><msup><mi>H</mi><mrow><mi>e</mi><mi>n</mi><mi>c</mi></mrow></msup><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">P(y_t \mid y_1,\dots,y_{t-1}, H^{enc})
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">P</span><span class="mopen">(</span><span class="mord"><span class="mord mathnormal" style="margin-right:0.03588em;">y</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.2806em;"><span style="top:-2.55em;margin-left:-0.0359em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">t</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">∣</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.03588em;">y</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:-0.0359em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">1</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="minner">…</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.03588em;">y</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:-0.0359em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight">t</span><span class="mbin mtight">−</span><span class="mord mtight">1</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.2083em;"><span></span></span></span></span></span></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.08125em;">H</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.7144em;"><span style="top:-3.113em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight">e</span><span class="mord mathnormal mtight">n</span><span class="mord mathnormal mtight">c</span></span></span></span></span></span></span></span></span><span class="mclose">)</span></span></span></span></span></p>
+<p>也就是说，它既要看：</p>
+<ul>
+<li>自己已经生成了什么（输出前缀）</li>
+<li>输入句子被 Encoder 理解后的表示（Encoder 输出）</li>
+</ul>
+<p>因此原始 Decoder layer 里通常有两种 attention：</p>
+<h3 id="1-masked-self-attention" tabindex="-1" id="1-masked-Self-Attention">1. masked Self-Attention</h3>
+<p>让 Decoder 看自己前面的已生成 token。</p>
+<h3 id="2-cross-attention" tabindex="-1" id="2-cross-attention">2. cross-attention</h3>
+<p>让 Decoder 去查看 Encoder 的输出表示。</p>
+<p>所以 Decoder 不只是“会生成”，而是：</p>
+<p><strong>基于输入理解结果做条件生成。</strong></p>
+<hr>
+<h2 id="shi-jiu-encoder-only-decoder-only-encoder-decoder-dao-di-zen-yao-qu-fen" tabindex="-1" id="十九、Encoder-only、Decoder-only、Encoder-Decoder-到底怎么区分">十九、Encoder-only、Decoder-only、Encoder-Decoder 到底怎么区分</h2>
+<p>现在把整个家族整理一下。</p>
+<h3 id="1-encoder-only" tabindex="-1" id="1-Encoder-only">1. Encoder-only</h3>
+<p>代表：</p>
+<ul>
+<li>BERT</li>
+<li>RoBERTa</li>
+<li>DeBERTa</li>
+</ul>
+<p>特点：</p>
+<ul>
+<li>只保留 Encoder 堆栈</li>
+<li>输入是完整序列</li>
+<li>每个位置可双向看全局</li>
+<li>更适合理解任务</li>
+</ul>
+<p>适用任务：</p>
+<ul>
+<li>文本分类</li>
+<li>句子匹配</li>
+<li>命名实体识别</li>
+<li>检索编码</li>
+</ul>
+<hr>
+<h3 id="2-encoder-decoder" tabindex="-1" id="2-Encoder-Decoder">2. Encoder-Decoder</h3>
+<p>代表：</p>
+<ul>
+<li>原始 Transformer</li>
+<li>T5</li>
+<li>BART</li>
+</ul>
+<p>特点：</p>
+<ul>
+<li>Encoder 先理解输入</li>
+<li>Decoder 再基于 Encoder 输出生成新序列</li>
+<li>更适合 seq2seq 映射</li>
+</ul>
+<p>适用任务：</p>
+<ul>
+<li>翻译</li>
+<li>摘要</li>
+<li>改写</li>
+<li>文本到文本转换</li>
+</ul>
+<hr>
+<h3 id="3-decoder-only" tabindex="-1" id="3-Decoder-only">3. Decoder-only</h3>
+<p>代表：</p>
+<ul>
+<li>GPT</li>
+<li>LLaMA</li>
+<li>Qwen</li>
+<li>DeepSeek</li>
+<li>Mistral</li>
+</ul>
+<p>特点：</p>
+<ul>
+<li>只有 Decoder 的自回归部分</li>
+<li>不再单独有 Encoder</li>
+<li>不再有 cross-attention</li>
+<li>使用 causal mask 逐 token 生成</li>
+</ul>
+<p>适用任务：</p>
+<ul>
+<li>通用文本生成</li>
+<li>对话</li>
+<li>写作</li>
+<li>代码补全</li>
+<li>通用大模型预训练</li>
+</ul>
+<hr>
+<h2 id="er-shi-wei-shi-yao-jin-tian-de-da-yu-yan-mo-xing-ji-hu-du-pian-decoder-only" tabindex="-1" id="二十、为什么今天的大语言模型几乎都偏-Decoder-only">二十、为什么今天的大语言模型几乎都偏 Decoder-only</h2>
+<p>这是当前大模型时代最重要的结构取舍之一。</p>
+<p>原因主要有三点。</p>
+<h3 id="1-yu-xun-lian-mu-biao-zui-tong-yi" tabindex="-1" id="1-预训练目标最统一">1. 预训练目标最统一</h3>
+<p>Decoder-only 的核心目标是：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>P</mi><mo stretchy="false">(</mo><msub><mi>x</mi><mi>t</mi></msub><mo>∣</mo><msub><mi>x</mi><mn>1</mn></msub><mo separator="true">,</mo><mo>…</mo><mo separator="true">,</mo><msub><mi>x</mi><mrow><mi>t</mi><mo>−</mo><mn>1</mn></mrow></msub><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">P(x_t \mid x_1,\dots,x_{t-1})
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">P</span><span class="mopen">(</span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.2806em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">t</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">∣</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">1</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="minner">…</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight">t</span><span class="mbin mtight">−</span><span class="mord mtight">1</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.2083em;"><span></span></span></span></span></span></span><span class="mclose">)</span></span></span></span></span></p>
+<p>也就是 Next-Token Prediction。<br>
+这让海量文本都能直接用于预训练，不需要特地构造输入输出配对。</p>
+<h3 id="2-sheng-cheng-neng-li-tian-ran-qiang" tabindex="-1" id="2-生成能力天然强">2. 生成能力天然强</h3>
+<p>大语言模型最重要的任务之一就是生成。<br>
+而 Decoder-only 结构天生就是为自回归生成设计的。</p>
+<h3 id="3-tui-li-lu-jing-geng-tong-yi" tabindex="-1" id="3-推理路径更统一">3. 推理路径更统一</h3>
+<p>现代推理系统里的很多核心技术：</p>
+<ul>
+<li>Prefill</li>
+<li>Decode</li>
+<li>KV Cache</li>
+<li>speculative decoding</li>
+<li>paged attention</li>
+</ul>
+<p>本质上都围绕 Decoder-only Transformer 展开。</p>
+<p>所以今天主流大模型几乎都偏向：</p>
+<p><strong>Decoder-only Transformer 的现代化变体。</strong></p>
+<hr>
+<h2 id="er-shi-yi-gpt-l-la-ma-qwen-dao-di-huan-shi-bu-shi-transformer" tabindex="-1" id="二十一、GPT-LLaMA-Qwen-到底还是不是-Transformer">二十一、GPT / LLaMA / Qwen 到底还是不是 Transformer</h2>
+<p>答案是：</p>
+<p><strong>当然是。</strong></p>
+<p>更准确地说：</p>
+<ul>
+<li>它们不是“脱离 Transformer 的新东西”</li>
+<li>而是“Transformer 的 Decoder-only 大模型版本”</li>
+</ul>
+<p>它们仍然保留了 Transformer 的核心骨架：</p>
+<ul>
+<li>token embedding</li>
+<li>位置处理</li>
+<li>Self-Attention</li>
+<li>multi-head 或其变体</li>
+<li>FFN / MLP</li>
+<li>残差</li>
+<li>LayerNorm 或 RMSNorm</li>
+<li>多层 Transformer Block 堆叠</li>
+<li>最终预测下一个 token</li>
+</ul>
+<p>只是它们通常在工程上做了很多改造，例如：</p>
+<ul>
+<li>改用 RoPE</li>
+<li>改用 RMSNorm</li>
+<li>改用 SwiGLU</li>
+<li>引入 MQA / GQA</li>
+<li>引入 MoE</li>
+<li>做长上下文和推理友好性优化</li>
+</ul>
+<p>所以最准确的说法应该是：</p>
+<p><strong>现代大语言模型不是“不是 Transformer”，而是“Transformer 在大模型时代的演化版本”。</strong></p>
+<hr>
+<h2 id="er-shi-er-ben-pian-zhen-zheng-yao-ji-zhu-de-liang-tiao-zhu-xian" tabindex="-1" id="二十二、本篇真正要记住的两条主线">二十二、本篇真正要记住的两条主线</h2>
+<h3 id="di-yi-tiao-yi-ceng-transformer-block-shi-zen-yao-pin-qi-lai-de" tabindex="-1" id="第一条：一层-Transformer-Block-是怎么拼起来的">第一条：一层 Transformer Block 是怎么拼起来的</h3>
+<ul>
+<li>attention 负责跨位置交互</li>
+<li>FFN 负责逐位置加工</li>
+<li>残差负责稳住信息与梯度通路</li>
+<li>LayerNorm 负责稳住数值分布</li>
+<li>现代常见 block 写法是：</li>
+</ul>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>h</mi><mo>=</mo><mi>x</mi><mo>+</mo><mtext>Attention</mtext><mo stretchy="false">(</mo><mtext>LN</mtext><mo stretchy="false">(</mo><mi>x</mi><mo stretchy="false">)</mo><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">h = x + \text{Attention}(\text{LN}(x))
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6944em;"></span><span class="mord mathnormal">h</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6667em;vertical-align:-0.0833em;"></span><span class="mord mathnormal">x</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord text"><span class="mord">Attention</span></span><span class="mopen">(</span><span class="mord text"><span class="mord">LN</span></span><span class="mopen">(</span><span class="mord mathnormal">x</span><span class="mclose">))</span></span></span></span></span></p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>y</mi><mo>=</mo><mi>h</mi><mo>+</mo><mtext>FFN</mtext><mo stretchy="false">(</mo><mtext>LN</mtext><mo stretchy="false">(</mo><mi>h</mi><mo stretchy="false">)</mo><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">y = h + \text{FFN}(\text{LN}(h))
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.625em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.03588em;">y</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.7778em;vertical-align:-0.0833em;"></span><span class="mord mathnormal">h</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord text"><span class="mord">FFN</span></span><span class="mopen">(</span><span class="mord text"><span class="mord">LN</span></span><span class="mopen">(</span><span class="mord mathnormal">h</span><span class="mclose">))</span></span></span></span></span></p>
+<h3 id="di-er-tiao-transformer-jia-zu-de-jie-gou-fen-hua" tabindex="-1" id="第二条：Transformer-家族的结构分化">第二条：Transformer 家族的结构分化</h3>
+<ul>
+<li>Encoder-only 更适合理解</li>
+<li>Encoder-Decoder 更适合 seq2seq 转换</li>
+<li>Decoder-only 更适合通用生成</li>
+<li>今天的大语言模型几乎都偏 Decoder-only</li>
+</ul>
+<hr>
+<h2 id="er-shi-san-yong-yi-ju-hua-ya-suo-ben-pian" tabindex="-1" id="二十三、用一句话压缩本篇">二十三、用一句话压缩本篇</h2>
+<p><strong>一层 Transformer Block 的本质，是在残差连接和 LayerNorm 的支撑下，把 Attention 的跨位置交互与 FFN 的逐位置非线性加工稳定地组合起来；原始 Transformer 再把这种 Block 分别堆叠成 Encoder 和 Decoder，最终演化出 Encoder-only、Encoder-Decoder 与今天主流的 Decoder-only 大语言模型。</strong></p>
+<hr>
+<h2 id="xia-yi-pian-yu-gao" tabindex="-1" id="下一篇预告">下一篇预告</h2>
+<p>下一篇主题是：</p>
+<h3 id="transformer-zai-xun-lian-he-tui-li-shi-ru-he-gong-zuo-cong-mo-xing-zhi-xing-dao-tui-li-xi-tong-de-qiao-jie" tabindex="-1" id="Transformer-在训练和推理时如何工作：从模型执行到推理系统的桥接">Transformer 在训练和推理时如何工作：从模型执行到推理系统的桥接</h3>
+<p>会重点讲清楚：</p>
+<ul>
+<li>训练时为什么可以并行</li>
+<li>推理时为什么必须逐 token 生成</li>
+<li>什么叫 Teacher Forcing</li>
+<li>什么叫 Prefill 和 Decode</li>
+<li>为什么 KV Cache 是推理核心</li>
+<li>为什么说现代推理系统的大部分问题，都能追溯到 Decoder-only Transformer 的执行方式</li>
+</ul>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/2639a5dc/">https://smarter.xin/posts/2639a5dc/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/transformer/">Transformer</a><a class="post-meta__tags" href="/tags/deep-learning/">深度学习</a><a class="post-meta__tags" href="/tags/layernorm/">LayerNorm</a></div><div class="post-share"><div class="social-share" data-image="/img/AI-Infra.png" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/d3059af7/" title="AI Infra学习之旅-从模型执行到推理系统的桥接"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">AI Infra学习之旅-从模型执行到推理系统的桥接</div></div></div></a><a class="pagination-related  no-desc" href="/posts/d37fa53a/" title="AI Infra学习之旅-Transformer为什么不只是一个Attention公式"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">AI Infra学习之旅-Transformer为什么不只是一个Attention公式</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/d37fa53a/" title="AI Infra学习之旅-Transformer为什么不只是一个Attention公式"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-27</div><div class="info-item-2">AI Infra学习之旅-Transformer为什么不只是一个Attention公式</div></div></div></a><a class="pagination-related no-desc" href="/posts/84fc38e7/" title="AI Infra学习之旅-Transformer最核心的计算机制"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-27</div><div class="info-item-2">AI Infra学习之旅-Transformer最核心的计算机制</div></div></div></a><a class="pagination-related no-desc" href="/posts/db1cf321/" title="AI Infra学习之旅-Transformer详解"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-04</div><div class="info-item-2">AI Infra学习之旅-Transformer详解</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">我就是要爬这座山<br>再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">127</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">260</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">23</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#ai-infra-xue-xi-zhi-lu-can-chai-layer-norm-yu-encoder-decoder-quan-mao"><span class="toc-text">AI Infra学习之旅-残差、LayerNorm与Encoder-Decoder全貌</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#yi-wei-shi-yao-li-jie-yi-ceng-transformer-block-bi-ji-yi-dui-mo-kuai-geng-zhong-yao"><span class="toc-text">一、为什么“理解一层 Transformer Block”比记一堆模块更重要</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#er-xian-hui-gu-yi-ceng-transformer-block-li-zhi-shao-you-na-liang-ge-he-xin-gong-neng-mo-kuai"><span class="toc-text">二、先回顾：一层 Transformer Block 里至少有哪两个核心功能模块</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-attention-zi-ceng"><span class="toc-text">1. Attention 子层</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-ffn-zi-ceng"><span class="toc-text">2. FFN 子层</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#san-wei-shi-yao-shen-ceng-wang-luo-hui-nan-xun-lian"><span class="toc-text">三、为什么深层网络会难训练</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-xin-xi-rong-yi-bei-ceng-ceng-fu-gai"><span class="toc-text">1. 信息容易被层层覆盖</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-ti-du-chuan-bo-rong-yi-bian-chai"><span class="toc-text">2. 梯度传播容易变差</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-shu-zhi-fen-bu-rong-yi-piao-yi"><span class="toc-text">3. 数值分布容易漂移</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#si-can-chai-lian-jie-dao-di-shi-shi-yao"><span class="toc-text">四、残差连接到底是什么</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#wu-wei-shi-yao-jiao-can-chai"><span class="toc-text">五、为什么叫“残差”</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#liu-can-chai-lian-jie-wei-shi-yao-ru-ci-zhong-yao"><span class="toc-text">六、残差连接为什么如此重要</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-gei-yuan-shi-xin-xi-bao-liu-yi-tiao-zhi-tong-lu-jing"><span class="toc-text">1. 给原始信息保留一条直通路径</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-rang-wang-luo-geng-rong-yi-xue-jie-jin-heng-deng-ying-she"><span class="toc-text">2. 让网络更容易学“接近恒等映射”</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-rang-ti-du-geng-rong-yi-chuan-bo"><span class="toc-text">3. 让梯度更容易传播</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#qi-cong-zhuang-tai-yan-hua-jiao-du-kan-can-chai"><span class="toc-text">七、从“状态演化”角度看残差</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#ba-layer-norm-dao-di-shi-shi-yao"><span class="toc-text">八、LayerNorm 到底是什么</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#jiu-layer-norm-dao-di-zai-gui-yi-hua-shi-yao"><span class="toc-text">九、LayerNorm 到底在归一化什么</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-wei-shi-yao-layer-norm-hen-zhong-yao"><span class="toc-text">十、为什么 LayerNorm 很重要</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-kong-zhi-shu-zhi-chi-du"><span class="toc-text">1. 控制数值尺度</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-jian-shao-ceng-jian-fen-bu-piao-yi"><span class="toc-text">2. 减少层间分布漂移</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-you-hua-geng-wen-ding"><span class="toc-text">3. 优化更稳定</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-yi-pre-ln-he-post-ln-dao-di-you-shi-yao-qu-bie"><span class="toc-text">十一、Pre-LN 和 Post-LN 到底有什么区别</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-post-ln-yuan-shi-lun-wen-chang-jian"><span class="toc-text">1. Post-LN（原始论文常见）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-pre-ln-xian-dai-da-mo-xing-geng-chang-jian"><span class="toc-text">2. Pre-LN（现代大模型更常见）</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-er-yi-ceng-transformer-block-dao-di-wan-zheng-chang-shi-yao-yang"><span class="toc-text">十二、一层 Transformer block 到底完整长什么样</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#di-yi-bu-layer-norm-attention-can-chai"><span class="toc-text">第一步：LayerNorm + Attention + 残差</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#di-er-bu-layer-norm-ffn-can-chai"><span class="toc-text">第二步：LayerNorm + FFN + 残差</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-san-ru-guo-shi-post-ln-xie-fa-hui-zen-yang"><span class="toc-text">十三、如果是 Post-LN，写法会怎样</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-si-wei-shi-yao-zhe-yang-de-yi-ceng-ke-yi-fan-fu-dui-hen-duo-ceng"><span class="toc-text">十四、为什么这样的一层可以反复堆很多层</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-kua-wei-zhi-xin-xi-jiao-huan-neng-li"><span class="toc-text">1. 跨位置信息交换能力</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-zhu-wei-zhi-te-zheng-jia-gong-neng-li"><span class="toc-text">2. 逐位置特征加工能力</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-wen-ding-de-xin-xi-yu-ti-du-tong-lu"><span class="toc-text">3. 稳定的信息与梯度通路</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-wen-ding-de-shu-zhi-fen-bu-huan-jing"><span class="toc-text">4. 稳定的数值分布环境</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-wu-xian-zai-jin-ru-di-er-ge-da-wen-ti-encoder-he-decoder-dao-di-shi-shi-yao"><span class="toc-text">十五、现在进入第二个大问题：Encoder 和 Decoder 到底是什么</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-liu-yuan-shi-transformer-wei-shi-yao-shi-encoder-decoder"><span class="toc-text">十六、原始 Transformer 为什么是 Encoder-Decoder</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-qi-encoder-dao-di-zai-gan-shi-yao"><span class="toc-text">十七、Encoder 到底在干什么</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-ba-decoder-dao-di-zai-gan-shi-yao"><span class="toc-text">十八、Decoder 到底在干什么</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-masked-self-attention"><span class="toc-text">1. masked Self-Attention</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-cross-attention"><span class="toc-text">2. cross-attention</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-jiu-encoder-only-decoder-only-encoder-decoder-dao-di-zen-yao-qu-fen"><span class="toc-text">十九、Encoder-only、Decoder-only、Encoder-Decoder 到底怎么区分</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-encoder-only"><span class="toc-text">1. Encoder-only</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-encoder-decoder"><span class="toc-text">2. Encoder-Decoder</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-decoder-only"><span class="toc-text">3. Decoder-only</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#er-shi-wei-shi-yao-jin-tian-de-da-yu-yan-mo-xing-ji-hu-du-pian-decoder-only"><span class="toc-text">二十、为什么今天的大语言模型几乎都偏 Decoder-only</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-yu-xun-lian-mu-biao-zui-tong-yi"><span class="toc-text">1. 预训练目标最统一</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-sheng-cheng-neng-li-tian-ran-qiang"><span class="toc-text">2. 生成能力天然强</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-tui-li-lu-jing-geng-tong-yi"><span class="toc-text">3. 推理路径更统一</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#er-shi-yi-gpt-l-la-ma-qwen-dao-di-huan-shi-bu-shi-transformer"><span class="toc-text">二十一、GPT &#x2F; LLaMA &#x2F; Qwen 到底还是不是 Transformer</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#er-shi-er-ben-pian-zhen-zheng-yao-ji-zhu-de-liang-tiao-zhu-xian"><span class="toc-text">二十二、本篇真正要记住的两条主线</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#di-yi-tiao-yi-ceng-transformer-block-shi-zen-yao-pin-qi-lai-de"><span class="toc-text">第一条：一层 Transformer Block 是怎么拼起来的</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#di-er-tiao-transformer-jia-zu-de-jie-gou-fen-hua"><span class="toc-text">第二条：Transformer 家族的结构分化</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#er-shi-san-yong-yi-ju-hua-ya-suo-ben-pian"><span class="toc-text">二十三、用一句话压缩本篇</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xia-yi-pian-yu-gao"><span class="toc-text">下一篇预告</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#transformer-zai-xun-lian-he-tui-li-shi-ru-he-gong-zuo-cong-mo-xing-zhi-xing-dao-tui-li-xi-tong-de-qiao-jie"><span class="toc-text">Transformer 在训练和推理时如何工作：从模型执行到推理系统的桥接</span></a></li></ol></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/d3059af7/" title="AI Infra学习之旅-从模型执行到推理系统的桥接"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="AI Infra学习之旅-从模型执行到推理系统的桥接"/></a><div class="content"><a class="title" href="/posts/d3059af7/" title="AI Infra学习之旅-从模型执行到推理系统的桥接">AI Infra学习之旅-从模型执行到推理系统的桥接</a><time datetime="2026-03-27T06:00:24.000Z" title="发表于 2026-03-27 14:00:24">2026-03-27</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/2639a5dc/" title="AI Infra学习之旅-残差、LayerNorm与Encoder-Decoder全貌"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="AI Infra学习之旅-残差、LayerNorm与Encoder-Decoder全貌"/></a><div class="content"><a class="title" href="/posts/2639a5dc/" title="AI Infra学习之旅-残差、LayerNorm与Encoder-Decoder全貌">AI Infra学习之旅-残差、LayerNorm与Encoder-Decoder全貌</a><time datetime="2026-03-27T05:55:35.000Z" title="发表于 2026-03-27 13:55:35">2026-03-27</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/d37fa53a/" title="AI Infra学习之旅-Transformer为什么不只是一个Attention公式"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="AI Infra学习之旅-Transformer为什么不只是一个Attention公式"/></a><div class="content"><a class="title" href="/posts/d37fa53a/" title="AI Infra学习之旅-Transformer为什么不只是一个Attention公式">AI Infra学习之旅-Transformer为什么不只是一个Attention公式</a><time datetime="2026-03-27T05:49:36.000Z" title="发表于 2026-03-27 13:49:36">2026-03-27</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">从 Self-Attention、位置编码到 Encoder-Decoder，系统梳理 Transformer 的核心结构、设计动机与理解路径</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/d6fa227a/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-16</span><a class="blog-slider__title" href="posts/d6fa227a/" alt="">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</a><div class="blog-slider__text">从访存优化到多卡通信，一篇看清 CUDA 实践系列的结构与学习路线</div><a class="blog-slider__button" href="posts/d6fa227a/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/43c4b52e/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/agent.webp" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-24</span><a class="blog-slider__title" href="posts/43c4b52e/" alt="">从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路</a><div class="blog-slider__text">使用飞书与本地 Agent 对话，远程也要让本地 Agent 干活，当一名狠狠的资本家</div><a class="blog-slider__button" href="posts/43c4b52e/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/92dc1028/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/CUDA_C.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-02-05</span><a class="blog-slider__title" href="posts/92dc1028/" alt="">CUDA C编程权威指南-导读</a><div class="blog-slider__text">从异构并行到多 GPU 实践，串起 CUDA C 权威指南的核心学习路线</div><a class="blog-slider__button" href="posts/92dc1028/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">从全书视角出发，一篇看清 PMPP 的章节结构、核心主题与学习主线</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/aac6e27d/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Computer_System.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/aac6e27d/" alt="">深入理解计算机系统知识点总结</a><div class="blog-slider__text">从程序员视角梳理 CSAPP 的知识脉络、系统抽象与性能理解</div><a class="blog-slider__button" href="posts/aac6e27d/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">围绕类型推导、移动语义与并发，提炼现代 C++ 的核心实践</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>
