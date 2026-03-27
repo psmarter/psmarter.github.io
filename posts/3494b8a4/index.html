@@ -1,0 +1,988 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>AI Infra学习之旅-RoPE、RMSNorm、GQA与MQA、SwiGLU与MoE | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="AI Infra学习之旅-RoPE、RMSNorm、GQA与MQA、SwiGLU与MoE  这是“Transformer 原理深讲系列”的第 9 篇。 到前一篇为止，我们已经把“经典 Transformer 骨架”真正走通了： 从 token、embedding、位置编码，到 Q&#x2F;K&#x2F;V、Attention、FFN、残差、LayerNorm，再到手算 Attention、手算完整 block，以及">
+<meta property="og:type" content="article">
+<meta property="og:title" content="AI Infra学习之旅-RoPE、RMSNorm、GQA与MQA、SwiGLU与MoE">
+<meta property="og:url" content="https://smarter.xin/posts/3494b8a4/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="AI Infra学习之旅-RoPE、RMSNorm、GQA与MQA、SwiGLU与MoE  这是“Transformer 原理深讲系列”的第 9 篇。 到前一篇为止，我们已经把“经典 Transformer 骨架”真正走通了： 从 token、embedding、位置编码，到 Q&#x2F;K&#x2F;V、Attention、FFN、残差、LayerNorm，再到手算 Attention、手算完整 block，以及">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/AI-Infra.png">
+<meta property="article:published_time" content="2026-03-27T07:37:11.000Z">
+<meta property="article:modified_time" content="2026-03-27T07:38:27.908Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="Transformer">
+<meta property="article:tag" content="RoPE">
+<meta property="article:tag" content="RMSNorm">
+<meta property="article:tag" content="MoE">
+<meta property="article:tag" content="大模型推理">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/AI-Infra.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "AI Infra学习之旅-RoPE、RMSNorm、GQA与MQA、SwiGLU与MoE",
+  "url": "https://smarter.xin/posts/3494b8a4/",
+  "image": "https://smarter.xin/img/AI-Infra.png",
+  "datePublished": "2026-03-27T07:37:11.000Z",
+  "dateModified": "2026-03-27T07:38:27.908Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/3494b8a4/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'AI Infra学习之旅-RoPE、RMSNorm、GQA与MQA、SwiGLU与MoE',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">131</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">260</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">23</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/AI-Infra.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">AI Infra学习之旅-RoPE、RMSNorm、GQA与MQA、SwiGLU与MoE</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">AI Infra学习之旅-RoPE、RMSNorm、GQA与MQA、SwiGLU与MoE</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-03-27T07:37:11.000Z" title="发表于 2026-03-27 15:37:11">2026-03-27</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-03-27T07:38:27.908Z" title="更新于 2026-03-27 15:38:27">2026-03-27</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/">AI Infra</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">5.2k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>16分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="ai-infra-xue-xi-zhi-lu-ro-pe-rms-norm-gqa-yu-mqa-swi-glu-yu-mo-e" tabindex="-1">AI Infra学习之旅-RoPE、RMSNorm、GQA与MQA、SwiGLU与MoE</h1>
+<blockquote>
+<p>这是“Transformer 原理深讲系列”的第 9 篇。<br>
+到前一篇为止，我们已经把“经典 Transformer 骨架”真正走通了：<br>
+从 token、embedding、位置编码，到 Q/K/V、Attention、FFN、残差、LayerNorm，再到手算 Attention、手算完整 block，以及用 PyTorch 写一个最小 Decoder-only Transformer。<br>
+但如果你现在去看真实的大语言模型实现，会很快发现一件事：<br>
+<strong>今天真正在线上和工程里被广泛使用的模型，已经不完全长得像 2017 年论文里的原始 Transformer。</strong><br>
+这一篇就专门讲清楚：<br>
+<strong>为什么经典 Transformer 会演化出今天这些常见变体，它们分别在解决什么问题。</strong></p>
+</blockquote>
+<hr>
+<h2 id="yi-wei-shi-yao-jing-dian-transformer-bu-hui-yuan-feng-bu-dong-di-zou-dao-da-mo-xing-shi-dai" tabindex="-1" id="一、为什么经典-Transformer-不会原封不动地走到大模型时代">一、为什么经典 Transformer 不会原封不动地走到大模型时代</h2>
+<p>2017 年的 <em>Attention Is All You Need</em> 给出了 Transformer 的经典骨架：</p>
+<ul>
+<li>token embedding</li>
+<li>位置编码</li>
+<li>multi-head attention</li>
+<li>FFN</li>
+<li>residual</li>
+<li>LayerNorm</li>
+<li>Encoder / Decoder</li>
+</ul>
+<p>这个骨架极其成功，也奠定了后面大模型时代的基础。<br>
+但一旦模型规模从：</p>
+<ul>
+<li>几千万参数<br>
+到</li>
+<li>几十亿、上百亿、甚至更大规模参数</li>
+</ul>
+<p>同时上下文长度、推理负载、显存约束、系统吞吐要求都急剧上升，原始结构就会暴露出一些问题：</p>
+<ol>
+<li><strong>位置编码不够适合长上下文扩展</strong></li>
+<li><strong>LayerNorm 在某些深层大模型中不是最简洁的选择</strong></li>
+<li><strong>标准多头 attention 的 K/V 开销很大</strong></li>
+<li><strong>经典 FFN 还有进一步提升表达能力与参数效率的空间</strong></li>
+<li><strong>Dense FFN 在超大模型里会让参数和计算成本都非常高</strong></li>
+</ol>
+<p>于是，现代大模型并不是推翻 Transformer，而是围绕它的核心骨架，做了一系列结构层面的“现代化改造”。</p>
+<p>所以这一篇的主线不是“列名词”，而是回答：</p>
+<blockquote>
+<p><strong>这些改动为什么会出现？</strong></p>
+</blockquote>
+<hr>
+<h2 id="er-xian-gei-ni-yi-zhang-zong-tu-xian-dai-bian-ti-ge-zi-zai-gai-shi-yao" tabindex="-1" id="二、先给你一张总图：现代变体各自在改什么">二、先给你一张总图：现代变体各自在改什么</h2>
+<p>为了建立整体感，可以先把这一篇要讲的东西压缩成下面这张映射表。</p>
+<table>
+<thead>
+<tr>
+<th>变体</th>
+<th>它改的是哪一部分</th>
+<th>它主要想解决什么问题</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>RoPE</td>
+<td>位置表示</td>
+<td>让 attention 更自然感知相对位置，并更适合长上下文</td>
+</tr>
+<tr>
+<td>RMSNorm</td>
+<td>归一化</td>
+<td>用更简洁的归一化方式稳定训练，减少一些不必要操作</td>
+</tr>
+<tr>
+<td>GQA / MQA</td>
+<td>attention 头结构</td>
+<td>减少 K/V cache 开销，降低推理显存和带宽压力</td>
+</tr>
+<tr>
+<td>SwiGLU</td>
+<td>FFN 激活与门控结构</td>
+<td>提升 FFN 的表达能力和训练效果</td>
+</tr>
+<tr>
+<td>MoE</td>
+<td>FFN 的计算路径</td>
+<td>在扩大总参数量的同时，控制单 token 激活计算量</td>
+</tr>
+</tbody>
+</table>
+<p>如果你把这张表记住，后面所有细节都会清晰很多。<br>
+因为它告诉你：</p>
+<ul>
+<li>这些变体不是随便长出来的</li>
+<li>它们每一个都有明确“痛点来源”</li>
+<li>它们大多是在大模型训练和推理压力下自然长出来的</li>
+</ul>
+<hr>
+<h2 id="san-xian-jiang-di-yi-ge-zui-chang-jian-de-xian-dai-bian-ti-ro-pe" tabindex="-1" id="三、先讲第一个最常见的现代变体：RoPE">三、先讲第一个最常见的现代变体：RoPE</h2>
+<p>在原始 Transformer 里，位置通常是这样加进去的：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><msub><mi>h</mi><mi>i</mi></msub><mo>=</mo><msub><mi>x</mi><mi>i</mi></msub><mo>+</mo><msub><mi>p</mi><mi>i</mi></msub></mrow><annotation encoding="application/x-tex">h_i = x_i + p_i
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8444em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal">h</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3117em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">i</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.7333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3117em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">i</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.625em;vertical-align:-0.1944em;"></span><span class="mord"><span class="mord mathnormal">p</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3117em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">i</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span></span></p>
+<p>其中：</p>
+<ul>
+<li>(x_i) 是 token embedding</li>
+<li>(p_i) 是位置向量</li>
+</ul>
+<p>也就是说，原始位置编码的基本思想是：</p>
+<p><strong>把位置作为一个附加向量，直接加到输入表示上。</strong></p>
+<p>这个做法很自然，也有效。<br>
+但当模型走向更长上下文、更大规模时，人们逐渐发现：</p>
+<blockquote>
+<p>仅仅在输入层把位置加进去，并不是唯一也不一定是最理想的方式。</p>
+</blockquote>
+<p>于是，现代很多大模型开始采用：</p>
+<p><strong>RoPE（Rotary Positional Embedding，旋转位置编码）</strong></p>
+<hr>
+<h2 id="si-ro-pe-dao-di-zai-gai-shi-yao" tabindex="-1" id="四、RoPE-到底在改什么">四、RoPE 到底在改什么</h2>
+<p>RoPE 的关键不是：</p>
+<ul>
+<li>继续给输入向量加一个位置向量</li>
+</ul>
+<p>而是：</p>
+<p><strong>把位置信息直接融入 Q 和 K 的表示里。</strong></p>
+<p>更具体地说，RoPE 会在 attention 计算前，对 Query 和 Key 做一个与位置相关的旋转变换。<br>
+于是，注意力分数不再只是：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><msub><mi>q</mi><mi>i</mi></msub><mo>⋅</mo><msub><mi>k</mi><mi>j</mi></msub></mrow><annotation encoding="application/x-tex">q_i \cdot k_j
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6389em;vertical-align:-0.1944em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.03588em;">q</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3117em;"><span style="top:-2.55em;margin-left:-0.0359em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">i</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">⋅</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.9805em;vertical-align:-0.2861em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.03148em;">k</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3117em;"><span style="top:-2.55em;margin-left:-0.0315em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.05724em;">j</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.2861em;"><span></span></span></span></span></span></span></span></span></span></span></p>
+<p>而是变成：</p>
+<blockquote>
+<p>带有位置旋转后的 (q_i) 与 (k_j) 的点积</p>
+</blockquote>
+<p>这样做的核心思想是：</p>
+<p><strong>让 attention 自己在匹配时就带上位置信号，而不是仅靠输入层的“内容 + 位置”混合向量。</strong></p>
+<hr>
+<h2 id="wu-ro-pe-wei-shi-yao-geng-gua-he-xian-dai-da-mo-xing" tabindex="-1" id="五、RoPE-为什么更适合现代大模型">五、RoPE 为什么更适合现代大模型</h2>
+<p>RoPE 之所以流行，根本原因在于它更自然地把“相对位置信息”嵌入到了 attention 的匹配机制里。</p>
+<p>从直觉上说，RoPE 的好处主要有三点。</p>
+<h3 id="1-ta-geng-qiang-diao-xiang-dui-wei-zhi" tabindex="-1" id="1-它更强调相对位置">1. 它更强调相对位置</h3>
+<p>原始绝对位置编码更像是在告诉模型：</p>
+<ul>
+<li>你现在在第几号位置</li>
+</ul>
+<p>而 RoPE 更容易让模型在 attention 里感受到：</p>
+<ul>
+<li>当前 token 和另一个 token 相差多远</li>
+<li>谁在谁前面</li>
+<li>这个相对偏移会如何影响匹配</li>
+</ul>
+<p>这对于语言这种依赖相对距离和相对顺序的结构，非常自然。</p>
+<h3 id="2-ta-zhi-jie-zuo-yong-zai-q-k-shang" tabindex="-1" id="2-它直接作用在-Q-K-上">2. 它直接作用在 Q/K 上</h3>
+<p>这意味着位置信号不是在输入层“埋进去”以后，希望后面层自己学会提取；<br>
+而是直接参与到了最核心的 attention 匹配过程里。</p>
+<h3 id="3-ta-tong-chang-geng-gua-he-chang-shang-xia-wen-kuo-zhan" tabindex="-1" id="3-它通常更适合长上下文扩展">3. 它通常更适合长上下文扩展</h3>
+<p>因为它的位置作用方式更贴近 attention 本体，所以在很多长上下文场景下，RoPE 表现得更自然，也更容易成为现代 LLM 的默认选择。</p>
+<p>所以 RoPE 本质上是在回答：</p>
+<blockquote>
+<p><strong>能不能把位置这件事，直接变成 attention 计算的一部分？</strong></p>
+</blockquote>
+<p>答案是：可以，而且效果通常很好。</p>
+<hr>
+<h2 id="liu-cong-ji-he-jiao-du-li-jie-ro-pe-ta-ben-zhi-shang-shi-zai-zuo-xuan-zhuan-zuo-biao-bian-huan" tabindex="-1" id="六、从几何角度理解-RoPE：它本质上是在做“旋转坐标变换”">六、从几何角度理解 RoPE：它本质上是在做“旋转坐标变换”</h2>
+<p>虽然 RoPE 公式看起来不算短，但它的几何直觉其实很漂亮。</p>
+<p>如果你把一个偶数维向量拆成很多二维小块，例如：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mo stretchy="false">(</mo><msub><mi>x</mi><mn>1</mn></msub><mo separator="true">,</mo><msub><mi>x</mi><mn>2</mn></msub><mo stretchy="false">)</mo><mo separator="true">,</mo><mo stretchy="false">(</mo><msub><mi>x</mi><mn>3</mn></msub><mo separator="true">,</mo><msub><mi>x</mi><mn>4</mn></msub><mo stretchy="false">)</mo><mo separator="true">,</mo><mo stretchy="false">(</mo><msub><mi>x</mi><mn>5</mn></msub><mo separator="true">,</mo><msub><mi>x</mi><mn>6</mn></msub><mo stretchy="false">)</mo><mo separator="true">,</mo><mo>…</mo></mrow><annotation encoding="application/x-tex">(x_1,x_2), (x_3,x_4), (x_5,x_6), \dots
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">(</span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">1</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mclose">)</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mopen">(</span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">3</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">4</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mclose">)</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mopen">(</span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">5</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">6</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mclose">)</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="minner">…</span></span></span></span></span></p>
+<p>RoPE 会对这些二维小块做一个与位置相关的旋转。<br>
+不同位置，对应不同旋转角度。</p>
+<p>于是：</p>
+<ul>
+<li>位置 1 的 query 会被旋转一次</li>
+<li>位置 2 的 query 会被旋转另一种角度</li>
+<li>key 也一样</li>
+</ul>
+<p>这就像在不同位置上，给向量施加不同的相位变化。</p>
+<p>所以 RoPE 的核心可以非常直观地理解成：</p>
+<p><strong>位置不再是“加一个向量”，而是“对表示坐标系做位置相关旋转”。</strong></p>
+<p>这个理解很重要，因为它能帮助你区分：</p>
+<ul>
+<li>绝对位置加法编码</li>
+<li>与 attention 深度耦合的旋转位置编码</li>
+</ul>
+<hr>
+<h2 id="qi-di-er-ge-xian-dai-bian-ti-rms-norm-wei-shi-yao-hui-ti-dai-yi-bu-fen-layer-norm" tabindex="-1" id="七、第二个现代变体：RMSNorm-为什么会替代一部分-LayerNorm">七、第二个现代变体：RMSNorm 为什么会替代一部分 LayerNorm</h2>
+<p>前面我们已经讲过，经典 Transformer 常用 LayerNorm。<br>
+LayerNorm 对一个向量 (x) 做的事情是：</p>
+<ol>
+<li>减去均值</li>
+<li>除以标准差</li>
+<li>再乘可学习参数 (\gamma)，加可学习参数 (\beta)</li>
+</ol>
+<p>也就是：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mtext>LN</mtext><mo stretchy="false">(</mo><mi>x</mi><mo stretchy="false">)</mo><mo>=</mo><mi>γ</mi><mo>⊙</mo><mfrac><mrow><mi>x</mi><mo>−</mo><mi>μ</mi></mrow><msqrt><mrow><msup><mi>σ</mi><mn>2</mn></msup><mo>+</mo><mi>ϵ</mi></mrow></msqrt></mfrac><mo>+</mo><mi>β</mi></mrow><annotation encoding="application/x-tex">\text{LN}(x)=\gamma \odot \frac{x-\mu}{\sqrt{\sigma^2+\epsilon}}+\beta
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord text"><span class="mord">LN</span></span><span class="mopen">(</span><span class="mord mathnormal">x</span><span class="mclose">)</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.7778em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.05556em;">γ</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">⊙</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:2.1903em;vertical-align:-0.93em;"></span><span class="mord"><span class="mopen nulldelimiter"></span><span class="mfrac"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:1.2603em;"><span style="top:-2.1966em;"><span class="pstrut" style="height:3em;"></span><span class="mord"><span class="mord sqrt"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.9134em;"><span class="svg-align" style="top:-3em;"><span class="pstrut" style="height:3em;"></span><span class="mord" style="padding-left:0.833em;"><span class="mord"><span class="mord mathnormal" style="margin-right:0.03588em;">σ</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.7401em;"><span style="top:-2.989em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mord mathnormal">ϵ</span></span></span><span style="top:-2.8734em;"><span class="pstrut" style="height:3em;"></span><span class="hide-tail" style="min-width:0.853em;height:1.08em;"><svg xmlns="http://www.w3.org/2000/svg" width="400em" height="1.08em" viewBox="0 0 400000 1080" preserveAspectRatio="xMinYMin slice"><path d="M95,702
+c-2.7,0,-7.17,-2.7,-13.5,-8c-5.8,-5.3,-9.5,-10,-9.5,-14
+c0,-2,0.3,-3.3,1,-4c1.3,-2.7,23.83,-20.7,67.5,-54
+c44.2,-33.3,65.8,-50.3,66.5,-51c1.3,-1.3,3,-2,5,-2c4.7,0,8.7,3.3,12,10
+s173,378,173,378c0.7,0,35.3,-71,104,-213c68.7,-142,137.5,-285,206.5,-429
+c69,-144,104.5,-217.7,106.5,-221
+l0 -0
+c5.3,-9.3,12,-14,20,-14
+H400000v40H845.2724
+s-225.272,467,-225.272,467s-235,486,-235,486c-2.7,4.7,-9,7,-19,7
+c-6,0,-10,-1,-12,-3s-194,-422,-194,-422s-65,47,-65,47z
+M834 80h400000v40h-400000z"/></svg></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.1266em;"><span></span></span></span></span></span></span></span><span style="top:-3.23em;"><span class="pstrut" style="height:3em;"></span><span class="frac-line" style="border-bottom-width:0.04em;"></span></span><span style="top:-3.677em;"><span class="pstrut" style="height:3em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">−</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mord mathnormal">μ</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.93em;"><span></span></span></span></span></span><span class="mclose nulldelimiter"></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.8889em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.05278em;">β</span></span></span></span></span></p>
+<p>这当然很好用。<br>
+但当模型越来越大时，人们开始问一个问题：</p>
+<blockquote>
+<p><strong>这里“减去均值”这件事，是不是一定必要？</strong></p>
+</blockquote>
+<p>于是，很多现代模型开始采用更简洁的：</p>
+<p><strong>RMSNorm</strong></p>
+<hr>
+<h2 id="ba-rms-norm-dao-di-shi-shi-yao" tabindex="-1" id="八、RMSNorm-到底是什么">八、RMSNorm 到底是什么</h2>
+<p>RMSNorm 的核心思想是：</p>
+<p><strong>只用均方根（root mean square）来做尺度归一化，而不显式减去均值。</strong></p>
+<p>形式上可以写成：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mtext>RMSNorm</mtext><mo stretchy="false">(</mo><mi>x</mi><mo stretchy="false">)</mo><mo>=</mo><mi>γ</mi><mo>⊙</mo><mfrac><mi>x</mi><msqrt><mrow><mfrac><mn>1</mn><mi>d</mi></mfrac><munder><mo>∑</mo><mi>i</mi></munder><msubsup><mi>x</mi><mi>i</mi><mn>2</mn></msubsup><mo>+</mo><mi>ϵ</mi></mrow></msqrt></mfrac></mrow><annotation encoding="application/x-tex">\text{RMSNorm}(x)=\gamma \odot \frac{x}{\sqrt{\frac{1}{d}\sum_i x_i^2+\epsilon}}
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord text"><span class="mord">RMSNorm</span></span><span class="mopen">(</span><span class="mord mathnormal">x</span><span class="mclose">)</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.7778em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.05556em;">γ</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">⊙</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:2.8376em;vertical-align:-1.73em;"></span><span class="mord"><span class="mopen nulldelimiter"></span><span class="mfrac"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:1.1076em;"><span style="top:-2.11em;"><span class="pstrut" style="height:3.2351em;"></span><span class="mord"><span class="mord sqrt"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:1.2351em;"><span class="svg-align" style="top:-3.8em;"><span class="pstrut" style="height:3.8em;"></span><span class="mord" style="padding-left:1em;"><span class="mord"><span class="mopen nulldelimiter"></span><span class="mfrac"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.8451em;"><span style="top:-2.655em;"><span class="pstrut" style="height:3em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight">d</span></span></span></span><span style="top:-3.23em;"><span class="pstrut" style="height:3em;"></span><span class="frac-line" style="border-bottom-width:0.04em;"></span></span><span style="top:-3.394em;"><span class="pstrut" style="height:3em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mtight">1</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.345em;"><span></span></span></span></span></span><span class="mclose nulldelimiter"></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mop"><span class="mop op-symbol small-op" style="position:relative;top:0em;">∑</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.162em;"><span style="top:-2.4003em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">i</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.2997em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.7959em;"><span style="top:-2.4231em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">i</span></span></span><span style="top:-3.0448em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.2769em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mord mathnormal">ϵ</span></span></span><span style="top:-3.1951em;"><span class="pstrut" style="height:3.8em;"></span><span class="hide-tail" style="min-width:1.02em;height:1.88em;"><svg xmlns="http://www.w3.org/2000/svg" width="400em" height="1.88em" viewBox="0 0 400000 1944" preserveAspectRatio="xMinYMin slice"><path d="M983 90
+l0 -0
+c4,-6.7,10,-10,18,-10 H400000v40
+H1013.1s-83.4,268,-264.1,840c-180.7,572,-277,876.3,-289,913c-4.7,4.7,-12.7,7,-24,7
+s-12,0,-12,0c-1.3,-3.3,-3.7,-11.7,-7,-25c-35.3,-125.3,-106.7,-373.3,-214,-744
+c-10,12,-21,25,-33,39s-32,39,-32,39c-6,-5.3,-15,-14,-27,-26s25,-30,25,-30
+c26.7,-32.7,52,-63,76,-91s52,-60,52,-60s208,722,208,722
+c56,-175.3,126.3,-397.3,211,-666c84.7,-268.7,153.8,-488.2,207.5,-658.5
+c53.7,-170.3,84.5,-266.8,92.5,-289.5z
+M1001 80h400000v40h-400000z"/></svg></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.6049em;"><span></span></span></span></span></span></span></span><span style="top:-3.4651em;"><span class="pstrut" style="height:3.2351em;"></span><span class="frac-line" style="border-bottom-width:0.04em;"></span></span><span style="top:-3.9121em;"><span class="pstrut" style="height:3.2351em;"></span><span class="mord"><span class="mord mathnormal">x</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:1.73em;"><span></span></span></span></span></span><span class="mclose nulldelimiter"></span></span></span></span></span></span></p>
+<p>你会发现，它和 LayerNorm 的区别非常明确：</p>
+<h3 id="layer-norm" tabindex="-1" id="LayerNorm">LayerNorm</h3>
+<ul>
+<li>会减去均值</li>
+<li>会除以标准差</li>
+</ul>
+<h3 id="rms-norm" tabindex="-1" id="RMSNorm">RMSNorm</h3>
+<ul>
+<li>不减去均值</li>
+<li>只按整体均方根做缩放</li>
+</ul>
+<p>也就是说，RMSNorm 更像是在做：</p>
+<p><strong>只关心向量整体尺度，不强行把它中心化。</strong></p>
+<hr>
+<h2 id="jiu-wei-shi-yao-xian-dai-da-mo-xing-xi-huan-rms-norm" tabindex="-1" id="九、为什么现代大模型喜欢-RMSNorm">九、为什么现代大模型喜欢 RMSNorm</h2>
+<p>RMSNorm 受欢迎，根本上不是因为它“更新潮”，而是因为它在大模型里常常更简洁、更够用。</p>
+<p>可以从三个角度理解。</p>
+<h3 id="1-gui-yi-hua-de-he-xin-xu-qiu-wang-wang-shi-kong-chi-du" tabindex="-1" id="1-归一化的核心需求往往是“控尺度”">1. 归一化的核心需求往往是“控尺度”</h3>
+<p>在很多深层模型里，真正麻烦的问题往往不是均值是否为零，而是：</p>
+<ul>
+<li>某些层的表示尺度会不会越来越大</li>
+<li>不同层之间数值范围会不会越来越乱</li>
+</ul>
+<p>RMSNorm 直接抓住了“尺度控制”这个核心。</p>
+<h3 id="2-ta-geng-jian-ji" tabindex="-1" id="2-它更简洁">2. 它更简洁</h3>
+<p>少了减均值这一步，结构更轻，也更容易在某些实现里带来一点简化。</p>
+<h3 id="3-zai-xian-dai-da-mo-xing-li-wang-wang-gou-yong" tabindex="-1" id="3-在现代大模型里往往够用">3. 在现代大模型里往往够用</h3>
+<p>尤其在很多 Decoder-only LLM 中，RMSNorm 已经成为非常常见的选择。<br>
+这说明它在实际训练稳定性和效果上，足够支撑大模型工作。</p>
+<p>所以 RMSNorm 的本质不是“更强的归一化”，而是：</p>
+<p><strong>用更小的结构代价，保留最关键的尺度稳定功能。</strong></p>
+<hr>
+<h2 id="shi-di-san-ge-xian-dai-bian-ti-wei-shi-yao-hui-you-mqa-gqa" tabindex="-1" id="十、第三个现代变体：为什么会有-MQA-GQA">十、第三个现代变体：为什么会有 MQA / GQA</h2>
+<p>这部分和推理系统联系最紧。</p>
+<p>我们之前讲过，多头 attention 的一个代价是：</p>
+<ul>
+<li>每个头都有自己的 K 和 V</li>
+<li>在 Decode 阶段，这些 K/V 都要被缓存</li>
+<li>序列越长，KV Cache 越大</li>
+</ul>
+<p>而当模型头数很多、层数很多、上下文很长时，KV Cache 会迅速变成推理系统的核心负担之一。</p>
+<p>于是，一个非常自然的问题出现了：</p>
+<blockquote>
+<p><strong>是不是每个 Query 头都必须配自己独立的 K/V 头？</strong></p>
+</blockquote>
+<p>这就引出了：</p>
+<ul>
+<li><strong>MQA（Multi-Query Attention）</strong></li>
+<li><strong>GQA（Grouped-Query Attention）</strong></li>
+</ul>
+<hr>
+<h2 id="shi-yi-mqa-dao-di-zai-gai-shi-yao" tabindex="-1" id="十一、MQA-到底在改什么">十一、MQA 到底在改什么</h2>
+<p>在标准多头 attention 里：</p>
+<ul>
+<li>每个头都有自己的 Q</li>
+<li>也有自己的 K</li>
+<li>也有自己的 V</li>
+</ul>
+<p>而 MQA 的核心变化是：</p>
+<p><strong>保留多个 Query 头，但让它们共享更少的 K/V 头，极端情况下共享一组 K/V。</strong></p>
+<p>也就是说：</p>
+<ul>
+<li>Query 仍然是多头的</li>
+<li>但 Key / Value 不再一头一个</li>
+</ul>
+<p>这样做最大的好处非常直接：</p>
+<h3 id="1-kv-cache-xian-zhu-bian-xiao" tabindex="-1" id="1-KV-Cache-显著变小">1. KV Cache 显著变小</h3>
+<p>因为缓存的是 K/V，而不是 Q。</p>
+<h3 id="2-tui-li-shi-dai-kuan-ya-li-xia-jiang" tabindex="-1" id="2-推理时带宽压力下降">2. 推理时带宽压力下降</h3>
+<p>Decode 每一步都要读取历史 K/V，K/V 更少就意味着读写成本更低。</p>
+<h3 id="3-geng-gua-he-da-mo-xing-tui-li" tabindex="-1" id="3-更适合大模型推理">3. 更适合大模型推理</h3>
+<p>尤其是长上下文和大 batch serving 时，这种收益会更明显。</p>
+<p>所以 MQA 的本质，是在回答：</p>
+<blockquote>
+<p><strong>能不能让 Query 的多视角保留下来，同时减少 K/V 这部分最贵的推理状态？</strong></p>
+</blockquote>
+<p>答案是：可以。</p>
+<hr>
+<h2 id="shi-er-gqa-you-shi-shi-yao-wei-shi-yao-ta-jing-chang-bi-mqa-geng-zhe-zhong" tabindex="-1" id="十二、GQA-又是什么，为什么它经常比-MQA-更折中">十二、GQA 又是什么，为什么它经常比 MQA 更折中</h2>
+<p>MQA 虽然很省 K/V，但也可能让 K/V 共享得太狠。<br>
+于是出现了一个更平衡的变体：</p>
+<p><strong>GQA（Grouped-Query Attention）</strong></p>
+<p>GQA 的思路是：</p>
+<ul>
+<li>仍然保留很多 Query 头</li>
+<li>但不是所有 Query 都共享同一组 K/V</li>
+<li>而是把 Query 头分成若干组</li>
+<li>每组共享一组 K/V</li>
+</ul>
+<p>所以它介于：</p>
+<ul>
+<li>标准多头 attention<br>
+和</li>
+<li>极端共享的 MQA</li>
+</ul>
+<p>之间。</p>
+<p>你可以把它理解成：</p>
+<ul>
+<li>标准 MHA：每个 Query 头都有自己的 K/V</li>
+<li>MQA：所有 Query 头共享同一组 K/V</li>
+<li>GQA：若干 Query 头共享一组 K/V</li>
+</ul>
+<p>因此 GQA 的优点是：</p>
+<ul>
+<li>比标准多头更省 cache</li>
+<li>又比 MQA 更保留一部分灵活性</li>
+</ul>
+<p>这也是为什么今天很多大模型更喜欢 GQA，而不是直接走最极端的 MQA。</p>
+<hr>
+<h2 id="shi-san-wei-shi-yao-gqa-mqa-he-tui-li-xi-tong-guan-xi-te-bie-da" tabindex="-1" id="十三、为什么-GQA-MQA-和推理系统关系特别大">十三、为什么 GQA / MQA 和推理系统关系特别大</h2>
+<p>这点一定要看清楚。</p>
+<p>有些结构变体主要影响训练效果，<br>
+但 GQA / MQA 的最大影响之一，是直接落在：</p>
+<ul>
+<li>KV Cache 体积</li>
+<li>Decode 阶段读写带宽</li>
+<li>推理显存压力</li>
+</ul>
+<p>也就是说，它不是一个“只在模型论文里重要”的改动，<br>
+它会直接改变：</p>
+<ul>
+<li>单卡能撑多长上下文</li>
+<li>服务端能扛多大 batch</li>
+<li>系统是否容易被 cache 打爆</li>
+</ul>
+<p>所以如果你以后走 AI 推理 / Infra，这类变体必须从“结构—系统联动”的视角去看，而不是只把它当作 attention 的一个数学小修改。</p>
+<hr>
+<h2 id="shi-si-di-si-ge-xian-dai-bian-ti-wei-shi-yao-hen-duo-mo-xing-kai-shi-yong-swi-glu" tabindex="-1" id="十四、第四个现代变体：为什么很多模型开始用-SwiGLU">十四、第四个现代变体：为什么很多模型开始用 SwiGLU</h2>
+<p>前面我们讲 FFN 时，给的是最经典的形式：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mtext>FFN</mtext><mo stretchy="false">(</mo><mi>x</mi><mo stretchy="false">)</mo><mo>=</mo><msub><mi>W</mi><mn>2</mn></msub><mi>σ</mi><mo stretchy="false">(</mo><msub><mi>W</mi><mn>1</mn></msub><mi>x</mi><mo>+</mo><msub><mi>b</mi><mn>1</mn></msub><mo stretchy="false">)</mo><mo>+</mo><msub><mi>b</mi><mn>2</mn></msub></mrow><annotation encoding="application/x-tex">\text{FFN}(x)=W_2 \sigma(W_1x+b_1)+b_2
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord text"><span class="mord">FFN</span></span><span class="mopen">(</span><span class="mord mathnormal">x</span><span class="mclose">)</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.13889em;">W</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:-0.1389em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mord mathnormal" style="margin-right:0.03588em;">σ</span><span class="mopen">(</span><span class="mord"><span class="mord mathnormal" style="margin-right:0.13889em;">W</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:-0.1389em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">1</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mord mathnormal">x</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord"><span class="mord mathnormal">b</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">1</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mclose">)</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.8444em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal">b</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span></span></p>
+<p>这可以是：</p>
+<ul>
+<li>ReLU FFN</li>
+<li>GELU FFN</li>
+</ul>
+<p>但现代很多大模型进一步使用：</p>
+<p><strong>GLU 系列结构</strong><br>
+其中最常见之一就是：</p>
+<p><strong>SwiGLU</strong></p>
+<hr>
+<h2 id="shi-wu-swi-glu-de-he-xin-si-xiang-shi-shi-yao" tabindex="-1" id="十五、SwiGLU-的核心思想是什么">十五、SwiGLU 的核心思想是什么</h2>
+<p>GLU 类结构的核心，不是单纯地把一个激活函数换掉，而是引入一种**门控（gating）**思想。</p>
+<p>它通常会把输入映射成两路：</p>
+<ul>
+<li>一路作为主特征</li>
+<li>一路作为门控信号</li>
+</ul>
+<p>然后让门控信号去调制主特征通道。</p>
+<p>可以粗略写成：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mtext>SwiGLU</mtext><mo stretchy="false">(</mo><mi>x</mi><mo stretchy="false">)</mo><mo>=</mo><mo stretchy="false">(</mo><mi>x</mi><msub><mi>W</mi><mi>a</mi></msub><mo stretchy="false">)</mo><mo>⊙</mo><mtext>Swish</mtext><mo stretchy="false">(</mo><mi>x</mi><msub><mi>W</mi><mi>b</mi></msub><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">\text{SwiGLU}(x)= (xW_a) \odot \text{Swish}(xW_b)
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord text"><span class="mord">SwiGLU</span></span><span class="mopen">(</span><span class="mord mathnormal">x</span><span class="mclose">)</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mopen">(</span><span class="mord mathnormal">x</span><span class="mord"><span class="mord mathnormal" style="margin-right:0.13889em;">W</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.1514em;"><span style="top:-2.55em;margin-left:-0.1389em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">a</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mclose">)</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">⊙</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord text"><span class="mord">Swish</span></span><span class="mopen">(</span><span class="mord mathnormal">x</span><span class="mord"><span class="mord mathnormal" style="margin-right:0.13889em;">W</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3361em;"><span style="top:-2.55em;margin-left:-0.1389em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">b</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mclose">)</span></span></span></span></span></p>
+<p>然后再接输出投影。</p>
+<p>这里的关键直觉是：</p>
+<p><strong>不是所有中间特征都应该被同等对待，而应该有一条“门”去决定哪些特征被放大、哪些被压制。</strong></p>
+<p>这和普通 FFN 的区别在于：</p>
+<ul>
+<li>普通 FFN：先线性，再统一激活</li>
+<li>SwiGLU：通过门控，让中间特征拥有更细致的选择性</li>
+</ul>
+<hr>
+<h2 id="shi-liu-wei-shi-yao-swi-glu-zai-xian-dai-da-mo-xing-li-hen-chang-jian" tabindex="-1" id="十六、为什么-SwiGLU-在现代大模型里很常见">十六、为什么 SwiGLU 在现代大模型里很常见</h2>
+<p>原因很简单：</p>
+<h3 id="1-biao-da-neng-li-geng-qiang" tabindex="-1" id="1-表达能力更强">1. 表达能力更强</h3>
+<p>门控结构通常能让 FFN 的中间特征更有选择性，不是“一刀切激活”。</p>
+<h3 id="2-zai-da-mo-xing-li-xiao-guo-wang-wang-geng-hao" tabindex="-1" id="2-在大模型里效果往往更好">2. 在大模型里效果往往更好</h3>
+<p>很多现代 LLM 实践中，SwiGLU 类结构已经成为非常常见的选择。</p>
+<h3 id="3-ta-reng-ran-bao-liu-liao-ffn-de-ji-ben-jiao-se" tabindex="-1" id="3-它仍然保留了-FFN-的基本角色">3. 它仍然保留了 FFN 的基本角色</h3>
+<p>也就是说，它并没有推翻“attention 负责交流、FFN 负责加工”这套逻辑，<br>
+它只是让“加工这件事”本身做得更细、更强。</p>
+<p>所以你可以把 SwiGLU 理解成：</p>
+<p><strong>FFN 的现代增强版，而不是 FFN 的替代品。</strong></p>
+<hr>
+<h2 id="shi-qi-di-wu-ge-xian-dai-bian-ti-wei-shi-yao-hui-you-mo-e" tabindex="-1" id="十七、第五个现代变体：为什么会有-MoE">十七、第五个现代变体：为什么会有 MoE</h2>
+<p>如果说前面的 RoPE、RMSNorm、GQA、SwiGLU，都还是在“经典骨架上做局部优化”，<br>
+那么 <strong>MoE（Mixture of Experts）</strong> 则是更大一步的结构变化。</p>
+<p>MoE 最核心的想法是：</p>
+<blockquote>
+<p><strong>不是每个 token 都必须走同一个 FFN。</strong></p>
+</blockquote>
+<p>在经典 dense Transformer 里：</p>
+<ul>
+<li>每一层的每个 token</li>
+<li>都会经过同一套 FFN 参数</li>
+</ul>
+<p>这意味着：</p>
+<ul>
+<li>参数量扩大，所有 token 都要走同一大块 dense 计算</li>
+<li>总参数越大，算力和显存成本就越高</li>
+</ul>
+<p>于是，MoE 给出的回答是：</p>
+<p><strong>把 FFN 分成多个 expert，让不同 token 只激活其中少数几个。</strong></p>
+<hr>
+<h2 id="shi-ba-mo-e-dao-di-zai-gai-na-li" tabindex="-1" id="十八、MoE-到底在改哪里">十八、MoE 到底在改哪里</h2>
+<p>最常见的 MoE 改动点就在 FFN 部分。</p>
+<p>原来是：</p>
+<ul>
+<li>一个 dense FFN</li>
+<li>所有 token 都过它</li>
+</ul>
+<p>现在变成：</p>
+<ul>
+<li>多个 expert FFN</li>
+<li>一个 router 决定当前 token 去哪个 expert</li>
+<li>通常只选 top-k 个 expert 激活</li>
+</ul>
+<p>所以：</p>
+<ul>
+<li>总参数量可以很大</li>
+<li>但单个 token 实际激活的参数量较小</li>
+</ul>
+<p>这带来一个非常重要的效果：</p>
+<blockquote>
+<p><strong>总容量变大了，但每个 token 的实际计算量不需要线性跟着总参数量一起涨。</strong></p>
+</blockquote>
+<p>这就是 MoE 最吸引人的地方。</p>
+<hr>
+<h2 id="shi-jiu-mo-e-wei-shi-yao-hui-ba-wen-ti-cong-mo-xing-she-ji-zhi-jie-tui-xiang-xi-tong-she-ji" tabindex="-1" id="十九、MoE-为什么会把问题从模型设计直接推向系统设计">十九、MoE 为什么会把问题从模型设计直接推向系统设计</h2>
+<p>这点非常关键。</p>
+<p>Dense Transformer 的主要难点是：</p>
+<ul>
+<li>参数大</li>
+<li>attention 重</li>
+<li>cache 压力大</li>
+</ul>
+<p>但 MoE 一上来，系统问题会立刻复杂很多。<br>
+因为一旦 token 被路由到不同 expert，就会出现：</p>
+<ul>
+<li>不同 token 去不同计算路径</li>
+<li>不同 expert 分布在不同设备上</li>
+<li>token dispatch / gather 的通信成本</li>
+<li>expert 负载均衡问题</li>
+<li>all-to-all 通信问题</li>
+</ul>
+<p>也就是说，MoE 不是“只是把 FFN 换个写法”，而是：</p>
+<p><strong>把模型内部选择路径的问题，直接暴露成系统层的通信与调度问题。</strong></p>
+<p>所以你以后看到：</p>
+<ul>
+<li>expert parallel</li>
+<li>all-to-all</li>
+<li>DeepEP</li>
+<li>load balancing</li>
+<li>token dispatch</li>
+</ul>
+<p>它们并不是另一个孤立世界，而是 MoE 结构的自然工程后果。</p>
+<hr>
+<h2 id="er-shi-ba-zhe-xie-bian-ti-fang-hui-tong-yi-zhang-tu-li-kan" tabindex="-1" id="二十、把这些变体放回同一张图里看">二十、把这些变体放回同一张图里看</h2>
+<p>现在我们已经讲完了五个常见现代变体。<br>
+如果把它们重新放回一张图里，你会发现它们分别在改不同层面。</p>
+<h3 id="1-ro-pe-gai-wei-zhi-jian-mo" tabindex="-1" id="1-RoPE：改位置建模">1. RoPE：改位置建模</h3>
+<p>它关注的是：</p>
+<ul>
+<li>attention 如何感知顺序</li>
+<li>相对位置如何更自然地进入匹配过程</li>
+</ul>
+<h3 id="2-rms-norm-gai-gui-yi-hua" tabindex="-1" id="2-RMSNorm：改归一化">2. RMSNorm：改归一化</h3>
+<p>它关注的是：</p>
+<ul>
+<li>如何更简洁地稳定深层数值尺度</li>
+</ul>
+<h3 id="3-gqa-mqa-gai-attention-tou-jie-gou" tabindex="-1" id="3-GQA-MQA：改-attention-头结构">3. GQA / MQA：改 attention 头结构</h3>
+<p>它关注的是：</p>
+<ul>
+<li>如何降低 K/V 的状态成本</li>
+<li>如何服务更高效的推理</li>
+</ul>
+<h3 id="4-swi-glu-gai-ffn-nei-bu-xing-shi" tabindex="-1" id="4-SwiGLU：改-FFN-内部形式">4. SwiGLU：改 FFN 内部形式</h3>
+<p>它关注的是：</p>
+<ul>
+<li>如何让逐位置加工更强、更灵活</li>
+</ul>
+<h3 id="5-mo-e-gai-ffn-lu-jing-zu-zhi" tabindex="-1" id="5-MoE：改-FFN-路径组织">5. MoE：改 FFN 路径组织</h3>
+<p>它关注的是：</p>
+<ul>
+<li>如何把总参数做大</li>
+<li>但不让单 token 计算线性爆炸</li>
+</ul>
+<p>也就是说，这些变体并不是“都在改 attention”或者“都在改 block”，而是在：</p>
+<p><strong>现代大模型面对不同瓶颈时，分别从位置、归一化、注意力状态、FFN 表达和参数路径这五个方向做出的应对。</strong></p>
+<hr>
+<h2 id="er-shi-yi-wei-shi-yao-shuo-xian-dai-da-mo-xing-bu-shi-bei-chi-transformer-er-shi-transformer-de-shi-dai-yan-hua" tabindex="-1" id="二十一、为什么说现代大模型不是“背离-Transformer”，而是“Transformer-的时代演化”">二十一、为什么说现代大模型不是“背离 Transformer”，而是“Transformer 的时代演化”</h2>
+<p>很多人第一次看现代 LLM 架构，会有一种错觉：</p>
+<ul>
+<li>2017 的 Transformer 是一个东西</li>
+<li>现在的 LLaMA、Qwen、DeepSeek 之类又是另一种完全不同的东西</li>
+</ul>
+<p>其实不是。</p>
+<p>更准确地说：</p>
+<p><strong>现代大模型仍然是 Transformer，只是它们把经典 Transformer 中最适合保留的骨架留了下来，同时对最容易成为瓶颈的部分做了时代化改造。</strong></p>
+<p>被保留的骨架包括：</p>
+<ul>
+<li>embedding</li>
+<li>attention</li>
+<li>FFN / MLP</li>
+<li>residual</li>
+<li>normalization</li>
+<li>Transformer Block 堆叠</li>
+<li>自回归 Next-Token Prediction</li>
+</ul>
+<p>被改造的部分则是：</p>
+<ul>
+<li>位置表示</li>
+<li>归一化方式</li>
+<li>K/V 头组织</li>
+<li>FFN 激活形式</li>
+<li>FFN 是否专家化</li>
+</ul>
+<p>所以最准确的理解应该是：</p>
+<blockquote>
+<p><strong>现代大模型不是“不是 Transformer”，而是“Transformer 在大模型训练与推理压力下的工程演化版本”。</strong></p>
+</blockquote>
+<hr>
+<h2 id="er-shi-er-ru-guo-zhan-zai-ai-tui-li-infra-shi-jiao-zhe-xie-bian-ti-ying-gai-zen-yao-li-jie" tabindex="-1" id="二十二、如果站在-AI-推理-Infra-视角，这些变体应该怎么理解">二十二、如果站在 AI 推理 / Infra 视角，这些变体应该怎么理解</h2>
+<p>这是这一篇最重要的落点之一。</p>
+<p>如果你只是从模型课角度看，这些变体可能只像“精度优化点”。<br>
+但如果你站在推理 / Infra 视角，它们的意义会完全不同。</p>
+<h3 id="ro-pe" tabindex="-1" id="RoPE">RoPE</h3>
+<p>你要问的不是“它数学上优不优雅”，而是：</p>
+<ul>
+<li>它是否更适合长上下文</li>
+<li>它对推理实现和缓存机制有什么影响</li>
+</ul>
+<h3 id="rms-norm-1" tabindex="-1" id="RMSNorm-2">RMSNorm</h3>
+<p>你要问的是：</p>
+<ul>
+<li>它在大模型里是否更稳、更简洁</li>
+<li>它对前向成本和实现复杂度意味着什么</li>
+</ul>
+<h3 id="gqa-mqa" tabindex="-1" id="GQA-MQA">GQA / MQA</h3>
+<p>你要立刻想到：</p>
+<ul>
+<li>KV Cache 体积</li>
+<li>Decode 带宽</li>
+<li>长上下文推理显存压力</li>
+</ul>
+<h3 id="swi-glu" tabindex="-1" id="SwiGLU">SwiGLU</h3>
+<p>你要想到：</p>
+<ul>
+<li>FFN 的表达能力</li>
+<li>训练效果和推理成本的平衡</li>
+</ul>
+<h3 id="mo-e" tabindex="-1" id="MoE">MoE</h3>
+<p>你要想到：</p>
+<ul>
+<li>token 路由</li>
+<li>expert parallel</li>
+<li>all-to-all</li>
+<li>系统通信与负载均衡</li>
+</ul>
+<p>也就是说，推理岗位里对这些结构变体的理解方式，不应该停留在“会背缩写”，而是：</p>
+<p><strong>要能把结构改动直接翻译成系统后果。</strong></p>
+<hr>
+<h2 id="er-shi-san-ben-pian-zhen-zheng-yao-ji-zhu-de-wu-tiao-zhu-xian" tabindex="-1" id="二十三、本篇真正要记住的五条主线">二十三、本篇真正要记住的五条主线</h2>
+<h3 id="di-yi-tiao-ro-pe" tabindex="-1" id="第一条：RoPE">第一条：RoPE</h3>
+<ul>
+<li>不再只是“输入加位置向量”</li>
+<li>而是把位置信息直接融入 Q/K 匹配过程</li>
+<li>更自然地表达相对位置</li>
+</ul>
+<h3 id="di-er-tiao-rms-norm" tabindex="-1" id="第二条：RMSNorm">第二条：RMSNorm</h3>
+<ul>
+<li>只做均方根尺度归一化</li>
+<li>不强行减均值</li>
+<li>用更简洁方式控制深层表示尺度</li>
+</ul>
+<h3 id="di-san-tiao-gqa-mqa" tabindex="-1" id="第三条：GQA-MQA">第三条：GQA / MQA</h3>
+<ul>
+<li>保留多 Query 头</li>
+<li>减少 K/V 头数量</li>
+<li>直接服务于推理时的 KV Cache 成本控制</li>
+</ul>
+<h3 id="di-si-tiao-swi-glu" tabindex="-1" id="第四条：SwiGLU">第四条：SwiGLU</h3>
+<ul>
+<li>给 FFN 引入门控机制</li>
+<li>让逐位置非线性加工更强、更灵活</li>
+</ul>
+<h3 id="di-wu-tiao-mo-e" tabindex="-1" id="第五条：MoE">第五条：MoE</h3>
+<ul>
+<li>把 dense FFN 变成多 expert 路径</li>
+<li>让总参数量变大，但单 token 激活计算量受控</li>
+<li>同时把问题推向通信与系统层</li>
+</ul>
+<hr>
+<h2 id="er-shi-si-yong-yi-ju-hua-ya-suo-ben-pian" tabindex="-1" id="二十四、用一句话压缩本篇">二十四、用一句话压缩本篇</h2>
+<p><strong>现代大模型并没有抛弃 Transformer，而是在保持其“attention + FFN + residual + normalization”核心骨架的同时，围绕位置表示、归一化、K/V 结构、FFN 表达能力和参数路径组织，演化出了更适合大规模训练与推理的结构变体。</strong></p>
+<hr>
+<h2 id="er-shi-wu-zhe-yi-pian-zhi-hou-huan-neng-ji-xu-xie-shi-yao" tabindex="-1" id="二十五、这一篇之后还能继续写什么">二十五、这一篇之后还能继续写什么</h2>
+<h3 id="fang-xiang-yi-jin-ru-kv-cache-zhuan-ti" tabindex="-1" id="方向一：进入-KV-Cache-专题">方向一：进入 KV Cache 专题</h3>
+<ul>
+<li>KV Cache 到底存了什么</li>
+<li>它在层、头、序列三个维度上是怎么组织的</li>
+<li>为什么会有 paged KV Cache</li>
+<li>为什么 GQA/MQA 会直接改变 cache 成本</li>
+</ul>
+<h3 id="fang-xiang-er-jin-ru-tui-li-xi-tong-zhuan-ti" tabindex="-1" id="方向二：进入推理系统专题">方向二：进入推理系统专题</h3>
+<ul>
+<li>continuous batching</li>
+<li>Prefill / Decode 分离</li>
+<li>prefix caching</li>
+<li>KV-aware routing</li>
+</ul>
+<p>把结构问题彻底推到 serving 层。</p>
+<h3 id="fang-xiang-san-jin-ru-xun-lian-zhuan-ti" tabindex="-1" id="方向三：进入训练专题">方向三：进入训练专题</h3>
+<ul>
+<li>pretraining</li>
+<li>SFT</li>
+<li>RLHF / DPO</li>
+<li>为什么模型结构和训练目标会共同决定行为能力</li>
+</ul>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/3494b8a4/">https://smarter.xin/posts/3494b8a4/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/transformer/">Transformer</a><a class="post-meta__tags" href="/tags/rope/">RoPE</a><a class="post-meta__tags" href="/tags/rmsnorm/">RMSNorm</a><a class="post-meta__tags" href="/tags/moe/">MoE</a><a class="post-meta__tags" href="/tags/llm-inference/">大模型推理</a></div><div class="post-share"><div class="social-share" data-image="/img/AI-Infra.png" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related full-width no-desc" href="/posts/2e5c7532/" title="AI Infra学习之旅-用PyTorch从零实现一个最小Transformer"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">AI Infra学习之旅-用PyTorch从零实现一个最小Transformer</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/d3059af7/" title="AI Infra学习之旅-从模型执行到推理系统的桥接"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-27</div><div class="info-item-2">AI Infra学习之旅-从模型执行到推理系统的桥接</div></div></div></a><a class="pagination-related no-desc" href="/posts/cb29461c/" title="CUDA-Practice：05 从归约到 Transformer 算子——Softmax、Norm 与 FlashAttention"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-12</div><div class="info-item-2">CUDA-Practice：05 从归约到 Transformer 算子——Softmax、Norm 与 FlashAttention</div></div></div></a><a class="pagination-related no-desc" href="/posts/d499fdd3/" title="AI Infra学习之旅-手算一次 Transformer 的 Forward"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-27</div><div class="info-item-2">AI Infra学习之旅-手算一次 Transformer 的 Forward</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">我就是要爬这座山<br>再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">131</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">260</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">23</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#ai-infra-xue-xi-zhi-lu-ro-pe-rms-norm-gqa-yu-mqa-swi-glu-yu-mo-e"><span class="toc-text">AI Infra学习之旅-RoPE、RMSNorm、GQA与MQA、SwiGLU与MoE</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#yi-wei-shi-yao-jing-dian-transformer-bu-hui-yuan-feng-bu-dong-di-zou-dao-da-mo-xing-shi-dai"><span class="toc-text">一、为什么经典 Transformer 不会原封不动地走到大模型时代</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#er-xian-gei-ni-yi-zhang-zong-tu-xian-dai-bian-ti-ge-zi-zai-gai-shi-yao"><span class="toc-text">二、先给你一张总图：现代变体各自在改什么</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#san-xian-jiang-di-yi-ge-zui-chang-jian-de-xian-dai-bian-ti-ro-pe"><span class="toc-text">三、先讲第一个最常见的现代变体：RoPE</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#si-ro-pe-dao-di-zai-gai-shi-yao"><span class="toc-text">四、RoPE 到底在改什么</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#wu-ro-pe-wei-shi-yao-geng-gua-he-xian-dai-da-mo-xing"><span class="toc-text">五、RoPE 为什么更适合现代大模型</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-ta-geng-qiang-diao-xiang-dui-wei-zhi"><span class="toc-text">1. 它更强调相对位置</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-ta-zhi-jie-zuo-yong-zai-q-k-shang"><span class="toc-text">2. 它直接作用在 Q&#x2F;K 上</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-ta-tong-chang-geng-gua-he-chang-shang-xia-wen-kuo-zhan"><span class="toc-text">3. 它通常更适合长上下文扩展</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#liu-cong-ji-he-jiao-du-li-jie-ro-pe-ta-ben-zhi-shang-shi-zai-zuo-xuan-zhuan-zuo-biao-bian-huan"><span class="toc-text">六、从几何角度理解 RoPE：它本质上是在做“旋转坐标变换”</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#qi-di-er-ge-xian-dai-bian-ti-rms-norm-wei-shi-yao-hui-ti-dai-yi-bu-fen-layer-norm"><span class="toc-text">七、第二个现代变体：RMSNorm 为什么会替代一部分 LayerNorm</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#ba-rms-norm-dao-di-shi-shi-yao"><span class="toc-text">八、RMSNorm 到底是什么</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#layer-norm"><span class="toc-text">LayerNorm</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#rms-norm"><span class="toc-text">RMSNorm</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#jiu-wei-shi-yao-xian-dai-da-mo-xing-xi-huan-rms-norm"><span class="toc-text">九、为什么现代大模型喜欢 RMSNorm</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-gui-yi-hua-de-he-xin-xu-qiu-wang-wang-shi-kong-chi-du"><span class="toc-text">1. 归一化的核心需求往往是“控尺度”</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-ta-geng-jian-ji"><span class="toc-text">2. 它更简洁</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-zai-xian-dai-da-mo-xing-li-wang-wang-gou-yong"><span class="toc-text">3. 在现代大模型里往往够用</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-di-san-ge-xian-dai-bian-ti-wei-shi-yao-hui-you-mqa-gqa"><span class="toc-text">十、第三个现代变体：为什么会有 MQA &#x2F; GQA</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-yi-mqa-dao-di-zai-gai-shi-yao"><span class="toc-text">十一、MQA 到底在改什么</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-kv-cache-xian-zhu-bian-xiao"><span class="toc-text">1. KV Cache 显著变小</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-tui-li-shi-dai-kuan-ya-li-xia-jiang"><span class="toc-text">2. 推理时带宽压力下降</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-geng-gua-he-da-mo-xing-tui-li"><span class="toc-text">3. 更适合大模型推理</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-er-gqa-you-shi-shi-yao-wei-shi-yao-ta-jing-chang-bi-mqa-geng-zhe-zhong"><span class="toc-text">十二、GQA 又是什么，为什么它经常比 MQA 更折中</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-san-wei-shi-yao-gqa-mqa-he-tui-li-xi-tong-guan-xi-te-bie-da"><span class="toc-text">十三、为什么 GQA &#x2F; MQA 和推理系统关系特别大</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-si-di-si-ge-xian-dai-bian-ti-wei-shi-yao-hen-duo-mo-xing-kai-shi-yong-swi-glu"><span class="toc-text">十四、第四个现代变体：为什么很多模型开始用 SwiGLU</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-wu-swi-glu-de-he-xin-si-xiang-shi-shi-yao"><span class="toc-text">十五、SwiGLU 的核心思想是什么</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-liu-wei-shi-yao-swi-glu-zai-xian-dai-da-mo-xing-li-hen-chang-jian"><span class="toc-text">十六、为什么 SwiGLU 在现代大模型里很常见</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-biao-da-neng-li-geng-qiang"><span class="toc-text">1. 表达能力更强</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-zai-da-mo-xing-li-xiao-guo-wang-wang-geng-hao"><span class="toc-text">2. 在大模型里效果往往更好</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-ta-reng-ran-bao-liu-liao-ffn-de-ji-ben-jiao-se"><span class="toc-text">3. 它仍然保留了 FFN 的基本角色</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-qi-di-wu-ge-xian-dai-bian-ti-wei-shi-yao-hui-you-mo-e"><span class="toc-text">十七、第五个现代变体：为什么会有 MoE</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-ba-mo-e-dao-di-zai-gai-na-li"><span class="toc-text">十八、MoE 到底在改哪里</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-jiu-mo-e-wei-shi-yao-hui-ba-wen-ti-cong-mo-xing-she-ji-zhi-jie-tui-xiang-xi-tong-she-ji"><span class="toc-text">十九、MoE 为什么会把问题从模型设计直接推向系统设计</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#er-shi-ba-zhe-xie-bian-ti-fang-hui-tong-yi-zhang-tu-li-kan"><span class="toc-text">二十、把这些变体放回同一张图里看</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-ro-pe-gai-wei-zhi-jian-mo"><span class="toc-text">1. RoPE：改位置建模</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-rms-norm-gai-gui-yi-hua"><span class="toc-text">2. RMSNorm：改归一化</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-gqa-mqa-gai-attention-tou-jie-gou"><span class="toc-text">3. GQA &#x2F; MQA：改 attention 头结构</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-swi-glu-gai-ffn-nei-bu-xing-shi"><span class="toc-text">4. SwiGLU：改 FFN 内部形式</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-mo-e-gai-ffn-lu-jing-zu-zhi"><span class="toc-text">5. MoE：改 FFN 路径组织</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#er-shi-yi-wei-shi-yao-shuo-xian-dai-da-mo-xing-bu-shi-bei-chi-transformer-er-shi-transformer-de-shi-dai-yan-hua"><span class="toc-text">二十一、为什么说现代大模型不是“背离 Transformer”，而是“Transformer 的时代演化”</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#er-shi-er-ru-guo-zhan-zai-ai-tui-li-infra-shi-jiao-zhe-xie-bian-ti-ying-gai-zen-yao-li-jie"><span class="toc-text">二十二、如果站在 AI 推理 &#x2F; Infra 视角，这些变体应该怎么理解</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#ro-pe"><span class="toc-text">RoPE</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#rms-norm-1"><span class="toc-text">RMSNorm</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#gqa-mqa"><span class="toc-text">GQA &#x2F; MQA</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#swi-glu"><span class="toc-text">SwiGLU</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#mo-e"><span class="toc-text">MoE</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#er-shi-san-ben-pian-zhen-zheng-yao-ji-zhu-de-wu-tiao-zhu-xian"><span class="toc-text">二十三、本篇真正要记住的五条主线</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#di-yi-tiao-ro-pe"><span class="toc-text">第一条：RoPE</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#di-er-tiao-rms-norm"><span class="toc-text">第二条：RMSNorm</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#di-san-tiao-gqa-mqa"><span class="toc-text">第三条：GQA &#x2F; MQA</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#di-si-tiao-swi-glu"><span class="toc-text">第四条：SwiGLU</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#di-wu-tiao-mo-e"><span class="toc-text">第五条：MoE</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#er-shi-si-yong-yi-ju-hua-ya-suo-ben-pian"><span class="toc-text">二十四、用一句话压缩本篇</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#er-shi-wu-zhe-yi-pian-zhi-hou-huan-neng-ji-xu-xie-shi-yao"><span class="toc-text">二十五、这一篇之后还能继续写什么</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#fang-xiang-yi-jin-ru-kv-cache-zhuan-ti"><span class="toc-text">方向一：进入 KV Cache 专题</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#fang-xiang-er-jin-ru-tui-li-xi-tong-zhuan-ti"><span class="toc-text">方向二：进入推理系统专题</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#fang-xiang-san-jin-ru-xun-lian-zhuan-ti"><span class="toc-text">方向三：进入训练专题</span></a></li></ol></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/3494b8a4/" title="AI Infra学习之旅-RoPE、RMSNorm、GQA与MQA、SwiGLU与MoE"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="AI Infra学习之旅-RoPE、RMSNorm、GQA与MQA、SwiGLU与MoE"/></a><div class="content"><a class="title" href="/posts/3494b8a4/" title="AI Infra学习之旅-RoPE、RMSNorm、GQA与MQA、SwiGLU与MoE">AI Infra学习之旅-RoPE、RMSNorm、GQA与MQA、SwiGLU与MoE</a><time datetime="2026-03-27T07:37:11.000Z" title="发表于 2026-03-27 15:37:11">2026-03-27</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/2e5c7532/" title="AI Infra学习之旅-用PyTorch从零实现一个最小Transformer"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="AI Infra学习之旅-用PyTorch从零实现一个最小Transformer"/></a><div class="content"><a class="title" href="/posts/2e5c7532/" title="AI Infra学习之旅-用PyTorch从零实现一个最小Transformer">AI Infra学习之旅-用PyTorch从零实现一个最小Transformer</a><time datetime="2026-03-27T07:29:44.000Z" title="发表于 2026-03-27 15:29:44">2026-03-27</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/2862894b/" title="AI Infra学习之旅-手算一个完整TransformerBlock"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="AI Infra学习之旅-手算一个完整TransformerBlock"/></a><div class="content"><a class="title" href="/posts/2862894b/" title="AI Infra学习之旅-手算一个完整TransformerBlock">AI Infra学习之旅-手算一个完整TransformerBlock</a><time datetime="2026-03-27T06:41:34.000Z" title="发表于 2026-03-27 14:41:34">2026-03-27</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">从 Self-Attention、位置编码到 Encoder-Decoder，系统梳理 Transformer 的核心结构、设计动机与理解路径</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/d6fa227a/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-16</span><a class="blog-slider__title" href="posts/d6fa227a/" alt="">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</a><div class="blog-slider__text">从访存优化到多卡通信，一篇看清 CUDA 实践系列的结构与学习路线</div><a class="blog-slider__button" href="posts/d6fa227a/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/43c4b52e/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/agent.webp" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-24</span><a class="blog-slider__title" href="posts/43c4b52e/" alt="">从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路</a><div class="blog-slider__text">使用飞书与本地 Agent 对话，远程也要让本地 Agent 干活，当一名狠狠的资本家</div><a class="blog-slider__button" href="posts/43c4b52e/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/92dc1028/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/CUDA_C.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-02-05</span><a class="blog-slider__title" href="posts/92dc1028/" alt="">CUDA C编程权威指南-导读</a><div class="blog-slider__text">从异构并行到多 GPU 实践，串起 CUDA C 权威指南的核心学习路线</div><a class="blog-slider__button" href="posts/92dc1028/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">从全书视角出发，一篇看清 PMPP 的章节结构、核心主题与学习主线</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/aac6e27d/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Computer_System.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/aac6e27d/" alt="">深入理解计算机系统知识点总结</a><div class="blog-slider__text">从程序员视角梳理 CSAPP 的知识脉络、系统抽象与性能理解</div><a class="blog-slider__button" href="posts/aac6e27d/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">围绕类型推导、移动语义与并发，提炼现代 C++ 的核心实践</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>

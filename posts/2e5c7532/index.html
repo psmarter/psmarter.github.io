@@ -1,0 +1,783 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>AI Infra学习之旅-用PyTorch从零实现一个最小Transformer | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="AI Infra学习之旅-用PyTorch从零实现一个最小Transformer  这是“Transformer 原理深讲系列”的第 8 篇。 前面 7 篇我们已经把 Transformer 的主要结构讲清楚了： 从为什么需要 Transformer，到文本如何变成向量；从位置编码、Q&#x2F;K&#x2F;V、Attention、Multi-Head、Mask、FFN、残差、LayerNorm，到训练与推理的区别">
+<meta property="og:type" content="article">
+<meta property="og:title" content="AI Infra学习之旅-用PyTorch从零实现一个最小Transformer">
+<meta property="og:url" content="https://smarter.xin/posts/2e5c7532/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="AI Infra学习之旅-用PyTorch从零实现一个最小Transformer  这是“Transformer 原理深讲系列”的第 8 篇。 前面 7 篇我们已经把 Transformer 的主要结构讲清楚了： 从为什么需要 Transformer，到文本如何变成向量；从位置编码、Q&#x2F;K&#x2F;V、Attention、Multi-Head、Mask、FFN、残差、LayerNorm，到训练与推理的区别">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/AI-Infra.png">
+<meta property="article:published_time" content="2026-03-27T07:29:44.000Z">
+<meta property="article:modified_time" content="2026-03-27T07:38:27.927Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="Transformer">
+<meta property="article:tag" content="深度学习">
+<meta property="article:tag" content="Python">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/AI-Infra.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "AI Infra学习之旅-用PyTorch从零实现一个最小Transformer",
+  "url": "https://smarter.xin/posts/2e5c7532/",
+  "image": "https://smarter.xin/img/AI-Infra.png",
+  "datePublished": "2026-03-27T07:29:44.000Z",
+  "dateModified": "2026-03-27T07:38:27.927Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/2e5c7532/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'AI Infra学习之旅-用PyTorch从零实现一个最小Transformer',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">131</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">260</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">23</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/AI-Infra.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">AI Infra学习之旅-用PyTorch从零实现一个最小Transformer</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">AI Infra学习之旅-用PyTorch从零实现一个最小Transformer</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-03-27T07:29:44.000Z" title="发表于 2026-03-27 15:29:44">2026-03-27</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-03-27T07:38:27.927Z" title="更新于 2026-03-27 15:38:27">2026-03-27</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/">AI Infra</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">4.4k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>17分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="ai-infra-xue-xi-zhi-lu-yong-py-torch-cong-ling-shi-xian-yi-ge-zui-xiao-transformer" tabindex="-1">AI Infra学习之旅-用PyTorch从零实现一个最小Transformer</h1>
+<blockquote>
+<p>这是“Transformer 原理深讲系列”的第 8 篇。<br>
+前面 7 篇我们已经把 Transformer 的主要结构讲清楚了：<br>
+从为什么需要 Transformer，到文本如何变成向量；从位置编码、Q/K/V、Attention、Multi-Head、Mask、FFN、残差、LayerNorm，到训练与推理的区别，以及手算一次 Attention、手算一个完整 block。<br>
+现在，是时候把这些纸面上的结构真正写成代码了。<br>
+这一篇的目标很明确：<br>
+<strong>不用现成的 <code>nn.Transformer</code> 黑箱，而是用 PyTorch 自己搭一个最小可运行的 Decoder-only Transformer。</strong></p>
+</blockquote>
+<hr>
+<h2 id="yi-wei-shi-yao-yao-zi-ji-xie-yi-ge-zui-xiao-transformer" tabindex="-1" id="一、为什么要自己写一个最小-Transformer">一、为什么要自己写一个最小 Transformer</h2>
+<p>很多人学 Transformer 时，会经历两个阶段：</p>
+<h3 id="jie-duan-yi-zhi-hui-kan-jie-gou-tu" tabindex="-1" id="阶段一：只会看结构图">阶段一：只会看结构图</h3>
+<p>知道：</p>
+<ul>
+<li>输入先 embedding</li>
+<li>再加位置编码</li>
+<li>再过 attention</li>
+<li>再过 FFN</li>
+<li>最后预测下一个 token</li>
+</ul>
+<p>但这时候你对 Transformer 的理解仍然偏“概念图”。</p>
+<h3 id="jie-duan-er-kai-shi-kan-yuan-ma" tabindex="-1" id="阶段二：开始看源码">阶段二：开始看源码</h3>
+<p>一打开成熟框架实现，就会看到：</p>
+<ul>
+<li>很多工程优化</li>
+<li>很多参数细节</li>
+<li>很多和主逻辑缠在一起的兼容代码</li>
+<li>很多缓存、并行、dtype、device 相关逻辑</li>
+</ul>
+<p>这时又很容易迷失在实现细节里。</p>
+<p>所以最好的过渡方法不是直接跳进大项目，而是：</p>
+<blockquote>
+<p><strong>先自己写一个最小版本，把“结构”和“代码”一一对应起来。</strong></p>
+</blockquote>
+<p>这篇文章就是为这个目的写的。</p>
+<hr>
+<h2 id="er-zhe-yi-pian-wo-men-yao-shi-xian-shi-yao" tabindex="-1" id="二、这一篇我们要实现什么">二、这一篇我们要实现什么</h2>
+<p>我们实现的是一个极简但完整的 <strong>Decoder-only Transformer</strong>，它具备这些组件：</p>
+<ol>
+<li>token embedding</li>
+<li>可学习位置 embedding</li>
+<li>Causal Self-Attention</li>
+<li>multi-head attention</li>
+<li>FFN</li>
+<li>residual connection</li>
+<li>LayerNorm</li>
+<li>多层 Transformer Block 堆叠</li>
+<li>输出 logits 预测下一个 token</li>
+</ol>
+<p>也就是说，我们要写出的不是单个模块，而是一套能真正跑 forward 的最小语言模型。</p>
+<hr>
+<h2 id="san-wo-men-ke-yi-bu-zuo-na-xie-fu-za-gong-cheng" tabindex="-1" id="三、我们刻意不做哪些复杂工程">三、我们刻意不做哪些复杂工程</h2>
+<p>为了保证“原理和代码一一对应”，这篇只做最小实现，不追求工业级完整性。</p>
+<h3 id="bu-zhan-kai-de-nei-rong-bao-gua" tabindex="-1" id="不展开的内容包括">不展开的内容包括</h3>
+<ul>
+<li>KV Cache</li>
+<li>FlashAttention</li>
+<li>mixed precision 优化</li>
+<li>分布式并行</li>
+<li>量化</li>
+<li>RoPE</li>
+<li>RMSNorm</li>
+<li>GQA / MQA</li>
+<li>MoE</li>
+<li>checkpointing</li>
+<li>compile / CUDA graph</li>
+</ul>
+<p>这些东西当然都重要，但它们属于“把 Transformer 做快、做大、做稳”的阶段。<br>
+而这一篇聚焦的是：</p>
+<p><strong>先把经典 Decoder-only Transformer 的最小骨架亲手搭起来。</strong></p>
+<hr>
+<h2 id="si-xian-gei-ni-zui-zhong-wan-zheng-dai-ma" tabindex="-1" id="四、先给你最终完整代码">四、先给你最终完整代码</h2>
+<p>下面是一份单文件、可直接运行的最小实现。<br>
+你可以把它保存为：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">mini_transformer.py</span><br></pre></td></tr></table></figure>
+<hr>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br><span class="line">101</span><br><span class="line">102</span><br><span class="line">103</span><br><span class="line">104</span><br><span class="line">105</span><br><span class="line">106</span><br><span class="line">107</span><br><span class="line">108</span><br><span class="line">109</span><br><span class="line">110</span><br><span class="line">111</span><br><span class="line">112</span><br><span class="line">113</span><br><span class="line">114</span><br><span class="line">115</span><br><span class="line">116</span><br><span class="line">117</span><br><span class="line">118</span><br><span class="line">119</span><br><span class="line">120</span><br><span class="line">121</span><br><span class="line">122</span><br><span class="line">123</span><br><span class="line">124</span><br><span class="line">125</span><br><span class="line">126</span><br><span class="line">127</span><br><span class="line">128</span><br><span class="line">129</span><br><span class="line">130</span><br><span class="line">131</span><br><span class="line">132</span><br><span class="line">133</span><br><span class="line">134</span><br><span class="line">135</span><br><span class="line">136</span><br><span class="line">137</span><br><span class="line">138</span><br><span class="line">139</span><br><span class="line">140</span><br><span class="line">141</span><br><span class="line">142</span><br><span class="line">143</span><br><span class="line">144</span><br><span class="line">145</span><br><span class="line">146</span><br><span class="line">147</span><br><span class="line">148</span><br><span class="line">149</span><br><span class="line">150</span><br><span class="line">151</span><br><span class="line">152</span><br><span class="line">153</span><br><span class="line">154</span><br><span class="line">155</span><br><span class="line">156</span><br><span class="line">157</span><br><span class="line">158</span><br><span class="line">159</span><br><span class="line">160</span><br><span class="line">161</span><br><span class="line">162</span><br><span class="line">163</span><br><span class="line">164</span><br><span class="line">165</span><br><span class="line">166</span><br><span class="line">167</span><br><span class="line">168</span><br><span class="line">169</span><br><span class="line">170</span><br><span class="line">171</span><br><span class="line">172</span><br><span class="line">173</span><br><span class="line">174</span><br><span class="line">175</span><br><span class="line">176</span><br><span class="line">177</span><br><span class="line">178</span><br><span class="line">179</span><br><span class="line">180</span><br><span class="line">181</span><br><span class="line">182</span><br><span class="line">183</span><br><span class="line">184</span><br><span class="line">185</span><br><span class="line">186</span><br><span class="line">187</span><br><span class="line">188</span><br><span class="line">189</span><br><span class="line">190</span><br><span class="line">191</span><br><span class="line">192</span><br><span class="line">193</span><br><span class="line">194</span><br><span class="line">195</span><br><span class="line">196</span><br><span class="line">197</span><br><span class="line">198</span><br><span class="line">199</span><br><span class="line">200</span><br><span class="line">201</span><br><span class="line">202</span><br><span class="line">203</span><br><span class="line">204</span><br><span class="line">205</span><br><span class="line">206</span><br><span class="line">207</span><br><span class="line">208</span><br><span class="line">209</span><br><span class="line">210</span><br><span class="line">211</span><br><span class="line">212</span><br><span class="line">213</span><br><span class="line">214</span><br><span class="line">215</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> math</span><br><span class="line"><span class="keyword">from</span> dataclasses <span class="keyword">import</span> dataclass</span><br><span class="line"><span class="keyword">from</span> typing <span class="keyword">import</span> <span class="type">Optional</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"><span class="keyword">import</span> torch.nn <span class="keyword">as</span> nn</span><br><span class="line"><span class="keyword">import</span> torch.nn.functional <span class="keyword">as</span> F</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="comment"># =========================</span></span><br><span class="line"><span class="comment"># 1. 配置</span></span><br><span class="line"><span class="comment"># =========================</span></span><br><span class="line"><span class="meta">@dataclass</span></span><br><span class="line"><span class="keyword">class</span> <span class="title class_">ModelConfig</span>:</span><br><span class="line">    vocab_size: <span class="built_in">int</span> = <span class="number">100</span></span><br><span class="line">    max_seq_len: <span class="built_in">int</span> = <span class="number">64</span></span><br><span class="line">    d_model: <span class="built_in">int</span> = <span class="number">128</span></span><br><span class="line">    n_heads: <span class="built_in">int</span> = <span class="number">4</span></span><br><span class="line">    n_layers: <span class="built_in">int</span> = <span class="number">4</span></span><br><span class="line">    d_ff: <span class="built_in">int</span> = <span class="number">256</span></span><br><span class="line">    dropout: <span class="built_in">float</span> = <span class="number">0.1</span></span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="comment"># =========================</span></span><br><span class="line"><span class="comment"># 2. 单个 Multi-Head Causal Self-Attention</span></span><br><span class="line"><span class="comment"># =========================</span></span><br><span class="line"><span class="keyword">class</span> <span class="title class_">MultiHeadSelfAttention</span>(nn.Module):</span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">__init__</span>(<span class="params">self, config: ModelConfig</span>):</span><br><span class="line">        <span class="built_in">super</span>().__init__()</span><br><span class="line">        <span class="keyword">assert</span> config.d_model % config.n_heads == <span class="number">0</span>, <span class="string">&#x27;d_model 必须能被 n_heads 整除&#x27;</span></span><br><span class="line"></span><br><span class="line">        <span class="variable language_">self</span>.d_model = config.d_model</span><br><span class="line">        <span class="variable language_">self</span>.n_heads = config.n_heads</span><br><span class="line">        <span class="variable language_">self</span>.head_dim = config.d_model // config.n_heads</span><br><span class="line"></span><br><span class="line">        <span class="variable language_">self</span>.q_proj = nn.Linear(config.d_model, config.d_model)</span><br><span class="line">        <span class="variable language_">self</span>.k_proj = nn.Linear(config.d_model, config.d_model)</span><br><span class="line">        <span class="variable language_">self</span>.v_proj = nn.Linear(config.d_model, config.d_model)</span><br><span class="line">        <span class="variable language_">self</span>.out_proj = nn.Linear(config.d_model, config.d_model)</span><br><span class="line"></span><br><span class="line">        <span class="variable language_">self</span>.attn_dropout = nn.Dropout(config.dropout)</span><br><span class="line">        <span class="variable language_">self</span>.resid_dropout = nn.Dropout(config.dropout)</span><br><span class="line"></span><br><span class="line">        mask = torch.triu(torch.ones(config.max_seq_len, config.max_seq_len), diagonal=<span class="number">1</span>).<span class="built_in">bool</span>()</span><br><span class="line">        <span class="variable language_">self</span>.register_buffer(<span class="string">&#x27;causal_mask&#x27;</span>, mask, persistent=<span class="literal">False</span>)</span><br><span class="line"></span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">forward</span>(<span class="params">self, x: torch.Tensor</span>) -&gt; torch.Tensor:</span><br><span class="line">        B, T, C = x.shape</span><br><span class="line"></span><br><span class="line">        q = <span class="variable language_">self</span>.q_proj(x)</span><br><span class="line">        k = <span class="variable language_">self</span>.k_proj(x)</span><br><span class="line">        v = <span class="variable language_">self</span>.v_proj(x)</span><br><span class="line"></span><br><span class="line">        q = q.view(B, T, <span class="variable language_">self</span>.n_heads, <span class="variable language_">self</span>.head_dim).transpose(<span class="number">1</span>, <span class="number">2</span>)</span><br><span class="line">        k = k.view(B, T, <span class="variable language_">self</span>.n_heads, <span class="variable language_">self</span>.head_dim).transpose(<span class="number">1</span>, <span class="number">2</span>)</span><br><span class="line">        v = v.view(B, T, <span class="variable language_">self</span>.n_heads, <span class="variable language_">self</span>.head_dim).transpose(<span class="number">1</span>, <span class="number">2</span>)</span><br><span class="line"></span><br><span class="line">        attn_scores = (q @ k.transpose(-<span class="number">2</span>, -<span class="number">1</span>)) / math.sqrt(<span class="variable language_">self</span>.head_dim)</span><br><span class="line">        attn_scores = attn_scores.masked_fill(<span class="variable language_">self</span>.causal_mask[:T, :T], <span class="built_in">float</span>(<span class="string">&#x27;-inf&#x27;</span>))</span><br><span class="line"></span><br><span class="line">        attn_weights = F.softmax(attn_scores, dim=-<span class="number">1</span>)</span><br><span class="line">        attn_weights = <span class="variable language_">self</span>.attn_dropout(attn_weights)</span><br><span class="line"></span><br><span class="line">        out = attn_weights @ v</span><br><span class="line">        out = out.transpose(<span class="number">1</span>, <span class="number">2</span>).contiguous().view(B, T, C)</span><br><span class="line">        out = <span class="variable language_">self</span>.out_proj(out)</span><br><span class="line">        out = <span class="variable language_">self</span>.resid_dropout(out)</span><br><span class="line">        <span class="keyword">return</span> out</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="comment"># =========================</span></span><br><span class="line"><span class="comment"># 3. FFN / MLP</span></span><br><span class="line"><span class="comment"># =========================</span></span><br><span class="line"><span class="keyword">class</span> <span class="title class_">FeedForward</span>(nn.Module):</span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">__init__</span>(<span class="params">self, config: ModelConfig</span>):</span><br><span class="line">        <span class="built_in">super</span>().__init__()</span><br><span class="line">        <span class="variable language_">self</span>.net = nn.Sequential(</span><br><span class="line">            nn.Linear(config.d_model, config.d_ff),</span><br><span class="line">            nn.GELU(),</span><br><span class="line">            nn.Linear(config.d_ff, config.d_model),</span><br><span class="line">            nn.Dropout(config.dropout),</span><br><span class="line">        )</span><br><span class="line"></span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">forward</span>(<span class="params">self, x: torch.Tensor</span>) -&gt; torch.Tensor:</span><br><span class="line">        <span class="keyword">return</span> <span class="variable language_">self</span>.net(x)</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="comment"># =========================</span></span><br><span class="line"><span class="comment"># 4. 单个 Transformer Block（Pre-LN）</span></span><br><span class="line"><span class="comment"># =========================</span></span><br><span class="line"><span class="keyword">class</span> <span class="title class_">TransformerBlock</span>(nn.Module):</span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">__init__</span>(<span class="params">self, config: ModelConfig</span>):</span><br><span class="line">        <span class="built_in">super</span>().__init__()</span><br><span class="line">        <span class="variable language_">self</span>.ln_1 = nn.LayerNorm(config.d_model)</span><br><span class="line">        <span class="variable language_">self</span>.attn = MultiHeadSelfAttention(config)</span><br><span class="line">        <span class="variable language_">self</span>.ln_2 = nn.LayerNorm(config.d_model)</span><br><span class="line">        <span class="variable language_">self</span>.ffn = FeedForward(config)</span><br><span class="line"></span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">forward</span>(<span class="params">self, x: torch.Tensor</span>) -&gt; torch.Tensor:</span><br><span class="line">        x = x + <span class="variable language_">self</span>.attn(<span class="variable language_">self</span>.ln_1(x))</span><br><span class="line">        x = x + <span class="variable language_">self</span>.ffn(<span class="variable language_">self</span>.ln_2(x))</span><br><span class="line">        <span class="keyword">return</span> x</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="comment"># =========================</span></span><br><span class="line"><span class="comment"># 5. 最小 Decoder-only Transformer</span></span><br><span class="line"><span class="comment"># =========================</span></span><br><span class="line"><span class="keyword">class</span> <span class="title class_">MiniTransformerLM</span>(nn.Module):</span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">__init__</span>(<span class="params">self, config: ModelConfig</span>):</span><br><span class="line">        <span class="built_in">super</span>().__init__()</span><br><span class="line">        <span class="variable language_">self</span>.config = config</span><br><span class="line"></span><br><span class="line">        <span class="variable language_">self</span>.token_emb = nn.Embedding(config.vocab_size, config.d_model)</span><br><span class="line">        <span class="variable language_">self</span>.pos_emb = nn.Embedding(config.max_seq_len, config.d_model)</span><br><span class="line">        <span class="variable language_">self</span>.blocks = nn.ModuleList([TransformerBlock(config) <span class="keyword">for</span> _ <span class="keyword">in</span> <span class="built_in">range</span>(config.n_layers)])</span><br><span class="line">        <span class="variable language_">self</span>.final_ln = nn.LayerNorm(config.d_model)</span><br><span class="line"></span><br><span class="line">        <span class="variable language_">self</span>.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=<span class="literal">False</span>)</span><br><span class="line">        <span class="variable language_">self</span>.lm_head.weight = <span class="variable language_">self</span>.token_emb.weight</span><br><span class="line"></span><br><span class="line">        <span class="variable language_">self</span>.apply(<span class="variable language_">self</span>._init_weights)</span><br><span class="line"></span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">_init_weights</span>(<span class="params">self, module: nn.Module</span>):</span><br><span class="line">        <span class="keyword">if</span> <span class="built_in">isinstance</span>(module, nn.Linear):</span><br><span class="line">            nn.init.normal_(module.weight, mean=<span class="number">0.0</span>, std=<span class="number">0.02</span>)</span><br><span class="line">            <span class="keyword">if</span> module.bias <span class="keyword">is</span> <span class="keyword">not</span> <span class="literal">None</span>:</span><br><span class="line">                nn.init.zeros_(module.bias)</span><br><span class="line">        <span class="keyword">elif</span> <span class="built_in">isinstance</span>(module, nn.Embedding):</span><br><span class="line">            nn.init.normal_(module.weight, mean=<span class="number">0.0</span>, std=<span class="number">0.02</span>)</span><br><span class="line"></span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">forward</span>(<span class="params">self, idx: torch.Tensor, targets: <span class="type">Optional</span>[torch.Tensor] = <span class="literal">None</span></span>):</span><br><span class="line">        B, T = idx.shape</span><br><span class="line">        <span class="keyword">assert</span> T &lt;= <span class="variable language_">self</span>.config.max_seq_len, <span class="string">&#x27;输入长度超过 max_seq_len&#x27;</span></span><br><span class="line"></span><br><span class="line">        positions = torch.arange(<span class="number">0</span>, T, device=idx.device).unsqueeze(<span class="number">0</span>)</span><br><span class="line"></span><br><span class="line">        tok = <span class="variable language_">self</span>.token_emb(idx)</span><br><span class="line">        pos = <span class="variable language_">self</span>.pos_emb(positions)</span><br><span class="line">        x = tok + pos</span><br><span class="line"></span><br><span class="line">        <span class="keyword">for</span> block <span class="keyword">in</span> <span class="variable language_">self</span>.blocks:</span><br><span class="line">            x = block(x)</span><br><span class="line"></span><br><span class="line">        x = <span class="variable language_">self</span>.final_ln(x)</span><br><span class="line">        logits = <span class="variable language_">self</span>.lm_head(x)</span><br><span class="line"></span><br><span class="line">        loss = <span class="literal">None</span></span><br><span class="line">        <span class="keyword">if</span> targets <span class="keyword">is</span> <span class="keyword">not</span> <span class="literal">None</span>:</span><br><span class="line">            loss = F.cross_entropy(</span><br><span class="line">                logits.view(B * T, <span class="variable language_">self</span>.config.vocab_size),</span><br><span class="line">                targets.view(B * T)</span><br><span class="line">            )</span><br><span class="line"></span><br><span class="line">        <span class="keyword">return</span> logits, loss</span><br><span class="line"></span><br><span class="line"><span class="meta">    @torch.no_grad()</span></span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">generate</span>(<span class="params">self, idx: torch.Tensor, max_new_tokens: <span class="built_in">int</span></span>):</span><br><span class="line">        <span class="keyword">for</span> _ <span class="keyword">in</span> <span class="built_in">range</span>(max_new_tokens):</span><br><span class="line">            idx_cond = idx[:, -<span class="variable language_">self</span>.config.max_seq_len:]</span><br><span class="line">            logits, _ = <span class="variable language_">self</span>(idx_cond)</span><br><span class="line">            next_token_logits = logits[:, -<span class="number">1</span>, :]</span><br><span class="line">            probs = F.softmax(next_token_logits, dim=-<span class="number">1</span>)</span><br><span class="line">            next_token = torch.multinomial(probs, num_samples=<span class="number">1</span>)</span><br><span class="line">            idx = torch.cat([idx, next_token], dim=<span class="number">1</span>)</span><br><span class="line">        <span class="keyword">return</span> idx</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="comment"># =========================</span></span><br><span class="line"><span class="comment"># 6. 一个最小训练示例</span></span><br><span class="line"><span class="comment"># =========================</span></span><br><span class="line"><span class="keyword">def</span> <span class="title function_">make_toy_data</span>(<span class="params">batch_size: <span class="built_in">int</span>, seq_len: <span class="built_in">int</span>, vocab_size: <span class="built_in">int</span>, device: <span class="built_in">str</span></span>):</span><br><span class="line">    x = torch.randint(low=<span class="number">0</span>, high=vocab_size, size=(batch_size, seq_len), device=device)</span><br><span class="line">    inputs = x[:, :-<span class="number">1</span>]</span><br><span class="line">    targets = x[:, <span class="number">1</span>:]</span><br><span class="line">    <span class="keyword">return</span> inputs, targets</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="keyword">def</span> <span class="title function_">main</span>():</span><br><span class="line">    device = <span class="string">&#x27;cuda&#x27;</span> <span class="keyword">if</span> torch.cuda.is_available() <span class="keyword">else</span> <span class="string">&#x27;cpu&#x27;</span></span><br><span class="line"></span><br><span class="line">    config = ModelConfig(</span><br><span class="line">        vocab_size=<span class="number">50</span>,</span><br><span class="line">        max_seq_len=<span class="number">32</span>,</span><br><span class="line">        d_model=<span class="number">64</span>,</span><br><span class="line">        n_heads=<span class="number">4</span>,</span><br><span class="line">        n_layers=<span class="number">2</span>,</span><br><span class="line">        d_ff=<span class="number">128</span>,</span><br><span class="line">        dropout=<span class="number">0.1</span>,</span><br><span class="line">    )</span><br><span class="line"></span><br><span class="line">    model = MiniTransformerLM(config).to(device)</span><br><span class="line">    optimizer = torch.optim.AdamW(model.parameters(), lr=<span class="number">3e-4</span>)</span><br><span class="line"></span><br><span class="line">    <span class="built_in">print</span>(<span class="string">&#x27;Model parameters:&#x27;</span>, <span class="built_in">sum</span>(p.numel() <span class="keyword">for</span> p <span class="keyword">in</span> model.parameters()))</span><br><span class="line"></span><br><span class="line">    model.train()</span><br><span class="line">    <span class="keyword">for</span> step <span class="keyword">in</span> <span class="built_in">range</span>(<span class="number">50</span>):</span><br><span class="line">        inputs, targets = make_toy_data(batch_size=<span class="number">16</span>, seq_len=<span class="number">17</span>, vocab_size=config.vocab_size, device=device)</span><br><span class="line">        _, loss = model(inputs, targets)</span><br><span class="line"></span><br><span class="line">        optimizer.zero_grad()</span><br><span class="line">        loss.backward()</span><br><span class="line">        optimizer.step()</span><br><span class="line"></span><br><span class="line">        <span class="keyword">if</span> step % <span class="number">10</span> == <span class="number">0</span>:</span><br><span class="line">            <span class="built_in">print</span>(<span class="string">f&#x27;step=<span class="subst">&#123;step:03d&#125;</span> loss=<span class="subst">&#123;loss.item():<span class="number">.4</span>f&#125;</span>&#x27;</span>)</span><br><span class="line"></span><br><span class="line">    model.<span class="built_in">eval</span>()</span><br><span class="line">    start = torch.tensor([[<span class="number">1</span>, <span class="number">2</span>, <span class="number">3</span>]], device=device)</span><br><span class="line">    out = model.generate(start, max_new_tokens=<span class="number">10</span>)</span><br><span class="line">    <span class="built_in">print</span>(<span class="string">&#x27;Generated token ids:&#x27;</span>, out.tolist())</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="keyword">if</span> __name__ == <span class="string">&#x27;__main__&#x27;</span>:</span><br><span class="line">    main()</span><br></pre></td></tr></table></figure>
+<hr>
+<h2 id="wu-xian-cong-zheng-ti-kan-dai-ma-jie-gou" tabindex="-1" id="五、先从整体看代码结构">五、先从整体看代码结构</h2>
+<p>虽然这份代码不长，但它已经完整对应了一个最小 Decoder-only Transformer 的主要骨架。</p>
+<p>结构可以压缩成：</p>
+<ol>
+<li><code>ModelConfig</code>：定义超参数</li>
+<li><code>MultiHeadSelfAttention</code>：实现 Causal Self-Attention</li>
+<li><code>FeedForward</code>：实现 FFN</li>
+<li><code>TransformerBlock</code>：把 attention + FFN 组织成 block</li>
+<li><code>MiniTransformerLM</code>：把 embedding、多个 block、输出头堆起来</li>
+<li><code>generate()</code>：做最朴素的自回归生成</li>
+<li><code>main()</code>：给一个最小训练和生成示例</li>
+</ol>
+<p>接下来，我们按模块重新拆开看。</p>
+<hr>
+<h2 id="liu-embedding-zai-dai-ma-li-dao-di-zen-yao-ti-xian" tabindex="-1" id="六、Embedding-在代码里到底怎么体现">六、Embedding 在代码里到底怎么体现</h2>
+<p>看这两行：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="variable language_">self</span>.token_emb = nn.Embedding(config.vocab_size, config.d_model)</span><br><span class="line"><span class="variable language_">self</span>.pos_emb = nn.Embedding(config.max_seq_len, config.d_model)</span><br></pre></td></tr></table></figure>
+<p>它们分别对应：</p>
+<ul>
+<li>token embedding</li>
+<li>position embedding</li>
+</ul>
+<p>在 forward 里：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">tok = <span class="variable language_">self</span>.token_emb(idx)            </span><br><span class="line">pos = <span class="variable language_">self</span>.pos_emb(positions)        </span><br><span class="line">x = tok + pos</span><br></pre></td></tr></table></figure>
+<p>这就是我们前面博客里讲过的：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><msub><mi>h</mi><mi>i</mi></msub><mo>=</mo><msub><mi>x</mi><mi>i</mi></msub><mo>+</mo><msub><mi>p</mi><mi>i</mi></msub></mrow><annotation encoding="application/x-tex">h_i = x_i + p_i
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8444em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal">h</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3117em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">i</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.7333em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal">x</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3117em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">i</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.625em;vertical-align:-0.1944em;"></span><span class="mord"><span class="mord mathnormal">p</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3117em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">i</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span></span></p>
+<p>也就是说：</p>
+<ul>
+<li><code>token_emb</code> 负责把 token id 映射成内容向量</li>
+<li><code>pos_emb</code> 负责给每个位置分配位置向量</li>
+<li>两者相加，得到真正送进 Transformer block 的输入表示</li>
+</ul>
+<p>这里我们用的是<strong>可学习位置 embedding</strong>，没有用 RoPE。<br>
+原因很简单：<br>
+这一篇的目标是把骨架写清楚，而不是追求现代大模型全部细节。</p>
+<hr>
+<h2 id="qi-multi-head-self-attention-zai-dai-ma-li-shi-zen-yao-luo-di-de" tabindex="-1" id="七、Multi-Head-Self-Attention-在代码里是怎么落地的">七、Multi-Head Self-Attention 在代码里是怎么落地的</h2>
+<p>先看最核心的三行：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">q = <span class="variable language_">self</span>.q_proj(x)</span><br><span class="line">k = <span class="variable language_">self</span>.k_proj(x)</span><br><span class="line">v = <span class="variable language_">self</span>.v_proj(x)</span><br></pre></td></tr></table></figure>
+<p>这正对应前面原理里的：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>Q</mi><mo>=</mo><mi>H</mi><msup><mi>W</mi><mi>Q</mi></msup><mo separator="true">,</mo><mspace width="1em"/><mi>K</mi><mo>=</mo><mi>H</mi><msup><mi>W</mi><mi>K</mi></msup><mo separator="true">,</mo><mspace width="1em"/><mi>V</mi><mo>=</mo><mi>H</mi><msup><mi>W</mi><mi>V</mi></msup></mrow><annotation encoding="application/x-tex">Q = HW^Q,\quad K = HW^K,\quad V = HW^V
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8778em;vertical-align:-0.1944em;"></span><span class="mord mathnormal">Q</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1.0858em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.08125em;">H</span><span class="mord"><span class="mord mathnormal" style="margin-right:0.13889em;">W</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8913em;"><span style="top:-3.113em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">Q</span></span></span></span></span></span></span></span><span class="mpunct">,</span><span class="mspace" style="margin-right:1em;"></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal" style="margin-right:0.07153em;">K</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1.0858em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.08125em;">H</span><span class="mord"><span class="mord mathnormal" style="margin-right:0.13889em;">W</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8913em;"><span style="top:-3.113em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.07153em;">K</span></span></span></span></span></span></span></span><span class="mpunct">,</span><span class="mspace" style="margin-right:1em;"></span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal" style="margin-right:0.22222em;">V</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8913em;"></span><span class="mord mathnormal" style="margin-right:0.08125em;">H</span><span class="mord"><span class="mord mathnormal" style="margin-right:0.13889em;">W</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8913em;"><span style="top:-3.113em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.22222em;">V</span></span></span></span></span></span></span></span></span></span></span></span></p>
+<p>区别只在于：</p>
+<ul>
+<li>数学里我们直接写矩阵乘法</li>
+<li>PyTorch 里用 <code>nn.Linear</code> 帮你管理参数和乘法</li>
+</ul>
+<p>然后是多头 reshape：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">q = q.view(B, T, <span class="variable language_">self</span>.n_heads, <span class="variable language_">self</span>.head_dim).transpose(<span class="number">1</span>, <span class="number">2</span>)</span><br><span class="line">k = k.view(B, T, <span class="variable language_">self</span>.n_heads, <span class="variable language_">self</span>.head_dim).transpose(<span class="number">1</span>, <span class="number">2</span>)</span><br><span class="line">v = v.view(B, T, <span class="variable language_">self</span>.n_heads, <span class="variable language_">self</span>.head_dim).transpose(<span class="number">1</span>, <span class="number">2</span>)</span><br></pre></td></tr></table></figure>
+<p>这一步的意义是：</p>
+<p>把原来的 <code>[B, T, C]</code><br>
+拆成<br>
+<code>[B, n_heads, T, head_dim]</code></p>
+<p>也就是把总通道维度切分成多个头，让每个头在自己的子空间里做 attention。</p>
+<hr>
+<h2 id="ba-attention-score-he-causal-mask-zai-dai-ma-li-zen-yao-dui-ying-gong-shi" tabindex="-1" id="八、Attention-score-和-causal-mask-在代码里怎么对应公式">八、Attention score 和 causal mask 在代码里怎么对应公式</h2>
+<p>核心代码是：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">attn_scores = (q @ k.transpose(-<span class="number">2</span>, -<span class="number">1</span>)) / math.sqrt(<span class="variable language_">self</span>.head_dim)</span><br><span class="line">attn_scores = attn_scores.masked_fill(<span class="variable language_">self</span>.causal_mask[:T, :T], <span class="built_in">float</span>(<span class="string">&#x27;-inf&#x27;</span>))</span><br><span class="line">attn_weights = F.softmax(attn_scores, dim=-<span class="number">1</span>)</span><br></pre></td></tr></table></figure>
+<p>它对应的数学过程就是：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>S</mi><mo>=</mo><mfrac><mrow><mi>Q</mi><msup><mi>K</mi><mi>T</mi></msup></mrow><msqrt><msub><mi>d</mi><mi>k</mi></msub></msqrt></mfrac></mrow><annotation encoding="application/x-tex">S = \frac{QK^T}{\sqrt{d_k}}
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.05764em;">S</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:2.4483em;vertical-align:-0.93em;"></span><span class="mord"><span class="mopen nulldelimiter"></span><span class="mfrac"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:1.5183em;"><span style="top:-2.2528em;"><span class="pstrut" style="height:3em;"></span><span class="mord"><span class="mord sqrt"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.8572em;"><span class="svg-align" style="top:-3em;"><span class="pstrut" style="height:3em;"></span><span class="mord" style="padding-left:0.833em;"><span class="mord"><span class="mord mathnormal">d</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3361em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.03148em;">k</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span><span style="top:-2.8172em;"><span class="pstrut" style="height:3em;"></span><span class="hide-tail" style="min-width:0.853em;height:1.08em;"><svg xmlns="http://www.w3.org/2000/svg" width="400em" height="1.08em" viewBox="0 0 400000 1080" preserveAspectRatio="xMinYMin slice"><path d="M95,702
+c-2.7,0,-7.17,-2.7,-13.5,-8c-5.8,-5.3,-9.5,-10,-9.5,-14
+c0,-2,0.3,-3.3,1,-4c1.3,-2.7,23.83,-20.7,67.5,-54
+c44.2,-33.3,65.8,-50.3,66.5,-51c1.3,-1.3,3,-2,5,-2c4.7,0,8.7,3.3,12,10
+s173,378,173,378c0.7,0,35.3,-71,104,-213c68.7,-142,137.5,-285,206.5,-429
+c69,-144,104.5,-217.7,106.5,-221
+l0 -0
+c5.3,-9.3,12,-14,20,-14
+H400000v40H845.2724
+s-225.272,467,-225.272,467s-235,486,-235,486c-2.7,4.7,-9,7,-19,7
+c-6,0,-10,-1,-12,-3s-194,-422,-194,-422s-65,47,-65,47z
+M834 80h400000v40h-400000z"/></svg></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.1828em;"><span></span></span></span></span></span></span></span><span style="top:-3.23em;"><span class="pstrut" style="height:3em;"></span><span class="frac-line" style="border-bottom-width:0.04em;"></span></span><span style="top:-3.677em;"><span class="pstrut" style="height:3em;"></span><span class="mord"><span class="mord mathnormal">Q</span><span class="mord"><span class="mord mathnormal" style="margin-right:0.07153em;">K</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8413em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.13889em;">T</span></span></span></span></span></span></span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.93em;"><span></span></span></span></span></span><span class="mclose nulldelimiter"></span></span></span></span></span></span></p>
+<p>然后加上 causal mask：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mover accent="true"><mi>S</mi><mo>^</mo></mover><mo>=</mo><mi>S</mi><mo>+</mo><mi>M</mi></mrow><annotation encoding="application/x-tex">\hat{S} = S + M
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.9468em;"></span><span class="mord accent"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.9468em;"><span style="top:-3em;"><span class="pstrut" style="height:3em;"></span><span class="mord mathnormal" style="margin-right:0.05764em;">S</span></span><span style="top:-3.2523em;"><span class="pstrut" style="height:3em;"></span><span class="accent-body" style="left:-0.1667em;"><span class="mord">^</span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.7667em;vertical-align:-0.0833em;"></span><span class="mord mathnormal" style="margin-right:0.05764em;">S</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.10903em;">M</span></span></span></span></span></p>
+<p>再做：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>A</mi><mo>=</mo><mtext>softmax</mtext><mo stretchy="false">(</mo><mover accent="true"><mi>S</mi><mo>^</mo></mover><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">A = \text{softmax}(\hat{S})
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal">A</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1.1968em;vertical-align:-0.25em;"></span><span class="mord text"><span class="mord">softmax</span></span><span class="mopen">(</span><span class="mord accent"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.9468em;"><span style="top:-3em;"><span class="pstrut" style="height:3em;"></span><span class="mord mathnormal" style="margin-right:0.05764em;">S</span></span><span style="top:-3.2523em;"><span class="pstrut" style="height:3em;"></span><span class="accent-body" style="left:-0.1667em;"><span class="mord">^</span></span></span></span></span></span></span><span class="mclose">)</span></span></span></span></span></p>
+<p>这里你要特别注意 <code>masked_fill</code> 的作用。<br>
+我们之前讲过，causal mask 的本质是：</p>
+<ul>
+<li>当前位置不能看未来位置</li>
+<li>所以未来位置在 softmax 前必须被置成 (-\infty)</li>
+</ul>
+<p>在代码里：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="variable language_">self</span>.causal_mask = torch.triu(torch.ones(...), diagonal=<span class="number">1</span>).<span class="built_in">bool</span>()</span><br></pre></td></tr></table></figure>
+<p>生成的是上三角 True 区域，表示：</p>
+<ul>
+<li>这些位置属于“未来”</li>
+<li>必须屏蔽</li>
+</ul>
+<p>所以这一段代码就是 Causal Self-Attention 的真正落地。</p>
+<hr>
+<h2 id="jiu-value-ju-he-he-shu-chu-tou-ying-zai-dai-ma-li-zen-yao-ti-xian" tabindex="-1" id="九、Value-聚合和输出投影在代码里怎么体现">九、Value 聚合和输出投影在代码里怎么体现</h2>
+<p>接着看：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">out = attn_weights @ v</span><br><span class="line">out = out.transpose(<span class="number">1</span>, <span class="number">2</span>).contiguous().view(B, T, C)</span><br><span class="line">out = <span class="variable language_">self</span>.out_proj(out)</span><br></pre></td></tr></table></figure>
+<p>这对应的数学过程是：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>O</mi><mo>=</mo><mi>A</mi><mi>V</mi></mrow><annotation encoding="application/x-tex">O = AV
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal" style="margin-right:0.02778em;">O</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6833em;"></span><span class="mord mathnormal">A</span><span class="mord mathnormal" style="margin-right:0.22222em;">V</span></span></span></span></span></p>
+<p>然后把所有头拼接回来，再做一次输出投影：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mtext>MultiHead</mtext><mo stretchy="false">(</mo><mi>H</mi><mo stretchy="false">)</mo><mo>=</mo><mtext>Concat</mtext><mo stretchy="false">(</mo><msub><mtext>head</mtext><mn>1</mn></msub><mo separator="true">,</mo><mo>…</mo><mo separator="true">,</mo><msub><mtext>head</mtext><mi>h</mi></msub><mo stretchy="false">)</mo><msup><mi>W</mi><mi>O</mi></msup></mrow><annotation encoding="application/x-tex">\text{MultiHead}(H)=\text{Concat}(\text{head}_1,\dots,\text{head}_h)W^O
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord text"><span class="mord">MultiHead</span></span><span class="mopen">(</span><span class="mord mathnormal" style="margin-right:0.08125em;">H</span><span class="mclose">)</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1.1413em;vertical-align:-0.25em;"></span><span class="mord text"><span class="mord">Concat</span></span><span class="mopen">(</span><span class="mord"><span class="mord text"><span class="mord">head</span></span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">1</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="minner">…</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord"><span class="mord text"><span class="mord">head</span></span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3361em;"><span style="top:-2.55em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">h</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mclose">)</span><span class="mord"><span class="mord mathnormal" style="margin-right:0.13889em;">W</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8913em;"><span style="top:-3.113em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight" style="margin-right:0.02778em;">O</span></span></span></span></span></span></span></span></span></span></span></span></p>
+<p>也就是说，代码和公式是一一对应的：</p>
+<ul>
+<li><code>attn_weights @ v</code>：每个头内部做 value 聚合</li>
+<li><code>transpose + view</code>：把多头结果拼回主通道</li>
+<li><code>out_proj</code>：做最终输出融合</li>
+</ul>
+<hr>
+<h2 id="shi-ffn-zai-dai-ma-li-zen-yao-dui-ying-qian-mian-de-shu-xue-jiang-jie" tabindex="-1" id="十、FFN-在代码里怎么对应前面的数学讲解">十、FFN 在代码里怎么对应前面的数学讲解</h2>
+<p>看这个模块：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="variable language_">self</span>.net = nn.Sequential(</span><br><span class="line">    nn.Linear(config.d_model, config.d_ff),</span><br><span class="line">    nn.GELU(),</span><br><span class="line">    nn.Linear(config.d_ff, config.d_model),</span><br><span class="line">    nn.Dropout(config.dropout),</span><br><span class="line">)</span><br></pre></td></tr></table></figure>
+<p>这正对应：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mtext>FFN</mtext><mo stretchy="false">(</mo><mi>x</mi><mo stretchy="false">)</mo><mo>=</mo><msub><mi>W</mi><mn>2</mn></msub><mi>σ</mi><mo stretchy="false">(</mo><msub><mi>W</mi><mn>1</mn></msub><mi>x</mi><mo>+</mo><msub><mi>b</mi><mn>1</mn></msub><mo stretchy="false">)</mo><mo>+</mo><msub><mi>b</mi><mn>2</mn></msub></mrow><annotation encoding="application/x-tex">\text{FFN}(x)=W_2 \sigma(W_1x+b_1)+b_2
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord text"><span class="mord">FFN</span></span><span class="mopen">(</span><span class="mord mathnormal">x</span><span class="mclose">)</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.13889em;">W</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:-0.1389em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mord mathnormal" style="margin-right:0.03588em;">σ</span><span class="mopen">(</span><span class="mord"><span class="mord mathnormal" style="margin-right:0.13889em;">W</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:-0.1389em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">1</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mord mathnormal">x</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord"><span class="mord mathnormal">b</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">1</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mclose">)</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:0.8444em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal">b</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3011em;"><span style="top:-2.55em;margin-left:0em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span></span></p>
+<p>只是这里激活函数用的是 <code>GELU</code>，而不是最简单的 ReLU。<br>
+这是现代 Transformer / LLM 里很常见的选择。</p>
+<p>你可以从这段代码里直接看出我们前面讲的三个关键点：</p>
+<ol>
+<li>先升维：<code>d_model -&gt; d_ff</code></li>
+<li>再非线性激活</li>
+<li>再降维：<code>d_ff -&gt; d_model</code></li>
+</ol>
+<p>这说明 FFN 的本质，在代码里同样没有变化：</p>
+<p><strong>先把每个位置的表示展开到更高维空间，再做非线性加工，再压回主空间。</strong></p>
+<hr>
+<h2 id="shi-yi-wei-shi-yao-block-yong-de-shi-pre-ln" tabindex="-1" id="十一、为什么-block-用的是-Pre-LN">十一、为什么 block 用的是 Pre-LN</h2>
+<p>看 <code>TransformerBlock</code>：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">x = x + <span class="variable language_">self</span>.attn(<span class="variable language_">self</span>.ln_1(x))</span><br><span class="line">x = x + <span class="variable language_">self</span>.ffn(<span class="variable language_">self</span>.ln_2(x))</span><br></pre></td></tr></table></figure>
+<p>这是非常标准的 <strong>Pre-LN Transformer Block</strong>。</p>
+<p>对应数学写法：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>h</mi><mo>=</mo><mi>x</mi><mo>+</mo><mtext>Attention</mtext><mo stretchy="false">(</mo><mtext>LN</mtext><mo stretchy="false">(</mo><mi>x</mi><mo stretchy="false">)</mo><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">h = x + \text{Attention}(\text{LN}(x))
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6944em;"></span><span class="mord mathnormal">h</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6667em;vertical-align:-0.0833em;"></span><span class="mord mathnormal">x</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord text"><span class="mord">Attention</span></span><span class="mopen">(</span><span class="mord text"><span class="mord">LN</span></span><span class="mopen">(</span><span class="mord mathnormal">x</span><span class="mclose">))</span></span></span></span></span></p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mi>y</mi><mo>=</mo><mi>h</mi><mo>+</mo><mtext>FFN</mtext><mo stretchy="false">(</mo><mtext>LN</mtext><mo stretchy="false">(</mo><mi>h</mi><mo stretchy="false">)</mo><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">y = h + \text{FFN}(\text{LN}(h))
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.625em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.03588em;">y</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.7778em;vertical-align:-0.0833em;"></span><span class="mord mathnormal">h</span><span class="mspace" style="margin-right:0.2222em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2222em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord text"><span class="mord">FFN</span></span><span class="mopen">(</span><span class="mord text"><span class="mord">LN</span></span><span class="mopen">(</span><span class="mord mathnormal">h</span><span class="mclose">))</span></span></span></span></span></p>
+<p>为什么这样写？</p>
+<p>因为现代很多大模型更偏好 Pre-LN，它在深层训练时通常更稳定。<br>
+而且这也和我们前面原理博客的解释完全一致：</p>
+<ul>
+<li>先 LN 让子层看到稳定输入</li>
+<li>子层输出作为修正量</li>
+<li>再通过残差叠加回主表示</li>
+</ul>
+<p>所以你现在应该能真正把：</p>
+<ul>
+<li>公式</li>
+<li>结构图</li>
+<li>代码</li>
+</ul>
+<p>连成一条线。</p>
+<hr>
+<h2 id="shi-er-code-mini-transformer-lm-code-zhe-yi-ceng-ke-zi-dao-di-zuo-liao-shi-yao" tabindex="-1" id="十二、MiniTransformerLM-这一层壳子到底做了什么">十二、<code>MiniTransformerLM</code> 这一层壳子到底做了什么</h2>
+<p>这个类本质上是在做三件事：</p>
+<h3 id="1-chu-li-shu-ru" tabindex="-1" id="1-处理输入">1. 处理输入</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">tok = <span class="variable language_">self</span>.token_emb(idx)</span><br><span class="line">pos = <span class="variable language_">self</span>.pos_emb(positions)</span><br><span class="line">x = tok + pos</span><br></pre></td></tr></table></figure>
+<h3 id="2-tong-guo-duo-ceng-block-zuo-shen-ceng-jia-gong" tabindex="-1" id="2-通过多层-block-做深层加工">2. 通过多层 block 做深层加工</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">for</span> block <span class="keyword">in</span> <span class="variable language_">self</span>.blocks:</span><br><span class="line">    x = block(x)</span><br></pre></td></tr></table></figure>
+<h3 id="3-shu-chu-logits" tabindex="-1" id="3-输出-logits">3. 输出 logits</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">x = <span class="variable language_">self</span>.final_ln(x)</span><br><span class="line">logits = <span class="variable language_">self</span>.lm_head(x)</span><br></pre></td></tr></table></figure>
+<p>下面就是一个最小 Decoder-only Transformer 的完整数据流：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><mtext>token ids</mtext><mo>→</mo><mtext>embedding + pos</mtext><mo>→</mo><mtext>多个 Transformer blocks</mtext><mo>→</mo><mtext>final LN</mtext><mo>→</mo><mtext>logits</mtext></mrow><annotation encoding="application/x-tex">\text{token ids}
+\rightarrow
+\text{embedding + pos}
+\rightarrow
+\text{多个 Transformer blocks}
+\rightarrow
+\text{final LN}
+\rightarrow
+\text{logits}
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6944em;"></span><span class="mord text"><span class="mord">token ids</span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">→</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8889em;vertical-align:-0.1944em;"></span><span class="mord text"><span class="mord">embedding + pos</span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">→</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6944em;"></span><span class="mord text"><span class="mord cjk_fallback">多个</span><span class="mord"> Transformer blocks</span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">→</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6944em;"></span><span class="mord text"><span class="mord">final LN</span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">→</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8889em;vertical-align:-0.1944em;"></span><span class="mord text"><span class="mord">logits</span></span></span></span></span></span></p>
+<p>其中 <code>lm_head</code> 的作用，就是把隐藏状态重新投影回词表维度，得到：</p>
+<p><span class="katex-display"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><semantics><mrow><msub><mi>z</mi><mi>t</mi></msub><mo>∈</mo><msup><mi mathvariant="double-struck">R</mi><mi>V</mi></msup></mrow><annotation encoding="application/x-tex">z_t \in \mathbb{R}^{V}
+</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6891em;vertical-align:-0.15em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.04398em;">z</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.2806em;"><span style="top:-2.55em;margin-left:-0.044em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">t</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">∈</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8913em;"></span><span class="mord"><span class="mord mathbb">R</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.8913em;"><span style="top:-3.113em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight" style="margin-right:0.22222em;">V</span></span></span></span></span></span></span></span></span></span></span></span></span></p>
+<p>这正对应语言模型训练里每个位置的 next-token 分布。</p>
+<hr>
+<h2 id="shi-san-wei-shi-yao-zhe-li-yong-liao-quan-zhong-gong-xiang" tabindex="-1" id="十三、为什么这里用了权重共享">十三、为什么这里用了权重共享</h2>
+<p>代码里有这句：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="variable language_">self</span>.lm_head.weight = <span class="variable language_">self</span>.token_emb.weight</span><br></pre></td></tr></table></figure>
+<p>这表示输出头和 token embedding 共享参数。<br>
+很多语言模型都会这样做。</p>
+<p>为什么可行？</p>
+<p>因为：</p>
+<ul>
+<li>输入 embedding：把 token id 映射到向量空间</li>
+<li>输出头：把向量空间映射回词表打分空间</li>
+</ul>
+<p>它们在数学上有很强的对偶关系，所以共享参数往往既合理，又能减少参数量。</p>
+<p>这一点不是理解 Transformer 骨架的必要条件，但它是一个很常见、也很有代表性的实现细节。</p>
+<hr>
+<h2 id="shi-si-xun-lian-shi-forward-he-loss-shi-zen-yao-dui-ying-qian-mian-li-lun-de" tabindex="-1" id="十四、训练时-forward-和-loss-是怎么对应前面理论的">十四、训练时 forward 和 loss 是怎么对应前面理论的</h2>
+<p>看这一段：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">loss = F.cross_entropy(</span><br><span class="line">    logits.view(B * T, <span class="variable language_">self</span>.config.vocab_size),</span><br><span class="line">    targets.view(B * T)</span><br><span class="line">)</span><br></pre></td></tr></table></figure>
+<p>这对应前面原理里讲的：</p>
+<ul>
+<li>每个位置输出一个词表大小维度 logits</li>
+<li>把每个位置都看成一次分类</li>
+<li>目标是预测“下一个 token”</li>
+</ul>
+<p>这里之所以要 <code>view(B * T, vocab_size)</code>，是因为交叉熵函数常常希望输入形状是：</p>
+<ul>
+<li><code>[样本数, 类别数]</code></li>
+</ul>
+<p>而对语言模型来说：</p>
+<ul>
+<li>每个 batch 中的每个位置，其实都是一个训练样本</li>
+</ul>
+<p>所以把 <code>[B, T, V]</code> 展平成 <code>[B*T, V]</code> 是非常自然的。</p>
+<p>这也正对应了 Teacher Forcing 训练的本质：</p>
+<p><strong>在完整已知序列上，并行优化所有位置的 next-token 预测。</strong></p>
+<hr>
+<h2 id="shi-wu-wei-shi-yao-code-generate-code-zhe-yao-xie-gang-hao-dui-ying-qian-mian-jiang-guo-de-tui-li-ben-zhi" tabindex="-1" id="十五、为什么-generate-这么写，刚好对应前面讲过的推理本质">十五、为什么 <code>generate()</code> 这么写，刚好对应前面讲过的推理本质</h2>
+<p>看生成函数：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">for</span> _ <span class="keyword">in</span> <span class="built_in">range</span>(max_new_tokens):</span><br><span class="line">    idx_cond = idx[:, -<span class="variable language_">self</span>.config.max_seq_len:]</span><br><span class="line">    logits, _ = <span class="variable language_">self</span>(idx_cond)</span><br><span class="line">    next_token_logits = logits[:, -<span class="number">1</span>, :]</span><br><span class="line">    probs = F.softmax(next_token_logits, dim=-<span class="number">1</span>)</span><br><span class="line">    next_token = torch.multinomial(probs, num_samples=<span class="number">1</span>)</span><br><span class="line">    idx = torch.cat([idx, next_token], dim=<span class="number">1</span>)</span><br></pre></td></tr></table></figure>
+<p>你应该已经能看懂，这几乎就是前面推理原理的代码翻译版：</p>
+<ol>
+<li>拿当前前缀</li>
+<li>跑一遍模型</li>
+<li>取最后一个位置的 logits</li>
+<li>得到下一个 token 的分布</li>
+<li>采样一个 token</li>
+<li>拼回输入</li>
+<li>继续下一轮</li>
+</ol>
+<p>这就是最朴素的自回归生成。</p>
+<p>同时你也能一眼看出它的低效之处：</p>
+<ul>
+<li>每一步都重新把整个前缀送进模型</li>
+<li>没有 KV Cache</li>
+<li>所以随着序列变长，会越来越慢</li>
+</ul>
+<p>而这，恰恰对应了我们前面讲的：</p>
+<p><strong>为什么推理系统里必须引入 KV Cache。</strong></p>
+<p>所以这段代码虽然“笨”，但它非常有价值，因为它把原理和推理瓶颈暴露得非常清楚。</p>
+<hr>
+<h2 id="shi-liu-zhe-fen-zui-xiao-shi-xian-he-zhen-shi-da-mo-xing-shi-xian-xiang-bi-que-liao-shi-yao" tabindex="-1" id="十六、这份最小实现和真实大模型实现相比，缺了什么">十六、这份最小实现和真实大模型实现相比，缺了什么</h2>
+<p>到这里你已经有了一个真正能跑的最小 Transformer。<br>
+但它距离工业级 LLM 当然还有很长的距离。</p>
+<p>真实大模型一般还会进一步加入很多东西，例如：</p>
+<h3 id="jie-gou-ceng" tabindex="-1" id="结构层">结构层</h3>
+<ul>
+<li>RoPE</li>
+<li>RMSNorm</li>
+<li>SwiGLU</li>
+<li>GQA / MQA</li>
+<li>MoE</li>
+</ul>
+<h3 id="tui-li-ceng" tabindex="-1" id="推理层">推理层</h3>
+<ul>
+<li>KV Cache</li>
+<li>FlashAttention</li>
+<li>PagedAttention</li>
+<li>prefix caching</li>
+</ul>
+<h3 id="xi-tong-ceng" tabindex="-1" id="系统层">系统层</h3>
+<ul>
+<li>continuous batching</li>
+<li>tensor / pipeline / expert parallel</li>
+<li>PD 分离</li>
+<li>Distributed KV Cache</li>
+</ul>
+<p>但这不影响这份代码的价值。<br>
+因为它让你先抓住了那个最重要的骨架：</p>
+<p><strong>如果骨架不清楚，后面所有优化都会变成“记工程名词”；如果骨架清楚，后面所有优化都能顺着结构自然长出来。</strong></p>
+<hr>
+<h2 id="shi-qi-ni-xian-zai-ying-gai-ru-he-shi-yong-zhe-fen-dai-ma" tabindex="-1" id="十七、你现在应该如何使用这份代码">十七、你现在应该如何使用这份代码</h2>
+<p>这份代码的正确用法，不只是“复制运行”。<br>
+更重要的是你可以拿它做下面这些练习。</p>
+<h3 id="1-gai-xiao-mo-xing-chi-cun-da-yin-mei-ceng-shape" tabindex="-1" id="1-改小模型尺寸，打印每层-shape">1. 改小模型尺寸，打印每层 shape</h3>
+<p>例如在 <code>forward()</code> 里加 print，看每个张量的维度变化。</p>
+<h3 id="2-qu-diao-multi-head-zhi-bao-liu-dan-tou" tabindex="-1" id="2-去掉-Multi-Head，只保留单头">2. 去掉 Multi-Head，只保留单头</h3>
+<p>观察代码如何退化成最基础的 attention。</p>
+<h3 id="3-ba-gelu-huan-cheng-re-lu" tabindex="-1" id="3-把-GELU-换成-ReLU">3. 把 GELU 换成 ReLU</h3>
+<p>体会 FFN 激活函数的替换。</p>
+<h3 id="4-ba-ke-xue-xi-wei-zhi-embedding-huan-cheng-sinusoidal-position-encoding" tabindex="-1" id="4-把可学习位置-embedding-换成-sinusoidal-position-encoding">4. 把可学习位置 embedding 换成 sinusoidal position encoding</h3>
+<p>把这一篇和前面位置编码原理真正连接起来。</p>
+<h3 id="5-gei-code-generate-code-jia-kv-cache" tabindex="-1" id="5-给-generate-加-KV-Cache">5. 给 <code>generate()</code> 加 KV Cache</h3>
+<p>这是从“原理代码”迈向“推理工程代码”的最好练习之一。</p>
+<hr>
+<h2 id="shi-ba-cong-zhe-pian-dai-ma-li-ni-ying-gai-zhen-zheng-xue-dao-de-bu-shi-hui-chao-shi-xian-er-shi-hui-dui-jie-gou-zuo-ying-she" tabindex="-1" id="十八、从这篇代码里，你应该真正学到的不是“会抄实现”，而是“会对结构做映射”">十八、从这篇代码里，你应该真正学到的不是“会抄实现”，而是“会对结构做映射”</h2>
+<p>如果你只是抄一遍这份代码，它的价值很有限。<br>
+这篇真正想让你建立的能力是：</p>
+<blockquote>
+<p><strong>看到数学公式时，能想到对应代码；<br>
+看到代码实现时，能反推它对应的结构功能。</strong></p>
+</blockquote>
+<p>例如：</p>
+<ul>
+<li>看到 <code>q_proj/k_proj/v_proj</code>，你应该想到 Q/K/V 投影</li>
+<li>看到 <code>masked_fill(..., -inf)</code>，你应该想到 causal mask</li>
+<li>看到 <code>x + self.attn(...)</code>，你应该想到残差连接</li>
+<li>看到 <code>nn.LayerNorm(...)</code>，你应该想到 Pre-LN / Post-LN 的组织方式</li>
+<li>看到 <code>generate()</code> 的循环，你应该想到自回归 decode 的串行本质</li>
+</ul>
+<p>这才是真正从“看懂博客”走向“能自己写模型”的关键一步。</p>
+<hr>
+<h2 id="shi-jiu-ben-pian-zhen-zheng-yao-ji-zhu-de-wu-tiao-zhu-xian" tabindex="-1" id="十九、本篇真正要记住的五条主线">十九、本篇真正要记住的五条主线</h2>
+<h3 id="di-yi-tiao-zui-xiao-transformer-dai-ma-gu-jia" tabindex="-1" id="第一条：最小-Transformer-代码骨架">第一条：最小 Transformer 代码骨架</h3>
+<ul>
+<li>embedding</li>
+<li>multi-head Causal Self-Attention</li>
+<li>FFN</li>
+<li>Transformer Block 堆叠</li>
+<li>输出 logits</li>
+</ul>
+<h3 id="di-er-tiao-dai-ma-he-shu-xue-gong-shi-shi-yi-yi-dui-ying-de" tabindex="-1" id="第二条：代码和数学公式是一一对应的">第二条：代码和数学公式是一一对应的</h3>
+<ul>
+<li><code>q_proj/k_proj/v_proj</code> 对应 Q/K/V</li>
+<li><code>q @ k.transpose(...) / sqrt(d)</code> 对应 score</li>
+<li><code>softmax</code> 对应注意力权重</li>
+<li><code>attn_weights @ v</code> 对应 value 聚合</li>
+</ul>
+<h3 id="di-san-tiao-block-de-zu-zhi-fang-shi" tabindex="-1" id="第三条：block-的组织方式">第三条：block 的组织方式</h3>
+<ul>
+<li>Pre-LN</li>
+<li>attention 残差</li>
+<li>FFN 残差</li>
+</ul>
+<h3 id="di-si-tiao-xun-lian-dui-ying-teacher-forcing" tabindex="-1" id="第四条：训练对应-Teacher-Forcing">第四条：训练对应 Teacher Forcing</h3>
+<ul>
+<li>完整前缀已知</li>
+<li>每个位置都参与 next-token loss</li>
+</ul>
+<h3 id="di-wu-tiao-po-su-generate-hui-bao-lu-tui-li-de-zhen-zheng-ping-jing" tabindex="-1" id="第五条：朴素-generate-会暴露推理的真正瓶颈">第五条：朴素 generate() 会暴露推理的真正瓶颈</h3>
+<ul>
+<li>每一步都重算前缀</li>
+<li>没有 KV Cache</li>
+<li>因此天然低效</li>
+</ul>
+<hr>
+<h2 id="er-shi-yong-yi-ju-hua-ya-suo-ben-pian" tabindex="-1" id="二十、用一句话压缩本篇">二十、用一句话压缩本篇</h2>
+<p><strong>用 PyTorch 从零实现一个最小 Decoder-only Transformer 的关键，不是记住某段现成代码，而是把 embedding、Q/K/V、causal attention、FFN、残差、LayerNorm 和自回归生成这些结构原理，一一映射成可运行的张量计算过程。</strong></p>
+<hr>
+<h2 id="er-shi-yi-xia-yi-pian-zui-zi-ran-de-xian-jie" tabindex="-1" id="二十一、下一篇最自然的衔接">二十一、下一篇最自然的衔接</h2>
+<p>如果继续写下去，最自然的下一篇是：</p>
+<h3 id="cong-jing-dian-transformer-dao-xian-dai-da-mo-xing-bian-ti-ro-pe-rms-norm-gqa-mqa-swi-glu-yu-mo-e" tabindex="-1" id="从经典-Transformer-到现代大模型变体：RoPE、RMSNorm、GQA-MQA、SwiGLU-与-MoE">从经典 Transformer 到现代大模型变体：RoPE、RMSNorm、GQA/MQA、SwiGLU 与 MoE</h3>
+<p>因为到这里，你已经真正掌握了“经典骨架”。<br>
+下一步最值得做的，就是回答：</p>
+<ul>
+<li>为什么今天的大模型已经不完全长得像 2017 年论文里的 Transformer</li>
+<li>RoPE 到底替代了什么</li>
+<li>RMSNorm 和 LayerNorm 有什么区别</li>
+<li>GQA / MQA 为什么会和 KV Cache 强相关</li>
+<li>SwiGLU 为什么比普通 FFN 更常见</li>
+<li>MoE 为什么会把问题从模型设计推向系统与通信</li>
+</ul>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/2e5c7532/">https://smarter.xin/posts/2e5c7532/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/transformer/">Transformer</a><a class="post-meta__tags" href="/tags/deep-learning/">深度学习</a><a class="post-meta__tags" href="/tags/python/">Python</a></div><div class="post-share"><div class="social-share" data-image="/img/AI-Infra.png" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/3494b8a4/" title="AI Infra学习之旅-RoPE、RMSNorm、GQA与MQA、SwiGLU与MoE"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">AI Infra学习之旅-RoPE、RMSNorm、GQA与MQA、SwiGLU与MoE</div></div></div></a><a class="pagination-related  no-desc" href="/posts/2862894b/" title="AI Infra学习之旅-手算一个完整TransformerBlock"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">AI Infra学习之旅-手算一个完整TransformerBlock</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/d499fdd3/" title="AI Infra学习之旅-手算一次 Transformer 的 Forward"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-27</div><div class="info-item-2">AI Infra学习之旅-手算一次 Transformer 的 Forward</div></div></div></a><a class="pagination-related no-desc" href="/posts/d37fa53a/" title="AI Infra学习之旅-Transformer为什么不只是一个Attention公式"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-27</div><div class="info-item-2">AI Infra学习之旅-Transformer为什么不只是一个Attention公式</div></div></div></a><a class="pagination-related no-desc" href="/posts/84fc38e7/" title="AI Infra学习之旅-Transformer最核心的计算机制"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-27</div><div class="info-item-2">AI Infra学习之旅-Transformer最核心的计算机制</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">我就是要爬这座山<br>再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">131</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">260</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">23</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#ai-infra-xue-xi-zhi-lu-yong-py-torch-cong-ling-shi-xian-yi-ge-zui-xiao-transformer"><span class="toc-text">AI Infra学习之旅-用PyTorch从零实现一个最小Transformer</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#yi-wei-shi-yao-yao-zi-ji-xie-yi-ge-zui-xiao-transformer"><span class="toc-text">一、为什么要自己写一个最小 Transformer</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#jie-duan-yi-zhi-hui-kan-jie-gou-tu"><span class="toc-text">阶段一：只会看结构图</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#jie-duan-er-kai-shi-kan-yuan-ma"><span class="toc-text">阶段二：开始看源码</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#er-zhe-yi-pian-wo-men-yao-shi-xian-shi-yao"><span class="toc-text">二、这一篇我们要实现什么</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#san-wo-men-ke-yi-bu-zuo-na-xie-fu-za-gong-cheng"><span class="toc-text">三、我们刻意不做哪些复杂工程</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#bu-zhan-kai-de-nei-rong-bao-gua"><span class="toc-text">不展开的内容包括</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#si-xian-gei-ni-zui-zhong-wan-zheng-dai-ma"><span class="toc-text">四、先给你最终完整代码</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#wu-xian-cong-zheng-ti-kan-dai-ma-jie-gou"><span class="toc-text">五、先从整体看代码结构</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#liu-embedding-zai-dai-ma-li-dao-di-zen-yao-ti-xian"><span class="toc-text">六、Embedding 在代码里到底怎么体现</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#qi-multi-head-self-attention-zai-dai-ma-li-shi-zen-yao-luo-di-de"><span class="toc-text">七、Multi-Head Self-Attention 在代码里是怎么落地的</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#ba-attention-score-he-causal-mask-zai-dai-ma-li-zen-yao-dui-ying-gong-shi"><span class="toc-text">八、Attention score 和 causal mask 在代码里怎么对应公式</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#jiu-value-ju-he-he-shu-chu-tou-ying-zai-dai-ma-li-zen-yao-ti-xian"><span class="toc-text">九、Value 聚合和输出投影在代码里怎么体现</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-ffn-zai-dai-ma-li-zen-yao-dui-ying-qian-mian-de-shu-xue-jiang-jie"><span class="toc-text">十、FFN 在代码里怎么对应前面的数学讲解</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-yi-wei-shi-yao-block-yong-de-shi-pre-ln"><span class="toc-text">十一、为什么 block 用的是 Pre-LN</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-er-code-mini-transformer-lm-code-zhe-yi-ceng-ke-zi-dao-di-zuo-liao-shi-yao"><span class="toc-text">十二、MiniTransformerLM 这一层壳子到底做了什么</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-chu-li-shu-ru"><span class="toc-text">1. 处理输入</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-tong-guo-duo-ceng-block-zuo-shen-ceng-jia-gong"><span class="toc-text">2. 通过多层 block 做深层加工</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-shu-chu-logits"><span class="toc-text">3. 输出 logits</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-san-wei-shi-yao-zhe-li-yong-liao-quan-zhong-gong-xiang"><span class="toc-text">十三、为什么这里用了权重共享</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-si-xun-lian-shi-forward-he-loss-shi-zen-yao-dui-ying-qian-mian-li-lun-de"><span class="toc-text">十四、训练时 forward 和 loss 是怎么对应前面理论的</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-wu-wei-shi-yao-code-generate-code-zhe-yao-xie-gang-hao-dui-ying-qian-mian-jiang-guo-de-tui-li-ben-zhi"><span class="toc-text">十五、为什么 generate() 这么写，刚好对应前面讲过的推理本质</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-liu-zhe-fen-zui-xiao-shi-xian-he-zhen-shi-da-mo-xing-shi-xian-xiang-bi-que-liao-shi-yao"><span class="toc-text">十六、这份最小实现和真实大模型实现相比，缺了什么</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#jie-gou-ceng"><span class="toc-text">结构层</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#tui-li-ceng"><span class="toc-text">推理层</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#xi-tong-ceng"><span class="toc-text">系统层</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-qi-ni-xian-zai-ying-gai-ru-he-shi-yong-zhe-fen-dai-ma"><span class="toc-text">十七、你现在应该如何使用这份代码</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-gai-xiao-mo-xing-chi-cun-da-yin-mei-ceng-shape"><span class="toc-text">1. 改小模型尺寸，打印每层 shape</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-qu-diao-multi-head-zhi-bao-liu-dan-tou"><span class="toc-text">2. 去掉 Multi-Head，只保留单头</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-ba-gelu-huan-cheng-re-lu"><span class="toc-text">3. 把 GELU 换成 ReLU</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-ba-ke-xue-xi-wei-zhi-embedding-huan-cheng-sinusoidal-position-encoding"><span class="toc-text">4. 把可学习位置 embedding 换成 sinusoidal position encoding</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-gei-code-generate-code-jia-kv-cache"><span class="toc-text">5. 给 generate() 加 KV Cache</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-ba-cong-zhe-pian-dai-ma-li-ni-ying-gai-zhen-zheng-xue-dao-de-bu-shi-hui-chao-shi-xian-er-shi-hui-dui-jie-gou-zuo-ying-she"><span class="toc-text">十八、从这篇代码里，你应该真正学到的不是“会抄实现”，而是“会对结构做映射”</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shi-jiu-ben-pian-zhen-zheng-yao-ji-zhu-de-wu-tiao-zhu-xian"><span class="toc-text">十九、本篇真正要记住的五条主线</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#di-yi-tiao-zui-xiao-transformer-dai-ma-gu-jia"><span class="toc-text">第一条：最小 Transformer 代码骨架</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#di-er-tiao-dai-ma-he-shu-xue-gong-shi-shi-yi-yi-dui-ying-de"><span class="toc-text">第二条：代码和数学公式是一一对应的</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#di-san-tiao-block-de-zu-zhi-fang-shi"><span class="toc-text">第三条：block 的组织方式</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#di-si-tiao-xun-lian-dui-ying-teacher-forcing"><span class="toc-text">第四条：训练对应 Teacher Forcing</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#di-wu-tiao-po-su-generate-hui-bao-lu-tui-li-de-zhen-zheng-ping-jing"><span class="toc-text">第五条：朴素 generate() 会暴露推理的真正瓶颈</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#er-shi-yong-yi-ju-hua-ya-suo-ben-pian"><span class="toc-text">二十、用一句话压缩本篇</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#er-shi-yi-xia-yi-pian-zui-zi-ran-de-xian-jie"><span class="toc-text">二十一、下一篇最自然的衔接</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#cong-jing-dian-transformer-dao-xian-dai-da-mo-xing-bian-ti-ro-pe-rms-norm-gqa-mqa-swi-glu-yu-mo-e"><span class="toc-text">从经典 Transformer 到现代大模型变体：RoPE、RMSNorm、GQA&#x2F;MQA、SwiGLU 与 MoE</span></a></li></ol></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/3494b8a4/" title="AI Infra学习之旅-RoPE、RMSNorm、GQA与MQA、SwiGLU与MoE"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="AI Infra学习之旅-RoPE、RMSNorm、GQA与MQA、SwiGLU与MoE"/></a><div class="content"><a class="title" href="/posts/3494b8a4/" title="AI Infra学习之旅-RoPE、RMSNorm、GQA与MQA、SwiGLU与MoE">AI Infra学习之旅-RoPE、RMSNorm、GQA与MQA、SwiGLU与MoE</a><time datetime="2026-03-27T07:37:11.000Z" title="发表于 2026-03-27 15:37:11">2026-03-27</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/2e5c7532/" title="AI Infra学习之旅-用PyTorch从零实现一个最小Transformer"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="AI Infra学习之旅-用PyTorch从零实现一个最小Transformer"/></a><div class="content"><a class="title" href="/posts/2e5c7532/" title="AI Infra学习之旅-用PyTorch从零实现一个最小Transformer">AI Infra学习之旅-用PyTorch从零实现一个最小Transformer</a><time datetime="2026-03-27T07:29:44.000Z" title="发表于 2026-03-27 15:29:44">2026-03-27</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/2862894b/" title="AI Infra学习之旅-手算一个完整TransformerBlock"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="AI Infra学习之旅-手算一个完整TransformerBlock"/></a><div class="content"><a class="title" href="/posts/2862894b/" title="AI Infra学习之旅-手算一个完整TransformerBlock">AI Infra学习之旅-手算一个完整TransformerBlock</a><time datetime="2026-03-27T06:41:34.000Z" title="发表于 2026-03-27 14:41:34">2026-03-27</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">从 Self-Attention、位置编码到 Encoder-Decoder，系统梳理 Transformer 的核心结构、设计动机与理解路径</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/d6fa227a/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-16</span><a class="blog-slider__title" href="posts/d6fa227a/" alt="">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</a><div class="blog-slider__text">从访存优化到多卡通信，一篇看清 CUDA 实践系列的结构与学习路线</div><a class="blog-slider__button" href="posts/d6fa227a/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/43c4b52e/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/agent.webp" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-24</span><a class="blog-slider__title" href="posts/43c4b52e/" alt="">从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路</a><div class="blog-slider__text">使用飞书与本地 Agent 对话，远程也要让本地 Agent 干活，当一名狠狠的资本家</div><a class="blog-slider__button" href="posts/43c4b52e/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/92dc1028/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/CUDA_C.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-02-05</span><a class="blog-slider__title" href="posts/92dc1028/" alt="">CUDA C编程权威指南-导读</a><div class="blog-slider__text">从异构并行到多 GPU 实践，串起 CUDA C 权威指南的核心学习路线</div><a class="blog-slider__button" href="posts/92dc1028/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">从全书视角出发，一篇看清 PMPP 的章节结构、核心主题与学习主线</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/aac6e27d/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Computer_System.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/aac6e27d/" alt="">深入理解计算机系统知识点总结</a><div class="blog-slider__text">从程序员视角梳理 CSAPP 的知识脉络、系统抽象与性能理解</div><a class="blog-slider__button" href="posts/aac6e27d/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">围绕类型推导、移动语义与并发，提炼现代 C++ 的核心实践</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>
