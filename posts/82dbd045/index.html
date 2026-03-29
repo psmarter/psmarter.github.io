@@ -1,0 +1,717 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>PyTorch推理工程：04 CUDA、设备迁移、显存与同步 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="PyTorch 推理工程（04）：CUDA、设备迁移、显存与同步 1. 本节定位 在前文基础上，张量与模型已具备正确的 dtype、设备与推理模式设置；本节讨论设备语义之上的工程问题：主机与设备之间的数据路径、显存占用与峰值、异步执行与同步点对计时的影响，以及上述因素与端到端延迟、吞吐之间的常见对应关系。  2. 设备与参与计算的张量 参与 CUDA 计算时，相关张量与参数须位于同一 CUDA 设">
+<meta property="og:type" content="article">
+<meta property="og:title" content="PyTorch推理工程：04 CUDA、设备迁移、显存与同步">
+<meta property="og:url" content="https://smarter.xin/posts/82dbd045/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="PyTorch 推理工程（04）：CUDA、设备迁移、显存与同步 1. 本节定位 在前文基础上，张量与模型已具备正确的 dtype、设备与推理模式设置；本节讨论设备语义之上的工程问题：主机与设备之间的数据路径、显存占用与峰值、异步执行与同步点对计时的影响，以及上述因素与端到端延迟、吞吐之间的常见对应关系。  2. 设备与参与计算的张量 参与 CUDA 计算时，相关张量与参数须位于同一 CUDA 设">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/pytorch.avif">
+<meta property="article:published_time" content="2026-03-29T05:00:00.000Z">
+<meta property="article:modified_time" content="2026-03-29T11:38:27.486Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="GPU">
+<meta property="article:tag" content="Python">
+<meta property="article:tag" content="CUDA">
+<meta property="article:tag" content="性能优化">
+<meta property="article:tag" content="PyTorch">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/pytorch.avif"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "PyTorch推理工程：04 CUDA、设备迁移、显存与同步",
+  "url": "https://smarter.xin/posts/82dbd045/",
+  "image": "https://smarter.xin/img/pytorch.avif",
+  "datePublished": "2026-03-29T05:00:00.000Z",
+  "dateModified": "2026-03-29T11:38:27.486Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/82dbd045/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'PyTorch推理工程：04 CUDA、设备迁移、显存与同步',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">142</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">264</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">25</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/pytorch.avif);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">PyTorch推理工程：04 CUDA、设备迁移、显存与同步</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">PyTorch推理工程：04 CUDA、设备迁移、显存与同步</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-03-29T05:00:00.000Z" title="发表于 2026-03-29 13:00:00">2026-03-29</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-03-29T11:38:27.486Z" title="更新于 2026-03-29 19:38:27">2026-03-29</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/">AI Infra</a><i class="fas fa-angle-right post-meta-separator"></i><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/pytorch/">Pytorch</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">5.2k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>19分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="py-torch-tui-li-gong-cheng-04-cuda-she-bei-qian-yi-xian-cun-yu-tong-bu" tabindex="-1">PyTorch 推理工程（04）：CUDA、设备迁移、显存与同步</h1>
+<h2 id="1-ben-jie-ding-wei" tabindex="-1" id="1-本节定位">1. 本节定位</h2>
+<p>在前文基础上，张量与模型已具备正确的 dtype、设备与推理模式设置；本节讨论设备语义之上的工程问题：主机与设备之间的数据路径、显存占用与峰值、异步执行与同步点对计时的影响，以及上述因素与端到端延迟、吞吐之间的常见对应关系。</p>
+<hr>
+<h2 id="2-she-bei-yu-can-yu-ji-suan-de-zhang-liang" tabindex="-1" id="2-设备与参与计算的张量">2. 设备与参与计算的张量</h2>
+<p>参与 CUDA 计算时，相关张量与参数须位于同一 CUDA 设备；PyTorch 不会在二元运算中隐式插入跨设备拷贝，设备不一致将直接报错。即便张量均在 GPU 上，仍须单独评估 H2D/D2H 拷贝、显存分配与同步对性能与测量结果的影响。</p>
+<hr>
+<h2 id="3-dian-xing-tui-li-shu-ju-lu-jing" tabindex="-1" id="3-典型推理数据路径">3. 典型推理数据路径</h2>
+<p>一次完整的推理，数据是这样流动的：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">磁盘 / 网络</span><br><span class="line">    ↓ 解码/tokenize</span><br><span class="line">CPU 内存（RAM）</span><br><span class="line">    ↓ CPU→GPU 拷贝（这里有成本！）</span><br><span class="line">GPU 显存（VRAM）</span><br><span class="line">    ↓ GPU 算子执行</span><br><span class="line">GPU 显存（输出）</span><br><span class="line">    ↓ 如果需要取结果，GPU→CPU 拷贝（这里也有成本！）</span><br><span class="line">CPU 内存</span><br></pre></td></tr></table></figure>
+<p>端到端延迟不仅包含 GPU 内核执行，还包括主机—设备传输与必要的同步点；若传输或同步占比高，仅优化算子难以降低 wall-clock 时间。</p>
+<hr>
+<h2 id="4-biao-zhun-de-she-bei-qian-yi-xie-fa" tabindex="-1" id="4-标准的设备迁移写法">4. 标准的设备迁移写法</h2>
+<h3 id="mo-xing-qian-yi-zhi-zuo-yi-ci" tabindex="-1" id="模型迁移（只做一次）">模型迁移（只做一次）</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">device = <span class="string">&quot;cuda&quot;</span> <span class="keyword">if</span> torch.cuda.is_available() <span class="keyword">else</span> <span class="string">&quot;cpu&quot;</span></span><br><span class="line"></span><br><span class="line">model = model.to(device)   <span class="comment"># 把模型的所有参数和 buffer 递归搬到 GPU</span></span><br><span class="line">model.<span class="built_in">eval</span>()</span><br></pre></td></tr></table></figure>
+<p>模型参数是固定的，不需要每次推理都搬，<strong>初始化时搬一次就够了</strong>。</p>
+<h3 id="shu-ru-qian-yi-mei-ci-tui-li-qian" tabindex="-1" id="输入迁移（每次推理前）">输入迁移（每次推理前）</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">x = x.to(device)   <span class="comment"># 把这次的输入搬到 GPU</span></span><br></pre></td></tr></table></figure>
+<p>输入每次都不同，所以每次都要搬。</p>
+<h3 id="wan-zheng-biao-zhun-tui-li-jie-gou" tabindex="-1" id="完整标准推理结构">完整标准推理结构</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">device = <span class="string">&quot;cuda&quot;</span> <span class="keyword">if</span> torch.cuda.is_available() <span class="keyword">else</span> <span class="string">&quot;cpu&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 初始化时：一次性搬模型</span></span><br><span class="line">model = model.to(device)</span><br><span class="line">model.<span class="built_in">eval</span>()</span><br><span class="line"></span><br><span class="line"><span class="comment"># 每次推理时：搬输入，然后跑</span></span><br><span class="line"><span class="keyword">with</span> torch.inference_mode():</span><br><span class="line">    x = x.to(device)</span><br><span class="line">    y = model(x)</span><br></pre></td></tr></table></figure>
+<hr>
+<h2 id="5-zui-chang-jian-de-she-bei-bao-cuo" tabindex="-1" id="5-最常见的设备报错">5. 最常见的设备报错</h2>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">RuntimeError: Expected all tensors to be on the same device, but found at least two devices, cuda:0 and cpu!</span><br></pre></td></tr></table></figure>
+<p>这个报错的三种典型来源：</p>
+<h3 id="lai-yuan-1-shu-ru-wang-liao-ban-dao-gpu" tabindex="-1" id="来源-1：输入忘了搬到-GPU">来源 1：输入忘了搬到 GPU</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">model = model.to(<span class="string">&quot;cuda&quot;</span>)</span><br><span class="line">x = torch.randn(<span class="number">4</span>, <span class="number">128</span>)   <span class="comment"># ← 还在 CPU</span></span><br><span class="line">y = model(x)               <span class="comment"># 反例: 报错</span></span><br></pre></td></tr></table></figure>
+<p>修正：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">x = x.to(<span class="string">&quot;cuda&quot;</span>)</span><br><span class="line">y = model(x)               <span class="comment"># 设备一致时可运行</span></span><br></pre></td></tr></table></figure>
+<h3 id="lai-yuan-2-transformer-tui-li-zhong-mask-huo-position-ids-wang-liao-ban" tabindex="-1" id="来源-2：Transformer-推理中-mask-或-position-ids-忘了搬">来源 2：Transformer 推理中 mask 或 position_ids 忘了搬</h3>
+<p>这在 LLM 推理里非常常见：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">input_ids = tokenizer.encode(text, return_tensors=<span class="string">&quot;pt&quot;</span>)   <span class="comment"># CPU</span></span><br><span class="line">attention_mask = (input_ids != <span class="number">0</span>)                          <span class="comment"># CPU</span></span><br><span class="line"></span><br><span class="line">input_ids = input_ids.to(<span class="string">&quot;cuda&quot;</span>)</span><br><span class="line"><span class="comment"># 忘了 attention_mask.to(&quot;cuda&quot;)</span></span><br><span class="line"></span><br><span class="line">output = model(input_ids, attention_mask=attention_mask)   <span class="comment"># 反例: 报错</span></span><br></pre></td></tr></table></figure>
+<p><strong>检查项</strong>：<code>forward()</code> 参与运算的张量须与参数处于同一 <code>device</code>。</p>
+<h3 id="lai-yuan-3-code-forward-code-li-xin-jian-tensor-mei-zhi-ding-device" tabindex="-1" id="来源-3：forward-里新建-Tensor-没指定-device">来源 3：<code>forward()</code> 里新建 Tensor 没指定 device</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">def</span> <span class="title function_">forward</span>(<span class="params">self, x</span>):</span><br><span class="line">    mask = torch.ones(x.shape[<span class="number">0</span>], x.shape[<span class="number">1</span>])   <span class="comment"># 反例: 默认建在 CPU</span></span><br><span class="line">    <span class="keyword">return</span> x + mask   <span class="comment"># 如果 x 在 GPU，就报错</span></span><br></pre></td></tr></table></figure>
+<p>正确写法：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">def</span> <span class="title function_">forward</span>(<span class="params">self, x</span>):</span><br><span class="line">    <span class="comment"># 方式 1：显式指定 device</span></span><br><span class="line">    mask = torch.ones(x.shape[<span class="number">0</span>], x.shape[<span class="number">1</span>], device=x.device)</span><br><span class="line"></span><br><span class="line">    <span class="comment"># 方式 2：用 ones_like，自动继承 device 和 dtype</span></span><br><span class="line">    mask = torch.ones_like(x)</span><br></pre></td></tr></table></figure>
+<blockquote>
+<p>在 <code>forward()</code> 里新建任何 Tensor，都要显式指定 <code>device=x.device</code>，或用 <code>*_like</code> 系列函数，这是写推理代码的基本习惯。</p>
+</blockquote>
+<hr>
+<h2 id="6-cpu-gpu-shu-ju-chuan-shu-tui-li-li-chang-bei-di-gu-de-ping-jing" tabindex="-1" id="6-CPU→GPU-数据传输：推理里常被低估的瓶颈">6. CPU→GPU 数据传输：推理里常被低估的瓶颈</h2>
+<h3 id="chuan-shu-you-zhen-shi-cheng-ben" tabindex="-1" id="传输有真实成本">传输有真实成本</h3>
+<p><code>.to(&quot;cuda&quot;)</code> 不是&quot;一个赋值&quot;，它背后是一次真实的<strong>数据从主存拷贝到显存</strong>的操作。</p>
+<p>代价有多大？粗略感受：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">PCIe 传输带宽（CPU→GPU）：约 10~30 GB/s（取决于 PCIe 代）</span><br><span class="line">GPU 显存带宽（GPU 内部）：约 500~3000 GB/s（取决于 GPU 型号）</span><br></pre></td></tr></table></figure>
+<p>也就是说，CPU→GPU 的传输比 GPU 内部操作慢 10~100 倍。</p>
+<p>当单次推理需搬运的数据量较大且传输时间超过计算时间时，设备侧易处于等待数据状态，表现为 GPU 利用率偏低与整体延迟升高。</p>
+<h3 id="ban-yun-pin-lu-hen-zhong-yao" tabindex="-1" id="搬运频率很重要">搬运频率很重要</h3>
+<p><strong>不推荐</strong>：每次迭代重复 <code>model.to(&quot;cuda&quot;)</code>，徒增开销。</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 每次推理都重新搬模型</span></span><br><span class="line"><span class="keyword">for</span> x <span class="keyword">in</span> dataloader:</span><br><span class="line">    model = model.to(<span class="string">&quot;cuda&quot;</span>)   <span class="comment"># 多余！每次都搬</span></span><br><span class="line">    y = model(x.to(<span class="string">&quot;cuda&quot;</span>))</span><br></pre></td></tr></table></figure>
+<p><strong>推荐</strong>：模型初始化阶段迁移一次，循环内仅迁移输入。</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 模型只搬一次</span></span><br><span class="line">model = model.to(<span class="string">&quot;cuda&quot;</span>)</span><br><span class="line">model.<span class="built_in">eval</span>()</span><br><span class="line"></span><br><span class="line"><span class="comment"># 每次只搬输入</span></span><br><span class="line"><span class="keyword">with</span> torch.inference_mode():</span><br><span class="line">    <span class="keyword">for</span> x <span class="keyword">in</span> dataloader:</span><br><span class="line">        y = model(x.to(<span class="string">&quot;cuda&quot;</span>))</span><br></pre></td></tr></table></figure>
+<hr>
+<h2 id="7-gpu-de-zhi-xing-fang-shi-li-jie-tong-bu-yu-yi-bu" tabindex="-1" id="7-GPU-的执行方式：理解同步与异步">7. GPU 的执行方式：理解同步与异步</h2>
+<h3 id="yi-bu-zhi-xing-yu-tong-bu-dian" tabindex="-1" id="异步执行与同步点">异步执行与同步点</h3>
+<p>主机与设备各自维护执行队列。在 Python 中调用将工作提交给 GPU 的 API 时，主机往往在命令入队后即返回，内核实际完成时间晚于该返回时刻。</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">y = model(x)</span><br></pre></td></tr></table></figure>
+<p>上述语句在主机侧通常仅表示调度完成；若紧接着依赖 <code>y</code> 的数值（如 <code>.item()</code>、<code>.cpu()</code>），运行时将插入同步以等待设备完成先前入队工作。</p>
+<h3 id="tong-bu-dian-synchronization-point" tabindex="-1" id="同步点（Synchronization-Point）">同步点（Synchronization Point）</h3>
+<p>某些操作会让 CPU 停下来，<strong>等 GPU 把之前的所有操作执行完</strong>，这就叫<strong>同步</strong>（synchronize）。</p>
+<p>触发同步的操作会打断这种&quot;CPU 继续跑，GPU 并行跑&quot;的并行流水：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">无显式同步（示意）：</span><br><span class="line">CPU: [入队A] [入队B] [入队C] [其它主机工作] ...</span><br><span class="line">GPU:        [执行A] [执行B] [执行C] ...</span><br><span class="line"></span><br><span class="line">插入同步后：</span><br><span class="line">CPU: [入队A] [等待设备] [入队B] ...</span><br><span class="line">GPU:        [执行A]   ← 主机在此阻塞直至完成</span><br></pre></td></tr></table></figure>
+<hr>
+<h2 id="8-na-xie-cao-zuo-hui-hong-fa-tong-bu" tabindex="-1" id="8-哪些操作会触发同步">8. 哪些操作会触发同步</h2>
+<p>理解了同步的概念，就能理解为什么下面这些操作看起来无害，实际上有代价：</p>
+<h3 id="code-item-code-ba-gpu-biao-liang-qu-hui-cpu" tabindex="-1" id="item-：把-GPU-标量取回-CPU"><code>.item()</code>：把 GPU 标量取回 CPU</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">y = model(x)          <span class="comment"># 异步发出计算指令</span></span><br><span class="line">loss = y.<span class="built_in">sum</span>().item() <span class="comment"># ← 触发同步！CPU 必须等 GPU 算完才能拿到这个数</span></span><br></pre></td></tr></table></figure>
+<p><code>.item()</code> 返回一个 Python 数字，CPU 必须等 GPU 把 <code>sum()</code> 算完才能拿到值，必然同步。</p>
+<h3 id="guo-zao-code-cpu-code-huo-code-numpy-code" tabindex="-1" id="过早-cpu-或-numpy">过早 <code>.cpu()</code> 或 <code>.numpy()</code></h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">y = model(x)</span><br><span class="line">y_cpu = y.cpu()   <span class="comment"># ← 触发同步，等 GPU 算完再拷到 CPU</span></span><br><span class="line">y_np = y.numpy()  <span class="comment"># ← 同上</span></span><br></pre></td></tr></table></figure>
+<p>如果后续还要在 GPU 上继续处理 <code>y</code>，过早拉回 CPU 再推回去是多余开销。</p>
+<h3 id="yong-cpu-shi-jian-chuo-ce-gpu-hao-shi-de-dao-de-shi-cuo-wu-jie-guo" tabindex="-1" id="用-CPU-时间戳测-GPU-耗时：得到的是错误结果">用 CPU 时间戳测 GPU 耗时：得到的是错误结果</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> time</span><br><span class="line"></span><br><span class="line">start = time.time()</span><br><span class="line">y = model(x)          <span class="comment"># CPU 发完指令就返回了，GPU 还在算</span></span><br><span class="line">end = time.time()</span><br><span class="line"><span class="built_in">print</span>(end - start)    <span class="comment"># ← 测到的是&quot;发指令&quot;的时间，不是 GPU 实际执行时间</span></span><br></pre></td></tr></table></figure>
+<p>这个时间几乎没有参考价值。</p>
+<p><strong>正确的 CUDA 计时方式</strong>是用 CUDA Events，或者用 <code>torch.cuda.synchronize()</code> 强制同步后再计时（但这会影响实际流水，只适合调试）：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> time</span><br><span class="line"></span><br><span class="line">torch.cuda.synchronize()   <span class="comment"># 等 GPU 完成之前所有操作</span></span><br><span class="line">start = time.time()</span><br><span class="line"></span><br><span class="line">y = model(x)</span><br><span class="line"></span><br><span class="line">torch.cuda.synchronize()   <span class="comment"># 等 GPU 完成这次推理</span></span><br><span class="line">end = time.time()</span><br><span class="line"><span class="built_in">print</span>(<span class="string">f&quot;GPU 推理耗时：<span class="subst">&#123;(end - start) * <span class="number">1000</span>:<span class="number">.2</span>f&#125;</span> ms&quot;</span>)</span><br></pre></td></tr></table></figure>
+<hr>
+<h2 id="9-code-non-blocking-true-code-rang-shu-ju-ban-yun-he-ji-suan-zhong-die" tabindex="-1" id="9-non-blocking-True：让数据搬运和计算重叠">9. <code>non_blocking=True</code>：让数据搬运和计算重叠</h2>
+<p>理解了 CPU-GPU 异步执行，现在可以理解这个参数：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">x = x.to(<span class="string">&quot;cuda&quot;</span>, non_blocking=<span class="literal">True</span>)</span><br></pre></td></tr></table></figure>
+<h3 id="mo-ren-de-tong-bu-ban-yun" tabindex="-1" id="默认的同步搬运">默认的同步搬运</h3>
+<p>不加 <code>non_blocking=True</code> 时，<code>.to(&quot;cuda&quot;)</code> 是同步的：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">CPU: [开始搬数据] ← 等待 → [搬完了] [做其他事]</span><br><span class="line">GPU: ...                            [收到数据]</span><br></pre></td></tr></table></figure>
+<p>CPU 在等数据搬完，期间什么都不做。</p>
+<h3 id="yi-bu-ban-yun" tabindex="-1" id="异步搬运">异步搬运</h3>
+<p>加了 <code>non_blocking=True</code> 后（在满足条件时）：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">CPU: [发起搬数据] [立刻继续做其他事]</span><br><span class="line">GPU: [接收数据（并行进行）]</span><br></pre></td></tr></table></figure>
+<p>CPU 发出拷贝指令后立刻返回，去处理下一件事，GPU 在后台接收数据。</p>
+<p>这样，<strong>数据搬运和其他 CPU 处理可以重叠</strong>，不会互相等待。</p>
+<h3 id="wei-shi-yao-quot-zai-man-zu-tiao-jian-shi-quot" tabindex="-1" id="为什么-在满足条件时">为什么&quot;在满足条件时&quot;</h3>
+<p><code>non_blocking=True</code> 要发挥作用，<strong>源数据必须在 pinned memory（页锁定内存）中</strong>。下一节解释原因。</p>
+<hr>
+<h2 id="10-pinned-memory-ye-suo-ding-nei-cun-wei-shi-yao-ta-rang-chuan-shu-geng-kuai" tabindex="-1" id="10-pinned-memory（页锁定内存）：为什么它让传输更快">10. pinned memory（页锁定内存）：为什么它让传输更快</h2>
+<h3 id="pu-tong-nei-cun-de-wen-ti" tabindex="-1" id="普通内存的问题">普通内存的问题</h3>
+<p>操作系统为了节省资源，可以把很少使用的内存页&quot;换出&quot;到磁盘（swap），这叫<strong>内存分页</strong>。</p>
+<p>但 GPU 的 DMA（直接内存访问）要求：拷贝期间，源数据的内存地址必须固定不动，不能被操作系统&quot;换出&quot;。</p>
+<p>如果源数据在普通内存里，CUDA 驱动为了确保安全，通常会：</p>
+<ol>
+<li>先在内部分配一块临时的 pinned 内存</li>
+<li>把数据复制到这块临时内存</li>
+<li>再从临时内存拷贝到 GPU</li>
+</ol>
+<p><strong>多了一次额外的 CPU 内存拷贝</strong>。</p>
+<h3 id="pinned-memory-jie-jue-liao-shi-yao" tabindex="-1" id="pinned-memory-解决了什么">pinned memory 解决了什么</h3>
+<p>如果一开始就把数据分配在 pinned memory（页锁定内存，不会被换出）里，CUDA 可以直接从这里拷贝到 GPU，<strong>省掉中间的临时拷贝</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">普通内存路径：CPU RAM → 临时 pinned buffer → GPU VRAM（两次复制）</span><br><span class="line">Pinned 内存路径：pinned RAM → GPU VRAM（一次复制）</span><br></pre></td></tr></table></figure>
+<p>而且 pinned 内存支持 <strong>DMA 直传</strong>（不经过 CPU），可以和 CPU 并行，这才是 <code>non_blocking=True</code> 能真正异步的前提。</p>
+<h3 id="zai-data-loader-li-shi-yong" tabindex="-1" id="在-DataLoader-里使用">在 DataLoader 里使用</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">from</span> torch.utils.data <span class="keyword">import</span> DataLoader, TensorDataset</span><br><span class="line"></span><br><span class="line">dataset = TensorDataset(torch.randn(<span class="number">1024</span>, <span class="number">128</span>))</span><br><span class="line">loader = DataLoader(</span><br><span class="line">    dataset,</span><br><span class="line">    batch_size=<span class="number">64</span>,</span><br><span class="line">    pin_memory=<span class="literal">True</span>    <span class="comment"># ← DataLoader 会把 batch 数据分配在 pinned memory 里</span></span><br><span class="line">)</span><br><span class="line"></span><br><span class="line"><span class="keyword">for</span> (x,) <span class="keyword">in</span> loader:</span><br><span class="line">    x = x.to(<span class="string">&quot;cuda&quot;</span>, non_blocking=<span class="literal">True</span>)   <span class="comment"># ← 现在这个异步拷贝才真正有效</span></span><br><span class="line">    y = model(x)</span><br></pre></td></tr></table></figure>
+<h3 id="pin-memory-bu-shi-mian-fei-de" tabindex="-1" id="pin-memory-不是免费的">pin_memory 不是免费的</h3>
+<ul>
+<li>占用的是页锁定内存，过度使用会增加 RAM 压力</li>
+<li>系统能分配的 pinned 内存有上限</li>
+<li>在小数据、低频率场景，收益可能不明显</li>
+</ul>
+<blockquote>
+<p><strong>工程原则</strong>：<code>pin_memory=True</code> + <code>non_blocking=True</code> 是一对常见优化组合，适合高吞吐推理服务或大 batch 训练。但任何优化都要测量后再决定加不加。</p>
+</blockquote>
+<hr>
+<h2 id="11-xian-cun-guan-li-wei-shi-yao-quot-kan-qi-lai-zong-shi-bu-shi-fang-quot" tabindex="-1" id="11-显存管理：为什么-看起来总是不释放">11. 显存管理：为什么&quot;看起来总是不释放&quot;</h2>
+<h3 id="chu-xue-zhe-chang-jian-kun-huo" tabindex="-1" id="初学者常见困惑">初学者常见困惑</h3>
+<p>常见现象包括：</p>
+<ul>
+<li>某些 Tensor 明明删了（<code>del x</code> 或超出作用域）</li>
+<li>某个 batch 推理完了</li>
+<li>但 <code>nvidia-smi</code> 显示显存还是很高</li>
+</ul>
+<p>就以为发生了&quot;显存泄漏&quot;。</p>
+<h3 id="shi-ji-yuan-yin-cuda-caching-allocator" tabindex="-1" id="实际原因：CUDA-caching-allocator">实际原因：CUDA caching allocator</h3>
+<p>PyTorch 内部有一个<strong>显存缓存分配器（CUDA caching allocator）</strong>。</p>
+<p>缓存分配器可视为在驱动之上的一层显存管理：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">正常 GPU 内存分配流程（没有 caching allocator）：</span><br><span class="line">申请 Tensor → 向 CUDA 驱动要内存 → 用完 → 还给 CUDA 驱动</span><br><span class="line">（频繁的系统调用，开销大）</span><br><span class="line"></span><br><span class="line">PyTorch 的 caching allocator 流程：</span><br><span class="line">申请 Tensor → 先在缓存池里找有没有合适的块 → 有就直接复用</span><br><span class="line">用完 → 不还给 CUDA 驱动，而是放回缓存池等下次复用</span><br><span class="line">（减少系统调用，更高效）</span><br></pre></td></tr></table></figure>
+<p><strong>结果</strong>：Tensor 删除后，显存并没有还给操作系统，而是留在 PyTorch 的缓存池里。从 <code>nvidia-smi</code> 看，显存依然被 PyTorch 进程占着。</p>
+<hr>
+<h2 id="12-code-memory-allocated-code-vs-code-memory-reserved-code" tabindex="-1" id="12-memory-allocated-vs-memory-reserved">12. <code>memory_allocated()</code> vs <code>memory_reserved()</code></h2>
+<p>这是理解显存状态的两个核心指标：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"></span><br><span class="line"><span class="keyword">if</span> torch.cuda.is_available():</span><br><span class="line">    <span class="comment"># 创建一个约 4MB 的 Tensor（1024*1024 个 float32，每个 4 字节）</span></span><br><span class="line">    x = torch.randn(<span class="number">1024</span>, <span class="number">1024</span>, device=<span class="string">&quot;cuda&quot;</span>)</span><br><span class="line"></span><br><span class="line">    <span class="built_in">print</span>(<span class="string">f&quot;allocated: <span class="subst">&#123;torch.cuda.memory_allocated() / <span class="number">1024</span>**<span class="number">2</span>:<span class="number">.1</span>f&#125;</span> MB&quot;</span>)</span><br><span class="line">    <span class="built_in">print</span>(<span class="string">f&quot;reserved:  <span class="subst">&#123;torch.cuda.memory_reserved()  / <span class="number">1024</span>**<span class="number">2</span>:<span class="number">.1</span>f&#125;</span> MB&quot;</span>)</span><br><span class="line"></span><br><span class="line">    <span class="comment"># 输出示例：</span></span><br><span class="line">    <span class="comment"># allocated: 4.0 MB    ← Tensor x 实际占用的显存</span></span><br><span class="line">    <span class="comment"># reserved:  20.0 MB   ← PyTorch 向 CUDA 申请并管理的总块，包含内部对齐和预留</span></span><br><span class="line"></span><br><span class="line">    <span class="keyword">del</span> x   <span class="comment"># 删除 Tensor</span></span><br><span class="line"></span><br><span class="line">    <span class="built_in">print</span>(<span class="string">f&quot;\n删除后:&quot;</span>)</span><br><span class="line">    <span class="built_in">print</span>(<span class="string">f&quot;allocated: <span class="subst">&#123;torch.cuda.memory_allocated() / <span class="number">1024</span>**<span class="number">2</span>:<span class="number">.1</span>f&#125;</span> MB&quot;</span>)</span><br><span class="line">    <span class="built_in">print</span>(<span class="string">f&quot;reserved:  <span class="subst">&#123;torch.cuda.memory_reserved()  / <span class="number">1024</span>**<span class="number">2</span>:<span class="number">.1</span>f&#125;</span> MB&quot;</span>)</span><br><span class="line"></span><br><span class="line">    <span class="comment"># 输出示例：</span></span><br><span class="line">    <span class="comment"># allocated: 0.0 MB    ← x 确实没了</span></span><br><span class="line">    <span class="comment"># reserved:  20.0 MB   ← 但缓存没有还给系统，依然被 PyTorch 持有</span></span><br></pre></td></tr></table></figure>
+<p><strong>两个指标的含义</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>含义</th>
+<th>类比</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>memory_allocated()</code></td>
+<td>当前活跃 Tensor 真正占用的显存</td>
+<td>酒店里实际入住的房间数</td>
+</tr>
+<tr>
+<td><code>memory_reserved()</code></td>
+<td>PyTorch 向 CUDA 申请并管理的总显存</td>
+<td>酒店向业主租下的所有房间数（含空房）</td>
+</tr>
+</tbody>
+</table>
+<p><code>nvidia-smi</code> 看到的更接近 <code>reserved</code>（PyTorch 拿着的总块），不是 <code>allocated</code>（实际用的）。</p>
+<hr>
+<h2 id="13-code-empty-cache-code-neng-zuo-shi-yao-bu-neng-zuo-shi-yao" tabindex="-1" id="13-empty-cache-：能做什么，不能做什么">13. <code>empty_cache()</code>：能做什么，不能做什么</h2>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">torch.cuda.empty_cache()</span><br></pre></td></tr></table></figure>
+<h3 id="neng-zuo-shi-yao" tabindex="-1" id="能做什么">能做什么</h3>
+<p>把 PyTorch 缓存池里<strong>当前未被任何活跃 Tensor 使用的缓存块</strong>还给 CUDA 驱动：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">del</span> x</span><br><span class="line">torch.cuda.empty_cache()</span><br><span class="line"></span><br><span class="line"><span class="built_in">print</span>(<span class="string">f&quot;allocated: <span class="subst">&#123;torch.cuda.memory_allocated() / <span class="number">1024</span>**<span class="number">2</span>:<span class="number">.1</span>f&#125;</span> MB&quot;</span>)   <span class="comment"># 0.0 MB</span></span><br><span class="line"><span class="built_in">print</span>(<span class="string">f&quot;reserved:  <span class="subst">&#123;torch.cuda.memory_reserved()  / <span class="number">1024</span>**<span class="number">2</span>:<span class="number">.1</span>f&#125;</span> MB&quot;</span>)   <span class="comment"># 0.0 MB  ← 降下来了</span></span><br></pre></td></tr></table></figure>
+<h3 id="bu-neng-zuo-shi-yao" tabindex="-1" id="不能做什么">不能做什么</h3>
+<p><strong>不能释放仍被张量引用的显存</strong>。模型权重、KV cache 或未析构中间结果仍存活时，调用 <code>empty_cache()</code> 不会改变其占用：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">model = model.to(<span class="string">&quot;cuda&quot;</span>)         <span class="comment"># 模型在 GPU 上</span></span><br><span class="line">torch.cuda.empty_cache()         <span class="comment"># 没用，模型还在</span></span><br><span class="line"><span class="built_in">print</span>(torch.cuda.memory_allocated())  <span class="comment"># 还是很高</span></span><br></pre></td></tr></table></figure>
+<h3 id="gong-cheng-shang-de-zheng-que-li-jie" tabindex="-1" id="工程上的正确理解">工程上的正确理解</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">显存高的真正原因可能是：</span><br><span class="line">1. 活跃 Tensor 太多（allocted 高）→ 需要减少模型大小、batch size、精度</span><br><span class="line">2. 缓存保留太多（reserved 高但 allocated 低）→ empty_cache() 有效</span><br><span class="line"></span><br><span class="line">若需频繁依赖 `empty_cache()` 缓解 OOM，宜先检查是否存在引用未释放、batch 过大或重复缓存等问题。</span><br></pre></td></tr></table></figure>
+<hr>
+<h2 id="14-wei-shi-yao-quot-yong-liao-gpu-huan-shi-man-quot-xi-tong-xing-pai-cha" tabindex="-1" id="14-为什么-用了-GPU-还是慢-：系统性排查">14. 为什么&quot;用了 GPU 还是慢&quot;：系统性排查</h2>
+<p>这个问题在面试里非常高频，也是 infra 岗和&quot;普通调包选手&quot;的分水岭。</p>
+<p>先看完整的可能瓶颈列表：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">推理延迟的构成：</span><br><span class="line">━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span><br><span class="line">  CPU 预处理（tokenize / resize / normalize）</span><br><span class="line">  + CPU→GPU 数据传输</span><br><span class="line">  + GPU 内核启动延迟（kernel launch overhead）</span><br><span class="line">  + GPU 算子实际执行时间</span><br><span class="line">  + （可能的）GPU→CPU 结果回传</span><br><span class="line">  + Python 控制逻辑</span><br><span class="line">  + 同步等待</span><br><span class="line">━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span><br></pre></td></tr></table></figure>
+<p><strong>GPU 算子执行时间通常只是其中一部分。</strong></p>
+<h3 id="chang-jian-zhen-duan-fang-xiang" tabindex="-1" id="常见诊断方向">常见诊断方向</h3>
+<table>
+<thead>
+<tr>
+<th>现象</th>
+<th>可能原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GPU 利用率很低（&lt;50%）</td>
+<td>数据供给不足（CPU 太慢），或 batch 太小</td>
+</tr>
+<tr>
+<td>CPU 占用接近 100%</td>
+<td>CPU 预处理是瓶颈，或 Python 控制逻辑太重</td>
+</tr>
+<tr>
+<td>每次循环都有少量延迟</td>
+<td>频繁同步（<code>.item()</code>、<code>.cpu()</code>）</td>
+</tr>
+<tr>
+<td>大 batch 和小 batch 速度差不多</td>
+<td>传输开销占主导，GPU 算力没吃满</td>
+</tr>
+<tr>
+<td><code>nvidia-smi</code> 里 GPU 核心利用率低</td>
+<td>可能有大量时间在等数据或同步</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="15-yi-ge-wan-zheng-de-gao-xing-neng-tui-li-dai-ma-jie-gou" tabindex="-1" id="15-一个完整的高性能推理代码结构">15. 一个完整的高性能推理代码结构</h2>
+<p>下面这段代码把这一部分的所有核心概念串起来：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"><span class="keyword">import</span> torch.nn <span class="keyword">as</span> nn</span><br><span class="line"><span class="keyword">from</span> torch.utils.data <span class="keyword">import</span> DataLoader, TensorDataset</span><br><span class="line"></span><br><span class="line"><span class="comment"># ① 选择设备</span></span><br><span class="line">device = <span class="string">&quot;cuda&quot;</span> <span class="keyword">if</span> torch.cuda.is_available() <span class="keyword">else</span> <span class="string">&quot;cpu&quot;</span></span><br><span class="line"><span class="built_in">print</span>(<span class="string">f&quot;使用设备: <span class="subst">&#123;device&#125;</span>&quot;</span>)</span><br><span class="line"></span><br><span class="line"><span class="comment"># ② 构造数据集（模拟真实数据）</span></span><br><span class="line">dataset = TensorDataset(torch.randn(<span class="number">1024</span>, <span class="number">128</span>))</span><br><span class="line"></span><br><span class="line"><span class="comment"># ③ DataLoader：pin_memory 让传输更高效</span></span><br><span class="line">loader = DataLoader(</span><br><span class="line">    dataset,</span><br><span class="line">    batch_size=<span class="number">64</span>,</span><br><span class="line">    pin_memory=<span class="literal">True</span>,   <span class="comment"># 数据分配在 pinned memory，加速 CPU→GPU 传输</span></span><br><span class="line">    num_workers=<span class="number">2</span>      <span class="comment"># 用多个工作进程并行预处理数据</span></span><br><span class="line">)</span><br><span class="line"></span><br><span class="line"><span class="comment"># ④ 模型：只搬一次</span></span><br><span class="line">model = nn.Sequential(</span><br><span class="line">    nn.Linear(<span class="number">128</span>, <span class="number">256</span>),</span><br><span class="line">    nn.ReLU(),</span><br><span class="line">    nn.Linear(<span class="number">256</span>, <span class="number">10</span>)</span><br><span class="line">).to(device)</span><br><span class="line"></span><br><span class="line">model.<span class="built_in">eval</span>()</span><br><span class="line"></span><br><span class="line"><span class="comment"># ⑤ 推理循环</span></span><br><span class="line"><span class="keyword">with</span> torch.inference_mode():</span><br><span class="line">    <span class="keyword">for</span> (x,) <span class="keyword">in</span> loader:</span><br><span class="line">        <span class="comment"># non_blocking=True：异步拷贝，CPU 不等 GPU 接收完就继续</span></span><br><span class="line">        x = x.to(device, non_blocking=<span class="literal">True</span>)</span><br><span class="line"></span><br><span class="line">        <span class="comment"># GPU 计算</span></span><br><span class="line">        y = model(x)</span><br><span class="line"></span><br><span class="line">        <span class="comment"># 注意：不要在这里随意 .item() 或 .cpu()</span></span><br><span class="line">        <span class="comment"># 如果必须取值，在循环结束后统一处理</span></span><br></pre></td></tr></table></figure>
+<p><strong>逐行关键点</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>写法</th>
+<th>原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>pin_memory=True</code></td>
+<td>DataLoader 输出的 batch 在 pinned memory，GPU 可以直接 DMA</td>
+</tr>
+<tr>
+<td><code>non_blocking=True</code></td>
+<td>CPU 异步发起拷贝，不阻塞等待 GPU 接收</td>
+</tr>
+<tr>
+<td>模型 <code>.to(device)</code> 只做一次</td>
+<td>参数固定，只需初始化时搬一次</td>
+</tr>
+<tr>
+<td><code>inference_mode()</code> 在循环外</td>
+<td>不需要每次循环重新进入上下文</td>
+</tr>
+<tr>
+<td>不在循环里 <code>.item()</code></td>
+<td>避免每次都触发同步，拉低整体吞吐</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="16-mo-kuai-ji-code-to-code-he-tensor-ji-code-to-code-de-qu-bie" tabindex="-1" id="16-模块级-to-和-Tensor-级-to-的区别">16. 模块级 <code>.to()</code> 和 Tensor 级 <code>.to()</code> 的区别</h2>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># Tensor 级：只迁移这一个 Tensor</span></span><br><span class="line">x = x.to(<span class="string">&quot;cuda&quot;</span>)</span><br><span class="line"></span><br><span class="line"><span class="comment"># Module 级：递归迁移所有参数、buffer、子模块</span></span><br><span class="line">model = model.to(<span class="string">&quot;cuda&quot;</span>)</span><br></pre></td></tr></table></figure>
+<p>也可以同时指定 device 和 dtype：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 把模型搬到 GPU 并转成 float16</span></span><br><span class="line">model = model.to(device=<span class="string">&quot;cuda&quot;</span>, dtype=torch.float16)</span><br><span class="line"></span><br><span class="line"><span class="comment"># 输入也要匹配</span></span><br><span class="line">x = x.to(device=<span class="string">&quot;cuda&quot;</span>, dtype=torch.float16)</span><br></pre></td></tr></table></figure>
+<blockquote>
+<p>device 和 dtype 在推理优化里经常一起考虑。把 float32 改成 float16 不只省显存，在支持半精度的 GPU 上通常也更快。混合精度见下一篇。</p>
+</blockquote>
+<hr>
+<h2 id="17-tui-li-dai-ma-de-keng-yi-zhang-su-cha-biao" tabindex="-1" id="17-推理代码的坑：一张速查表">17. 推理代码的坑：一张速查表</h2>
+<table>
+<thead>
+<tr>
+<th>坑</th>
+<th>错误写法</th>
+<th>正确写法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>forward 里新建 Tensor 用 CPU</td>
+<td><code>torch.ones(n)</code></td>
+<td><code>torch.ones(n, device=x.device)</code></td>
+</tr>
+<tr>
+<td>每次推理都搬模型</td>
+<td><code>model.to(&quot;cuda&quot;)</code> 放在循环里</td>
+<td>只在初始化时搬一次</td>
+</tr>
+<tr>
+<td>循环里频繁 <code>.item()</code></td>
+<td><code>loss = y.sum().item()</code> 在每次循环</td>
+<td>批量处理后统一取值</td>
+</tr>
+<tr>
+<td>过早 <code>.cpu()</code>，后续还要 GPU 操作</td>
+<td>中间结果 <code>.cpu()</code> 再 <code>.cuda()</code></td>
+<td>保持在 GPU 上直到真正需要</td>
+</tr>
+<tr>
+<td>用 CPU 时间戳测 GPU 延迟</td>
+<td><code>time.time()</code> 直接包 <code>model(x)</code></td>
+<td>先 <code>cuda.synchronize()</code>，再计时</td>
+</tr>
+<tr>
+<td>把高 <code>reserved</code> 误判为泄漏</td>
+<td>频繁调 <code>empty_cache()</code></td>
+<td>先查 <code>allocated</code> 再判断</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="18-mian-shi-chang-jian-wen-ti" tabindex="-1" id="18-面试常见问题">18. 面试常见问题</h2>
+<p><strong>Q：为什么参与同一计算的 Tensor 必须在同一 device 上？</strong><br>
+A：PyTorch 不会隐式跨设备协调计算，设备不一致通常直接报错。</p>
+<p><strong>Q：<code>pin_memory=True</code> 和 <code>non_blocking=True</code> 各自的作用是什么？为什么常搭配？</strong><br>
+A：<code>pin_memory=True</code> 让数据分配在页锁定内存，CUDA 可以直接 DMA 传输，省掉中间拷贝；<code>non_blocking=True</code> 让这次传输异步发起，CPU 不等 GPU 接收完就继续。只有源数据在 pinned memory 时，<code>non_blocking</code> 才真正能异步，所以二者常搭配。</p>
+<p><strong>Q：<code>nvidia-smi</code> 看到的显存和 <code>memory_allocated()</code> 为什么不一样？</strong><br>
+A：PyTorch 有 caching allocator，显存不会立刻还给系统，而是留在缓存池复用。<code>memory_allocated()</code> 是活跃 Tensor 的实际占用，<code>memory_reserved()</code> 是 PyTorch 握在手里的总量，<code>nvidia-smi</code> 看到的接近后者。</p>
+<p><strong>Q：<code>empty_cache()</code> 能解决显存不足的问题吗？</strong><br>
+A：不能。它只能把缓存池里没被活跃 Tensor 使用的块还给 CUDA 驱动，不能释放活跃 Tensor。真正显存不足要减小 batch size、模型规模或使用量化。</p>
+<p><strong>Q：为什么 <code>y = model(x)</code> 后紧接着 <code>time.time()</code> 测到的时间不准？</strong><br>
+A：GPU 是异步执行的，<code>.to(&quot;cuda&quot;)</code> 和 <code>model(x)</code> 只是把指令发给 GPU，CPU 立刻返回，GPU 还在执行。<code>time.time()</code> 在 CPU 侧打点，测到的只是&quot;发指令&quot;的时间，不是 GPU 实际执行时间。需要 <code>torch.cuda.synchronize()</code> 后再计时。</p>
+<hr>
+<h2 id="19-si-kao-ti" tabindex="-1" id="19-思考题">19. 思考题</h2>
+<h3 id="lian-xi-1-fu-xian-she-bei-bao-cuo-bing-xiu-fu" tabindex="-1" id="练习-1：复现设备报错并修复">练习 1：复现设备报错并修复</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"><span class="keyword">import</span> torch.nn <span class="keyword">as</span> nn</span><br><span class="line"></span><br><span class="line">model = nn.Linear(<span class="number">4</span>, <span class="number">2</span>)</span><br><span class="line">x = torch.randn(<span class="number">3</span>, <span class="number">4</span>)   <span class="comment"># CPU</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">if</span> torch.cuda.is_available():</span><br><span class="line">    model = model.to(<span class="string">&quot;cuda&quot;</span>)</span><br><span class="line">    <span class="comment"># 直接运行：y = model(x)  ← 观察报错信息</span></span><br><span class="line">    <span class="comment"># 修正：让 x 也到 GPU 上再运行</span></span><br></pre></td></tr></table></figure>
+<blockquote>
+<p>思考：报错信息中如何区分处于 CPU 与 GPU 的张量？</p>
+</blockquote>
+<h3 id="lian-xi-2-forward-li-chuang-jian-tensor-de-keng" tabindex="-1" id="练习-2：forward-里创建-Tensor-的坑">练习 2：forward 里创建 Tensor 的坑</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title class_">BadModule</span>(nn.Module):</span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">forward</span>(<span class="params">self, x</span>):</span><br><span class="line">        mask = torch.ones(x.shape[<span class="number">0</span>])   <span class="comment"># 没有指定 device！</span></span><br><span class="line">        <span class="keyword">return</span> x * mask.unsqueeze(<span class="number">1</span>)    <span class="comment"># 如果 x 在 GPU，这里会报错</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">class</span> <span class="title class_">GoodModule</span>(nn.Module):</span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">forward</span>(<span class="params">self, x</span>):</span><br><span class="line">        mask = torch.ones(x.shape[<span class="number">0</span>], device=x.device)   <span class="comment"># 正确</span></span><br><span class="line">        <span class="keyword">return</span> x * mask.unsqueeze(<span class="number">1</span>)</span><br></pre></td></tr></table></figure>
+<blockquote>
+<p>动手跑：把两个模块都搬到 GPU，分别用 GPU 上的输入测试。观察 <code>BadModule</code> 的报错和 <code>GoodModule</code> 的正常运行。</p>
+</blockquote>
+<h3 id="lian-xi-3-xian-cun-tong-ji-shi-yan-xu-yao-gpu" tabindex="-1" id="练习-3：显存统计实验（需要-GPU）">练习 3：显存统计实验（需要 GPU）</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"></span><br><span class="line"><span class="keyword">if</span> torch.cuda.is_available():</span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">show_mem</span>(<span class="params">label=<span class="string">&quot;&quot;</span></span>):</span><br><span class="line">        <span class="built_in">print</span>(<span class="string">f&quot;<span class="subst">&#123;label&#125;</span>&quot;</span>)</span><br><span class="line">        <span class="built_in">print</span>(<span class="string">f&quot;  allocated: <span class="subst">&#123;torch.cuda.memory_allocated() / <span class="number">1024</span>**<span class="number">2</span>:<span class="number">.1</span>f&#125;</span> MB&quot;</span>)</span><br><span class="line">        <span class="built_in">print</span>(<span class="string">f&quot;  reserved:  <span class="subst">&#123;torch.cuda.memory_reserved()  / <span class="number">1024</span>**<span class="number">2</span>:<span class="number">.1</span>f&#125;</span> MB&quot;</span>)</span><br><span class="line"></span><br><span class="line">    show_mem(<span class="string">&quot;初始状态&quot;</span>)</span><br><span class="line"></span><br><span class="line">    x = torch.randn(<span class="number">1024</span>, <span class="number">1024</span>, device=<span class="string">&quot;cuda&quot;</span>)   <span class="comment"># ~4 MB</span></span><br><span class="line">    show_mem(<span class="string">&quot;创建 x 后&quot;</span>)</span><br><span class="line"></span><br><span class="line">    <span class="keyword">del</span> x</span><br><span class="line">    show_mem(<span class="string">&quot;del x 后&quot;</span>)</span><br><span class="line"></span><br><span class="line">    torch.cuda.empty_cache()</span><br><span class="line">    show_mem(<span class="string">&quot;empty_cache() 后&quot;</span>)</span><br></pre></td></tr></table></figure>
+<blockquote>
+<p>思考：del x 后 allocated 和 reserved 分别怎么变化？empty_cache 后呢？为什么？</p>
+</blockquote>
+<h3 id="lian-xi-4-ce-liang-zhen-zheng-de-gpu-tui-li-shi-jian" tabindex="-1" id="练习-4：测量真正的-GPU-推理时间">练习 4：测量真正的 GPU 推理时间</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"><span class="keyword">import</span> torch.nn <span class="keyword">as</span> nn</span><br><span class="line"><span class="keyword">import</span> time</span><br><span class="line"></span><br><span class="line"><span class="keyword">if</span> torch.cuda.is_available():</span><br><span class="line">    model = nn.Sequential(nn.Linear(<span class="number">512</span>, <span class="number">512</span>), nn.ReLU(), nn.Linear(<span class="number">512</span>, <span class="number">10</span>)).to(<span class="string">&quot;cuda&quot;</span>)</span><br><span class="line">    model.<span class="built_in">eval</span>()</span><br><span class="line">    x = torch.randn(<span class="number">64</span>, <span class="number">512</span>, device=<span class="string">&quot;cuda&quot;</span>)</span><br><span class="line"></span><br><span class="line">    <span class="keyword">with</span> torch.inference_mode():</span><br><span class="line">        <span class="comment"># 先 warm-up（消除第一次的额外开销）</span></span><br><span class="line">        <span class="keyword">for</span> _ <span class="keyword">in</span> <span class="built_in">range</span>(<span class="number">5</span>):</span><br><span class="line">            _ = model(x)</span><br><span class="line"></span><br><span class="line">        <span class="comment"># 错误计时方式</span></span><br><span class="line">        start = time.time()</span><br><span class="line">        y = model(x)</span><br><span class="line">        end = time.time()</span><br><span class="line">        <span class="built_in">print</span>(<span class="string">f&quot;错误方式: <span class="subst">&#123;(end - start) * <span class="number">1000</span>:<span class="number">.3</span>f&#125;</span> ms&quot;</span>)</span><br><span class="line"></span><br><span class="line">        <span class="comment"># 正确计时方式</span></span><br><span class="line">        torch.cuda.synchronize()</span><br><span class="line">        start = time.time()</span><br><span class="line">        y = model(x)</span><br><span class="line">        torch.cuda.synchronize()</span><br><span class="line">        end = time.time()</span><br><span class="line">        <span class="built_in">print</span>(<span class="string">f&quot;正确方式: <span class="subst">&#123;(end - start) * <span class="number">1000</span>:<span class="number">.3</span>f&#125;</span> ms&quot;</span>)</span><br></pre></td></tr></table></figure>
+<blockquote>
+<p>思考：两种计时方式的结果差多少？为什么会有差距？</p>
+</blockquote>
+<h3 id="lian-xi-5-data-loader-tui-li-xun-huan" tabindex="-1" id="练习-5：DataLoader-推理循环">练习 5：DataLoader 推理循环</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"><span class="keyword">import</span> torch.nn <span class="keyword">as</span> nn</span><br><span class="line"><span class="keyword">from</span> torch.utils.data <span class="keyword">import</span> DataLoader, TensorDataset</span><br><span class="line"></span><br><span class="line">device = <span class="string">&quot;cuda&quot;</span> <span class="keyword">if</span> torch.cuda.is_available() <span class="keyword">else</span> <span class="string">&quot;cpu&quot;</span></span><br><span class="line"></span><br><span class="line">dataset = TensorDataset(torch.randn(<span class="number">256</span>, <span class="number">128</span>))</span><br><span class="line">loader = DataLoader(dataset, batch_size=<span class="number">32</span>, pin_memory=(device == <span class="string">&quot;cuda&quot;</span>))</span><br><span class="line"></span><br><span class="line">model = nn.Linear(<span class="number">128</span>, <span class="number">10</span>).to(device)</span><br><span class="line">model.<span class="built_in">eval</span>()</span><br><span class="line"></span><br><span class="line">results = []</span><br><span class="line"><span class="keyword">with</span> torch.inference_mode():</span><br><span class="line">    <span class="keyword">for</span> (x,) <span class="keyword">in</span> loader:</span><br><span class="line">        x = x.to(device, non_blocking=<span class="literal">True</span>)</span><br><span class="line">        y = model(x)</span><br><span class="line">        results.append(y)   <span class="comment"># 不要在这里 .cpu()，先攒着</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 循环结束后统一处理</span></span><br><span class="line">all_outputs = torch.cat(results, dim=<span class="number">0</span>)</span><br><span class="line"><span class="built_in">print</span>(all_outputs.shape)   <span class="comment"># torch.Size([256, 10])</span></span><br></pre></td></tr></table></figure>
+<blockquote>
+<p>思考：为什么在循环里 <code>.cpu()</code> 会拖慢整体速度？循环结束后再统一处理有什么好处？</p>
+</blockquote>
+<hr>
+<h2 id="20-ben-jie-yao-dian-yu-zi-jian" tabindex="-1" id="20-本节要点与自检">20. 本节要点与自检</h2>
+<ul>
+<li>正确管理模型和输入的 device，知道模型只需搬一次</li>
+<li>理解 CPU→GPU 传输是推理性能的一部分，不是免费的</li>
+<li>理解 GPU 异步执行的基本模型，以及什么是同步点</li>
+<li>知道 <code>pin_memory</code> 和 <code>non_blocking</code> 的原理和适用场景</li>
+<li>能区分 <code>memory_allocated()</code> 与 <code>memory_reserved()</code>，知道它们和 <code>nvidia-smi</code> 的关系</li>
+<li>正确理解 <code>empty_cache()</code> 的作用边界</li>
+<li>看到&quot;用了 GPU 还是慢&quot;时，能从多个角度系统排查，而不是只怀疑算子</li>
+</ul>
+<hr>
+<h2 id="21-xiao-jie" tabindex="-1" id="21-小结">21. 小结</h2>
+<blockquote>
+<p><strong>推理性能不只是&quot;模型在 GPU 上跑多快&quot;，而是&quot;数据如何到 GPU、GPU 如何异步执行、显存如何被管理、以及哪些地方偷偷触发了同步等待&quot;。</strong></p>
+</blockquote>
+<hr>
+<h2 id="xi-lie-dao-hang" tabindex="-1" id="系列导航">系列导航</h2>
+<ul>
+<li>上一篇：<a href="/posts/62ab73e1/">PyTorch推理工程：03 train、eval、no_grad 与 inference_mode</a></li>
+<li>下一篇：<a href="/posts/bc5b9a38/">PyTorch推理工程：05 混合精度、AMP 与吞吐、延迟</a></li>
+<li><a href="/posts/846fbbaf/">系列索引（00 导读）</a></li>
+</ul>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/82dbd045/">https://smarter.xin/posts/82dbd045/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/gpu/">GPU</a><a class="post-meta__tags" href="/tags/python/">Python</a><a class="post-meta__tags" href="/tags/cuda/">CUDA</a><a class="post-meta__tags" href="/tags/performance-optimization/">性能优化</a><a class="post-meta__tags" href="/tags/pytorch/">PyTorch</a></div><div class="post-share"><div class="social-share" data-image="/img/pytorch.avif" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/bc5b9a38/" title="PyTorch推理工程：05 混合精度、AMP 与吞吐、延迟"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">PyTorch推理工程：05 混合精度、AMP 与吞吐、延迟</div></div></div></a><a class="pagination-related  no-desc" href="/posts/62ab73e1/" title="PyTorch推理工程：03 train、eval、no_grad 与 inference_mode"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">PyTorch推理工程：03 train、eval、no_grad 与 inference_mode</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/62ab73e1/" title="PyTorch推理工程：03 train、eval、no_grad 与 inference_mode"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-29</div><div class="info-item-2">PyTorch推理工程：03 train、eval、no_grad 与 inference_mode</div></div></div></a><a class="pagination-related no-desc" href="/posts/4cf4f348/" title="PyTorch推理工程：01 Tensor、dtype、device 与推理底层基础"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-29</div><div class="info-item-2">PyTorch推理工程：01 Tensor、dtype、device 与推理底层基础</div></div></div></a><a class="pagination-related no-desc" href="/posts/d53a5f5b/" title="PyTorch推理工程：07 Profiling、Benchmark 与瓶颈定位"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-29</div><div class="info-item-2">PyTorch推理工程：07 Profiling、Benchmark 与瓶颈定位</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">我就是要爬这座山<br>再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">142</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">264</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">25</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#py-torch-tui-li-gong-cheng-04-cuda-she-bei-qian-yi-xian-cun-yu-tong-bu"><span class="toc-text">PyTorch 推理工程（04）：CUDA、设备迁移、显存与同步</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#1-ben-jie-ding-wei"><span class="toc-text">1. 本节定位</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-she-bei-yu-can-yu-ji-suan-de-zhang-liang"><span class="toc-text">2. 设备与参与计算的张量</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#3-dian-xing-tui-li-shu-ju-lu-jing"><span class="toc-text">3. 典型推理数据路径</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#4-biao-zhun-de-she-bei-qian-yi-xie-fa"><span class="toc-text">4. 标准的设备迁移写法</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#mo-xing-qian-yi-zhi-zuo-yi-ci"><span class="toc-text">模型迁移（只做一次）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#shu-ru-qian-yi-mei-ci-tui-li-qian"><span class="toc-text">输入迁移（每次推理前）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#wan-zheng-biao-zhun-tui-li-jie-gou"><span class="toc-text">完整标准推理结构</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#5-zui-chang-jian-de-she-bei-bao-cuo"><span class="toc-text">5. 最常见的设备报错</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#lai-yuan-1-shu-ru-wang-liao-ban-dao-gpu"><span class="toc-text">来源 1：输入忘了搬到 GPU</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#lai-yuan-2-transformer-tui-li-zhong-mask-huo-position-ids-wang-liao-ban"><span class="toc-text">来源 2：Transformer 推理中 mask 或 position_ids 忘了搬</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#lai-yuan-3-code-forward-code-li-xin-jian-tensor-mei-zhi-ding-device"><span class="toc-text">来源 3：forward() 里新建 Tensor 没指定 device</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#6-cpu-gpu-shu-ju-chuan-shu-tui-li-li-chang-bei-di-gu-de-ping-jing"><span class="toc-text">6. CPU→GPU 数据传输：推理里常被低估的瓶颈</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#chuan-shu-you-zhen-shi-cheng-ben"><span class="toc-text">传输有真实成本</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#ban-yun-pin-lu-hen-zhong-yao"><span class="toc-text">搬运频率很重要</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#7-gpu-de-zhi-xing-fang-shi-li-jie-tong-bu-yu-yi-bu"><span class="toc-text">7. GPU 的执行方式：理解同步与异步</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#yi-bu-zhi-xing-yu-tong-bu-dian"><span class="toc-text">异步执行与同步点</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#tong-bu-dian-synchronization-point"><span class="toc-text">同步点（Synchronization Point）</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#8-na-xie-cao-zuo-hui-hong-fa-tong-bu"><span class="toc-text">8. 哪些操作会触发同步</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#code-item-code-ba-gpu-biao-liang-qu-hui-cpu"><span class="toc-text">.item()：把 GPU 标量取回 CPU</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#guo-zao-code-cpu-code-huo-code-numpy-code"><span class="toc-text">过早 .cpu() 或 .numpy()</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#yong-cpu-shi-jian-chuo-ce-gpu-hao-shi-de-dao-de-shi-cuo-wu-jie-guo"><span class="toc-text">用 CPU 时间戳测 GPU 耗时：得到的是错误结果</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#9-code-non-blocking-true-code-rang-shu-ju-ban-yun-he-ji-suan-zhong-die"><span class="toc-text">9. non_blocking&#x3D;True：让数据搬运和计算重叠</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#mo-ren-de-tong-bu-ban-yun"><span class="toc-text">默认的同步搬运</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#yi-bu-ban-yun"><span class="toc-text">异步搬运</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#wei-shi-yao-quot-zai-man-zu-tiao-jian-shi-quot"><span class="toc-text">为什么&quot;在满足条件时&quot;</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#10-pinned-memory-ye-suo-ding-nei-cun-wei-shi-yao-ta-rang-chuan-shu-geng-kuai"><span class="toc-text">10. pinned memory（页锁定内存）：为什么它让传输更快</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#pu-tong-nei-cun-de-wen-ti"><span class="toc-text">普通内存的问题</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#pinned-memory-jie-jue-liao-shi-yao"><span class="toc-text">pinned memory 解决了什么</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#zai-data-loader-li-shi-yong"><span class="toc-text">在 DataLoader 里使用</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#pin-memory-bu-shi-mian-fei-de"><span class="toc-text">pin_memory 不是免费的</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#11-xian-cun-guan-li-wei-shi-yao-quot-kan-qi-lai-zong-shi-bu-shi-fang-quot"><span class="toc-text">11. 显存管理：为什么&quot;看起来总是不释放&quot;</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#chu-xue-zhe-chang-jian-kun-huo"><span class="toc-text">初学者常见困惑</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#shi-ji-yuan-yin-cuda-caching-allocator"><span class="toc-text">实际原因：CUDA caching allocator</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#12-code-memory-allocated-code-vs-code-memory-reserved-code"><span class="toc-text">12. memory_allocated() vs memory_reserved()</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#13-code-empty-cache-code-neng-zuo-shi-yao-bu-neng-zuo-shi-yao"><span class="toc-text">13. empty_cache()：能做什么，不能做什么</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#neng-zuo-shi-yao"><span class="toc-text">能做什么</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#bu-neng-zuo-shi-yao"><span class="toc-text">不能做什么</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#gong-cheng-shang-de-zheng-que-li-jie"><span class="toc-text">工程上的正确理解</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#14-wei-shi-yao-quot-yong-liao-gpu-huan-shi-man-quot-xi-tong-xing-pai-cha"><span class="toc-text">14. 为什么&quot;用了 GPU 还是慢&quot;：系统性排查</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#chang-jian-zhen-duan-fang-xiang"><span class="toc-text">常见诊断方向</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#15-yi-ge-wan-zheng-de-gao-xing-neng-tui-li-dai-ma-jie-gou"><span class="toc-text">15. 一个完整的高性能推理代码结构</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#16-mo-kuai-ji-code-to-code-he-tensor-ji-code-to-code-de-qu-bie"><span class="toc-text">16. 模块级 .to() 和 Tensor 级 .to() 的区别</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#17-tui-li-dai-ma-de-keng-yi-zhang-su-cha-biao"><span class="toc-text">17. 推理代码的坑：一张速查表</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#18-mian-shi-chang-jian-wen-ti"><span class="toc-text">18. 面试常见问题</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#19-si-kao-ti"><span class="toc-text">19. 思考题</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#lian-xi-1-fu-xian-she-bei-bao-cuo-bing-xiu-fu"><span class="toc-text">练习 1：复现设备报错并修复</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#lian-xi-2-forward-li-chuang-jian-tensor-de-keng"><span class="toc-text">练习 2：forward 里创建 Tensor 的坑</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#lian-xi-3-xian-cun-tong-ji-shi-yan-xu-yao-gpu"><span class="toc-text">练习 3：显存统计实验（需要 GPU）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#lian-xi-4-ce-liang-zhen-zheng-de-gpu-tui-li-shi-jian"><span class="toc-text">练习 4：测量真正的 GPU 推理时间</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#lian-xi-5-data-loader-tui-li-xun-huan"><span class="toc-text">练习 5：DataLoader 推理循环</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#20-ben-jie-yao-dian-yu-zi-jian"><span class="toc-text">20. 本节要点与自检</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#21-xiao-jie"><span class="toc-text">21. 小结</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xi-lie-dao-hang"><span class="toc-text">系列导航</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/7ab343d0/" title="PyTorch推理工程：10 里程碑、简历转化与面试表达"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PyTorch推理工程：10 里程碑、简历转化与面试表达"/></a><div class="content"><a class="title" href="/posts/7ab343d0/" title="PyTorch推理工程：10 里程碑、简历转化与面试表达">PyTorch推理工程：10 里程碑、简历转化与面试表达</a><time datetime="2026-03-29T11:00:00.000Z" title="发表于 2026-03-29 19:00:00">2026-03-29</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/432e473/" title="PyTorch推理工程：09 最小可展示推理项目骨架"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PyTorch推理工程：09 最小可展示推理项目骨架"/></a><div class="content"><a class="title" href="/posts/432e473/" title="PyTorch推理工程：09 最小可展示推理项目骨架">PyTorch推理工程：09 最小可展示推理项目骨架</a><time datetime="2026-03-29T10:00:00.000Z" title="发表于 2026-03-29 18:00:00">2026-03-29</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/fb17598c/" title="PyTorch推理工程：08 批处理、KV Cache 与 Serving 视角"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PyTorch推理工程：08 批处理、KV Cache 与 Serving 视角"/></a><div class="content"><a class="title" href="/posts/fb17598c/" title="PyTorch推理工程：08 批处理、KV Cache 与 Serving 视角">PyTorch推理工程：08 批处理、KV Cache 与 Serving 视角</a><time datetime="2026-03-29T09:00:00.000Z" title="发表于 2026-03-29 17:00:00">2026-03-29</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/attentionisallyouneed.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">从 Self-Attention、位置编码到 Encoder-Decoder，系统梳理 Transformer 的核心结构、设计动机与理解路径</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/d6fa227a/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-16</span><a class="blog-slider__title" href="posts/d6fa227a/" alt="">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</a><div class="blog-slider__text">从访存优化到多卡通信，一篇看清 CUDA 实践系列的结构与学习路线</div><a class="blog-slider__button" href="posts/d6fa227a/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/43c4b52e/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/agent.webp" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-24</span><a class="blog-slider__title" href="posts/43c4b52e/" alt="">从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路</a><div class="blog-slider__text">使用飞书与本地 Agent 对话，远程也要让本地 Agent 干活，当一名狠狠的资本家</div><a class="blog-slider__button" href="posts/43c4b52e/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/92dc1028/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/CUDA_C.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-02-05</span><a class="blog-slider__title" href="posts/92dc1028/" alt="">CUDA C编程权威指南-导读</a><div class="blog-slider__text">从异构并行到多 GPU 实践，串起 CUDA C 权威指南的核心学习路线</div><a class="blog-slider__button" href="posts/92dc1028/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">从全书视角出发，一篇看清 PMPP 的章节结构、核心主题与学习主线</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/aac6e27d/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Computer_System.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/aac6e27d/" alt="">深入理解计算机系统知识点总结</a><div class="blog-slider__text">从程序员视角梳理 CSAPP 的知识脉络、系统抽象与性能理解</div><a class="blog-slider__button" href="posts/aac6e27d/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">围绕类型推导、移动语义与并发，提炼现代 C++ 的核心实践</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>

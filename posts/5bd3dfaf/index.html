@@ -1,0 +1,824 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>PyTorch推理工程：02 nn.Module、forward 与 state_dict | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="PyTorch 推理工程（02）：nn.Module、forward 与 state_dict 1. 本节定位 前一篇已说明 Tensor 的 dtype、device、shape 与布局。工程代码中通常不直接堆叠裸算子，而是通过 nn.Module 封装参数、buffer 与前向过程，例如： 123456model &#x3D; MyModel(...)model.load_state_dict(torc">
+<meta property="og:type" content="article">
+<meta property="og:title" content="PyTorch推理工程：02 nn.Module、forward 与 state_dict">
+<meta property="og:url" content="https://smarter.xin/posts/5bd3dfaf/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="PyTorch 推理工程（02）：nn.Module、forward 与 state_dict 1. 本节定位 前一篇已说明 Tensor 的 dtype、device、shape 与布局。工程代码中通常不直接堆叠裸算子，而是通过 nn.Module 封装参数、buffer 与前向过程，例如： 123456model &#x3D; MyModel(...)model.load_state_dict(torc">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/pytorch.avif">
+<meta property="article:published_time" content="2026-03-29T03:00:00.000Z">
+<meta property="article:modified_time" content="2026-03-29T11:38:27.486Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="深度学习">
+<meta property="article:tag" content="模型部署">
+<meta property="article:tag" content="Python">
+<meta property="article:tag" content="PyTorch">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/pytorch.avif"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "PyTorch推理工程：02 nn.Module、forward 与 state_dict",
+  "url": "https://smarter.xin/posts/5bd3dfaf/",
+  "image": "https://smarter.xin/img/pytorch.avif",
+  "datePublished": "2026-03-29T03:00:00.000Z",
+  "dateModified": "2026-03-29T11:38:27.486Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/5bd3dfaf/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'PyTorch推理工程：02 nn.Module、forward 与 state_dict',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">142</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">264</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">25</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/pytorch.avif);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">PyTorch推理工程：02 nn.Module、forward 与 state_dict</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">PyTorch推理工程：02 nn.Module、forward 与 state_dict</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-03-29T03:00:00.000Z" title="发表于 2026-03-29 11:00:00">2026-03-29</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-03-29T11:38:27.486Z" title="更新于 2026-03-29 19:38:27">2026-03-29</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/">AI Infra</a><i class="fas fa-angle-right post-meta-separator"></i><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/pytorch/">Pytorch</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">4.9k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>19分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="py-torch-tui-li-gong-cheng-02-nn-module-forward-yu-state-dict" tabindex="-1">PyTorch 推理工程（02）：nn.Module、forward 与 state_dict</h1>
+<h2 id="1-ben-jie-ding-wei" tabindex="-1" id="1-本节定位">1. 本节定位</h2>
+<p>前一篇已说明 Tensor 的 dtype、device、shape 与布局。工程代码中通常不直接堆叠裸算子，而是通过 <code>nn.Module</code> 封装参数、buffer 与前向过程，例如：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">model = MyModel(...)</span><br><span class="line">model.load_state_dict(torch.load(<span class="string">&quot;weights.pt&quot;</span>))</span><br><span class="line">model.<span class="built_in">eval</span>()</span><br><span class="line"></span><br><span class="line"><span class="keyword">with</span> torch.inference_mode():</span><br><span class="line">    y = model(x)</span><br></pre></td></tr></table></figure>
+<p>阅读与修改推理代码时，一般需要：根据模块结构定位 <code>forward</code> 路径；区分参数与 buffer；正确加载 <code>state_dict</code>；理解 <code>train()</code> / <code>eval()</code> 对子模块行为的影响（与 autograd 开关配合见下一篇）。</p>
+<hr>
+<h2 id="2-shi-yao-shi-code-nn-module-code" tabindex="-1" id="2-什么是-nn-Module">2. 什么是 <code>nn.Module</code></h2>
+<h3 id="ding-yi" tabindex="-1" id="定义">定义</h3>
+<p><code>nn.Module</code> 负责：注册参数与 buffer、实现 <code>forward</code>、提供 <code>to(device)</code>、<code>state_dict</code> / <code>load_state_dict</code> 等设备与序列化接口。可将其理解为带命名层次与生命周期管理的可调用计算单元。</p>
+<p>它能保存：</p>
+<ul>
+<li><strong>参数（Parameter）</strong>：需要学习的权重（比如矩阵 W、偏置 b）</li>
+<li><strong>缓冲区（Buffer）</strong>：影响计算但不需要学习的状态（比如统计量）</li>
+<li><strong>子模块（Submodule）</strong>：其他 <code>nn.Module</code>，可以一层层嵌套</li>
+</ul>
+<hr>
+<h2 id="3-yi-ge-zui-xiao-de-module" tabindex="-1" id="3-一个最小的-Module">3. 一个最小的 Module</h2>
+<p>先看最简单的例子，感受结构：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"><span class="keyword">import</span> torch.nn <span class="keyword">as</span> nn</span><br><span class="line"></span><br><span class="line"><span class="keyword">class</span> <span class="title class_">AddOne</span>(nn.Module):</span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">__init__</span>(<span class="params">self</span>):</span><br><span class="line">        <span class="built_in">super</span>().__init__()     <span class="comment"># 必须调用父类初始化</span></span><br><span class="line"></span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">forward</span>(<span class="params">self, x</span>):</span><br><span class="line">        <span class="keyword">return</span> x + <span class="number">1</span>           <span class="comment"># 定义&quot;输入怎么变成输出&quot;</span></span><br><span class="line"></span><br><span class="line">m = AddOne()</span><br><span class="line">x = torch.tensor([<span class="number">1.0</span>, <span class="number">2.0</span>, <span class="number">3.0</span>])</span><br><span class="line">y = m(x)                       <span class="comment"># 调用模块，会触发 forward()</span></span><br><span class="line"></span><br><span class="line"><span class="built_in">print</span>(y)</span><br><span class="line"><span class="comment"># 输出：tensor([2., 3., 4.])</span></span><br></pre></td></tr></table></figure>
+<p>三个核心规则，记住就行：</p>
+<table>
+<thead>
+<tr>
+<th>规则</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>继承 <code>nn.Module</code></td>
+<td>自定义模块必须这样做</td>
+</tr>
+<tr>
+<td><code>__init__()</code> 里定义状态</td>
+<td>子模块、参数、buffer 都在这里注册</td>
+</tr>
+<tr>
+<td><code>forward()</code> 里定义计算</td>
+<td>输入如何一步步变成输出</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="4-wei-shi-yao-xie-code-model-x-code-er-bu-shi-code-model-forward-x-code" tabindex="-1" id="4-为什么写-model-x-，而不是-model-forward-x">4. 为什么写 <code>model(x)</code>，而不是 <code>model.forward(x)</code></h2>
+<p>这是初学者非常常见的困惑，这里解释清楚。</p>
+<h3 id="zhi-jie-diao-yong-code-forward-code-you-shi-yao-wen-ti" tabindex="-1" id="直接调用-forward-有什么问题">直接调用 <code>forward()</code> 有什么问题</h3>
+<p>调用 <code>model(x)</code> 时实际进入 <code>Module.__call__(x)</code>：其在调用用户实现的 <code>forward()</code> 前后插入钩子与通用逻辑。</p>
+<ul>
+<li>调用注册的 <strong>forward hooks</strong>（比如调试工具、profiler 插件都依赖这个）</li>
+<li>处理 <strong>forward pre-hooks</strong></li>
+<li>处理某些 <strong>梯度追踪相关的状态</strong></li>
+</ul>
+<p>若直接调用 <code>model.forward(x)</code>，上述 <code>__call__</code> 路径与已注册 hook 不会执行；依赖 hook 的工具（如 <code>torch.profiler</code>）可能无法按预期记录。</p>
+<p><strong>结论</strong>：</p>
+<blockquote>
+<p>永远写 <code>model(x)</code>，不要把 <code>model.forward(x)</code> 当成常规写法。</p>
+</blockquote>
+<hr>
+<h2 id="5-dai-can-shu-de-mo-kuai-can-shu-parameter-shi-shi-yao" tabindex="-1" id="5-带参数的模块：参数（Parameter）是什么">5. 带参数的模块：参数（Parameter）是什么</h2>
+<h3 id="xian-kan-yi-ge-you-can-shu-de-mo-kuai" tabindex="-1" id="先看一个有参数的模块">先看一个有参数的模块</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"><span class="keyword">import</span> torch.nn <span class="keyword">as</span> nn</span><br><span class="line"></span><br><span class="line"><span class="keyword">class</span> <span class="title class_">MyLinear</span>(nn.Module):</span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">__init__</span>(<span class="params">self, in_features, out_features</span>):</span><br><span class="line">        <span class="built_in">super</span>().__init__()</span><br><span class="line">        <span class="comment"># 用 nn.Parameter 包裹，这才是&quot;模块参数&quot;</span></span><br><span class="line">        <span class="variable language_">self</span>.weight = nn.Parameter(torch.randn(in_features, out_features))</span><br><span class="line">        <span class="variable language_">self</span>.bias   = nn.Parameter(torch.randn(out_features))</span><br><span class="line"></span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">forward</span>(<span class="params">self, x</span>):</span><br><span class="line">        <span class="keyword">return</span> x @ <span class="variable language_">self</span>.weight + <span class="variable language_">self</span>.bias</span><br><span class="line"></span><br><span class="line">m = MyLinear(<span class="number">4</span>, <span class="number">3</span>)</span><br><span class="line">x = torch.randn(<span class="number">2</span>, <span class="number">4</span>)</span><br><span class="line">y = m(x)</span><br><span class="line"></span><br><span class="line"><span class="built_in">print</span>(y.shape)   <span class="comment"># torch.Size([2, 3])</span></span><br></pre></td></tr></table></figure>
+<h3 id="code-nn-parameter-code-he-pu-tong-tensor-you-shi-yao-qu-bie" tabindex="-1" id="nn-Parameter-和普通-Tensor-有什么区别"><code>nn.Parameter</code> 和普通 Tensor 有什么区别</h3>
+<p>关键区别在于<strong>注册</strong>：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 反例: 这是普通 Tensor，模块不认识它</span></span><br><span class="line"><span class="variable language_">self</span>.weight = torch.randn(<span class="number">4</span>, <span class="number">3</span>)</span><br><span class="line"></span><br><span class="line"><span class="comment"># 示例: 这是模块参数，PyTorch 会自动追踪它</span></span><br><span class="line"><span class="variable language_">self</span>.weight = nn.Parameter(torch.randn(<span class="number">4</span>, <span class="number">3</span>))</span><br></pre></td></tr></table></figure>
+<p>使用 <code>nn.Parameter</code> 包装后，张量被注册为模块参数，因而：</p>
+<ul>
+<li>它会被 <code>model.parameters()</code> 遍历到</li>
+<li>它会出现在 <code>state_dict()</code> 里</li>
+<li>调用 <code>model.to(device)</code> 时会跟着移动</li>
+<li>训练时优化器会更新它</li>
+</ul>
+<h3 id="zen-yao-cha-kan-mo-kuai-you-na-xie-can-shu" tabindex="-1" id="怎么查看模块有哪些参数">怎么查看模块有哪些参数</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">m = MyLinear(<span class="number">4</span>, <span class="number">3</span>)</span><br><span class="line"></span><br><span class="line"><span class="keyword">for</span> name, param <span class="keyword">in</span> m.named_parameters():</span><br><span class="line">    <span class="built_in">print</span>(name, param.shape)</span><br><span class="line"></span><br><span class="line"><span class="comment"># 输出：</span></span><br><span class="line"><span class="comment"># weight torch.Size([4, 3])</span></span><br><span class="line"><span class="comment"># bias   torch.Size([3])</span></span><br></pre></td></tr></table></figure>
+<hr>
+<h2 id="6-zi-mo-kuai-mo-kuai-li-tao-mo-kuai" tabindex="-1" id="6-子模块：模块里套模块">6. 子模块：模块里套模块</h2>
+<p>真实模型几乎不会只有一层。PyTorch 的强大之处在于：<strong>模块可以包含子模块，子模块还可以继续嵌套</strong>。</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"><span class="keyword">import</span> torch.nn <span class="keyword">as</span> nn</span><br><span class="line"></span><br><span class="line"><span class="keyword">class</span> <span class="title class_">MLP</span>(nn.Module):</span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">__init__</span>(<span class="params">self, in_dim, hidden_dim, out_dim</span>):</span><br><span class="line">        <span class="built_in">super</span>().__init__()</span><br><span class="line">        <span class="variable language_">self</span>.fc1 = nn.Linear(in_dim, hidden_dim)    <span class="comment"># 子模块</span></span><br><span class="line">        <span class="variable language_">self</span>.act = nn.ReLU()                         <span class="comment"># 子模块</span></span><br><span class="line">        <span class="variable language_">self</span>.fc2 = nn.Linear(hidden_dim, out_dim)   <span class="comment"># 子模块</span></span><br><span class="line"></span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">forward</span>(<span class="params">self, x</span>):</span><br><span class="line">        x = <span class="variable language_">self</span>.fc1(x)   <span class="comment"># (B, in) → (B, hidden)</span></span><br><span class="line">        x = <span class="variable language_">self</span>.act(x)   <span class="comment"># (B, hidden)，逐元素激活</span></span><br><span class="line">        x = <span class="variable language_">self</span>.fc2(x)   <span class="comment"># (B, hidden) → (B, out)</span></span><br><span class="line">        <span class="keyword">return</span> x</span><br><span class="line"></span><br><span class="line">model = MLP(<span class="number">8</span>, <span class="number">16</span>, <span class="number">4</span>)</span><br><span class="line">x = torch.randn(<span class="number">2</span>, <span class="number">8</span>)</span><br><span class="line">y = model(x)</span><br><span class="line"></span><br><span class="line"><span class="built_in">print</span>(y.shape)   <span class="comment"># torch.Size([2, 4])</span></span><br></pre></td></tr></table></figure>
+<h3 id="bian-li-zi-mo-kuai" tabindex="-1" id="遍历子模块">遍历子模块</h3>
+<p>PyTorch 提供了几个方法来遍历模块树：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 只看直接子模块</span></span><br><span class="line"><span class="keyword">for</span> name, module <span class="keyword">in</span> model.named_children():</span><br><span class="line">    <span class="built_in">print</span>(name, <span class="string">&quot;→&quot;</span>, module)</span><br><span class="line"></span><br><span class="line"><span class="comment"># 输出：</span></span><br><span class="line"><span class="comment"># fc1 → Linear(in_features=8, out_features=16, bias=True)</span></span><br><span class="line"><span class="comment"># act → ReLU()</span></span><br><span class="line"><span class="comment"># fc2 → Linear(in_features=16, out_features=4, bias=True)</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 递归遍历所有模块（包括自身和所有子孙模块）</span></span><br><span class="line"><span class="keyword">for</span> name, module <span class="keyword">in</span> model.named_modules():</span><br><span class="line">    <span class="built_in">print</span>(name <span class="keyword">or</span> <span class="string">&quot;(root)&quot;</span>, <span class="string">&quot;→&quot;</span>, <span class="built_in">type</span>(module).__name__)</span><br><span class="line"></span><br><span class="line"><span class="comment"># 输出：</span></span><br><span class="line"><span class="comment"># (root)  → MLP</span></span><br><span class="line"><span class="comment"># fc1     → Linear</span></span><br><span class="line"><span class="comment"># act     → ReLU</span></span><br><span class="line"><span class="comment"># fc2     → Linear</span></span><br></pre></td></tr></table></figure>
+<h3 id="zi-mo-kuai-de-can-shu-hui-zi-dong-bei-zhui-zong" tabindex="-1" id="子模块的参数会自动被追踪">子模块的参数会自动被追踪</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">for</span> name, param <span class="keyword">in</span> model.named_parameters():</span><br><span class="line">    <span class="built_in">print</span>(name, param.shape)</span><br><span class="line"></span><br><span class="line"><span class="comment"># 输出：</span></span><br><span class="line"><span class="comment"># fc1.weight  torch.Size([16, 8])</span></span><br><span class="line"><span class="comment"># fc1.bias    torch.Size([16])</span></span><br><span class="line"><span class="comment"># fc2.weight  torch.Size([4, 16])</span></span><br><span class="line"><span class="comment"># fc2.bias    torch.Size([4])</span></span><br></pre></td></tr></table></figure>
+<p>键名格式为 <code>子模块名.参数名</code>，即与模块层次一致的层级式命名，<code>state_dict</code> 中沿用同一规则。</p>
+<blockquote>
+<p><code>model.to(device)</code> 会沿子模块树递归迁移参数与 buffer，故无需逐张量手写迁移。</p>
+</blockquote>
+<hr>
+<h2 id="7-code-forward-code-dao-di-zai-gan-shi-yao" tabindex="-1" id="7-forward-到底在干什么">7. <code>forward()</code> 到底在干什么</h2>
+<p><code>forward()</code> 定义从输入到输出的计算步骤。</p>
+<h3 id="forward-ke-yi-xie-ren-yi-luo-ji" tabindex="-1" id="forward-可以写任意逻辑">forward() 可以写任意逻辑</h3>
+<p>它不要求是简单的串行连接，可以：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title class_">FlexibleModel</span>(nn.Module):</span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">__init__</span>(<span class="params">self</span>):</span><br><span class="line">        <span class="built_in">super</span>().__init__()</span><br><span class="line">        <span class="variable language_">self</span>.fc = nn.Linear(<span class="number">8</span>, <span class="number">8</span>)</span><br><span class="line">        <span class="variable language_">self</span>.gate = nn.Linear(<span class="number">8</span>, <span class="number">1</span>)</span><br><span class="line"></span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">forward</span>(<span class="params">self, x, use_residual=<span class="literal">True</span></span>):</span><br><span class="line">        h = <span class="variable language_">self</span>.fc(x)</span><br><span class="line"></span><br><span class="line">        <span class="keyword">if</span> use_residual:</span><br><span class="line">            h = h + x              <span class="comment"># 残差连接（跳跃连接）</span></span><br><span class="line"></span><br><span class="line">        gate = torch.sigmoid(<span class="variable language_">self</span>.gate(x))  <span class="comment"># 门控机制</span></span><br><span class="line">        <span class="keyword">return</span> h * gate            <span class="comment"># 逐元素乘</span></span><br></pre></td></tr></table></figure>
+<p>这里：</p>
+<ul>
+<li>接收了第二个参数 <code>use_residual</code>（forward 可以有多个入参）</li>
+<li>有条件分支（<code>if/else</code>）</li>
+<li>有多个子模块参与计算</li>
+</ul>
+<h3 id="tui-li-dai-ma-li-yue-du-forward-de-fang-shi" tabindex="-1" id="推理代码里阅读-forward-的方式">推理代码里阅读 forward() 的方式</h3>
+<p>阅读陌生模型时可沿 <code>forward()</code> 关注：</p>
+<ol>
+<li><strong>输入是什么</strong> → <code>def forward(self, x, attention_mask=None, ...):</code></li>
+<li><strong>经过哪些层</strong> → <code>x = self.norm(x)</code> / <code>x = self.attn(x, mask)</code> / …</li>
+<li><strong>shape 在哪里变</strong> → 每次 <code>reshape</code> / <code>transpose</code> / <code>view</code> 的地方</li>
+<li><strong>cache / mask / position 在哪里参与</strong> → 推理优化的关键点</li>
+<li><strong>输出是什么</strong> → <code>return logits</code> / <code>return hidden_states, past_kv</code> / …</li>
+</ol>
+<hr>
+<h2 id="8-code-nn-sequential-code-fang-bian-dan-you-ju-xian" tabindex="-1" id="8-nn-Sequential：方便但有局限">8. <code>nn.Sequential</code>：方便但有局限</h2>
+<p><code>nn.Sequential</code> 可以快速串起若干层：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">model = nn.Sequential(</span><br><span class="line">    nn.Linear(<span class="number">8</span>, <span class="number">16</span>),</span><br><span class="line">    nn.ReLU(),</span><br><span class="line">    nn.Linear(<span class="number">16</span>, <span class="number">4</span>)</span><br><span class="line">)</span><br><span class="line"></span><br><span class="line">x = torch.randn(<span class="number">2</span>, <span class="number">8</span>)</span><br><span class="line">y = model(x)</span><br><span class="line"><span class="built_in">print</span>(y.shape)   <span class="comment"># torch.Size([2, 4])</span></span><br></pre></td></tr></table></figure>
+<p>简洁，但有它的边界：</p>
+<table>
+<thead>
+<tr>
+<th>适合 Sequential</th>
+<th>不适合 Sequential</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>单输入 / 单输出</td>
+<td>多输入 / 多输出</td>
+</tr>
+<tr>
+<td>纯串行，无分支</td>
+<td>残差连接、门控分支</td>
+</tr>
+<tr>
+<td>快速实验原型</td>
+<td>推理代码里有 mask / cache</td>
+</tr>
+<tr>
+<td>简单 demo</td>
+<td>attention / LLM / 复杂 CV</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><code>Sequential</code> 仅适用于线性堆叠；多数模型需自定义 <code>forward()</code> 以表达分支与中间状态。</p>
+</blockquote>
+<hr>
+<h2 id="9-can-shu-parameter-he-huan-chong-qu-buffer-de-qu-bie" tabindex="-1" id="9-参数（Parameter）和缓冲区（Buffer）的区别">9. 参数（Parameter）和缓冲区（Buffer）的区别</h2>
+<p>这是推理岗位容易踩坑的地方。</p>
+<h3 id="lei-bi-li-jie" tabindex="-1" id="类比理解">类比理解</h3>
+<p>把模块想象成一个<strong>计算器</strong>：</p>
+<ul>
+<li>
+<p><strong>参数（Parameter）</strong>：计算器里的算法规则（每次训练都会更新）<br>
+例如：线性层的权重矩阵 W、偏置 b</p>
+</li>
+<li>
+<p><strong>缓冲区（Buffer）</strong>：计算器里的&quot;记忆存储&quot;（记录运行时的统计量，不直接被优化器更新）<br>
+例如：BatchNorm 层里记录的&quot;这批数据的均值和方差的历史&quot;</p>
+</li>
+</ul>
+<h3 id="zui-dian-xing-de-li-zi-batch-norm-de-running-mean" tabindex="-1" id="最典型的例子：BatchNorm-的-running-mean">最典型的例子：BatchNorm 的 running mean</h3>
+<p>BatchNorm 层训练时会持续更新两个统计量：</p>
+<ul>
+<li><code>running_mean</code>：这不是通过反向传播更新的，而是每个 batch 过来后直接计算更新</li>
+<li><code>running_var</code>：同上</li>
+</ul>
+<p>这两个就是<strong>缓冲区（Buffer）</strong>。</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"><span class="keyword">import</span> torch.nn <span class="keyword">as</span> nn</span><br><span class="line"></span><br><span class="line">bn = nn.BatchNorm1d(<span class="number">4</span>)   <span class="comment"># 对 4 维特征做归一化</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 看参数（可学习的 gamma 和 beta）</span></span><br><span class="line"><span class="keyword">for</span> name, param <span class="keyword">in</span> bn.named_parameters():</span><br><span class="line">    <span class="built_in">print</span>(<span class="string">&quot;参数:&quot;</span>, name, param.shape)</span><br><span class="line"></span><br><span class="line"><span class="comment"># 看 buffer（running_mean、running_var 等）</span></span><br><span class="line"><span class="keyword">for</span> name, buf <span class="keyword">in</span> bn.named_buffers():</span><br><span class="line">    <span class="built_in">print</span>(<span class="string">&quot;buffer:&quot;</span>, name, buf.shape)</span><br></pre></td></tr></table></figure>
+<p>输出：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">参数: weight torch.Size([4])   ← gamma（可学习的缩放参数）</span><br><span class="line">参数: bias   torch.Size([4])   ← beta（可学习的偏移参数）</span><br><span class="line">buffer: running_mean torch.Size([4])   ← 不可学习的统计量</span><br><span class="line">buffer: running_var  torch.Size([4])   ← 不可学习的统计量</span><br><span class="line">buffer: num_batches_tracked torch.Size([])</span><br></pre></td></tr></table></figure>
+<h3 id="ru-he-zai-zi-ding-yi-mo-kuai-li-zhu-ce-buffer" tabindex="-1" id="如何在自定义模块里注册-buffer">如何在自定义模块里注册 buffer</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title class_">MyModule</span>(nn.Module):</span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">__init__</span>(<span class="params">self</span>):</span><br><span class="line">        <span class="built_in">super</span>().__init__()</span><br><span class="line">        <span class="comment"># register_buffer 注册一个 buffer，名叫 &quot;scale&quot;</span></span><br><span class="line">        <span class="variable language_">self</span>.register_buffer(<span class="string">&quot;scale&quot;</span>, torch.ones(<span class="number">1</span>))</span><br><span class="line"></span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">forward</span>(<span class="params">self, x</span>):</span><br><span class="line">        <span class="keyword">return</span> x * <span class="variable language_">self</span>.scale   <span class="comment"># 用 buffer 参与计算</span></span><br><span class="line"></span><br><span class="line">m = MyModule()</span><br><span class="line"><span class="built_in">print</span>(m.scale)         <span class="comment"># tensor([1.])</span></span><br><span class="line"><span class="built_in">print</span>(m.state_dict())  <span class="comment"># OrderedDict([(&#x27;scale&#x27;, tensor([1.]))])</span></span><br></pre></td></tr></table></figure>
+<h3 id="san-chong-zhuang-tai-de-dui-bi" tabindex="-1" id="三种状态的对比">三种状态的对比</h3>
+<table>
+<thead>
+<tr>
+<th>类型</th>
+<th>能学习</th>
+<th>在 state_dict 里</th>
+<th>随 <code>.to()</code> 移动</th>
+<th>典型例子</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>nn.Parameter</code></td>
+<td>是</td>
+<td>是</td>
+<td>是</td>
+<td>Linear.weight, Embedding.weight</td>
+</tr>
+<tr>
+<td>Persistent Buffer</td>
+<td>否</td>
+<td>是</td>
+<td>是</td>
+<td>BN.running_mean, 预计算位置编码</td>
+</tr>
+<tr>
+<td>普通成员 Tensor</td>
+<td>否</td>
+<td>否</td>
+<td>否</td>
+<td>临时中间变量（不推荐存成属性）</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>为什么推理时要懂 buffer？</strong><br>
+因为推理常见的坑很多是这一类：</p>
+<ul>
+<li>模型搬到 GPU 后，某个 buffer 还留在 CPU → 运算设备不一致报错</li>
+<li>加载权重后 BatchNorm 行为异常 → running_mean 没有正确恢复</li>
+<li><code>state_dict</code> 对不上 → buffer 名字或形状不匹配</li>
+</ul>
+</blockquote>
+<hr>
+<h2 id="10-code-state-dict-code-mo-xing-zhuang-tai-de-biao-zhun-dao-chu-ge-shi" tabindex="-1" id="10-state-dict：模型状态的标准导出格式">10. <code>state_dict</code>：模型状态的标准导出格式</h2>
+<h3 id="shi-yao-shi-state-dict" tabindex="-1" id="什么是-state-dict">什么是 state_dict</h3>
+<p><code>state_dict</code> 就是一个<strong>有序字典</strong>，把模块里所有参数和 buffer 的名字（key）和值（Tensor）对应起来。</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"><span class="keyword">import</span> torch.nn <span class="keyword">as</span> nn</span><br><span class="line"></span><br><span class="line">model = nn.Linear(<span class="number">4</span>, <span class="number">3</span>)</span><br><span class="line">sd = model.state_dict()</span><br><span class="line"></span><br><span class="line"><span class="built_in">print</span>(<span class="built_in">type</span>(sd))      <span class="comment"># &lt;class &#x27;collections.OrderedDict&#x27;&gt;</span></span><br><span class="line"><span class="built_in">print</span>(sd.keys())     <span class="comment"># odict_keys([&#x27;weight&#x27;, &#x27;bias&#x27;])</span></span><br><span class="line"><span class="built_in">print</span>(sd[<span class="string">&#x27;weight&#x27;</span>].shape)   <span class="comment"># torch.Size([3, 4])</span></span><br><span class="line"><span class="built_in">print</span>(sd[<span class="string">&#x27;bias&#x27;</span>].shape)     <span class="comment"># torch.Size([3])</span></span><br></pre></td></tr></table></figure>
+<h3 id="duo-ceng-mo-xing-de-state-dict-chang-shi-yao-yang" tabindex="-1" id="多层模型的-state-dict-长什么样">多层模型的 state_dict 长什么样</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title class_">MLP</span>(nn.Module):</span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">__init__</span>(<span class="params">self</span>):</span><br><span class="line">        <span class="built_in">super</span>().__init__()</span><br><span class="line">        <span class="variable language_">self</span>.fc1 = nn.Linear(<span class="number">8</span>, <span class="number">16</span>)</span><br><span class="line">        <span class="variable language_">self</span>.fc2 = nn.Linear(<span class="number">16</span>, <span class="number">4</span>)</span><br><span class="line"></span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">forward</span>(<span class="params">self, x</span>):</span><br><span class="line">        <span class="keyword">return</span> <span class="variable language_">self</span>.fc2(torch.relu(<span class="variable language_">self</span>.fc1(x)))</span><br><span class="line"></span><br><span class="line">model = MLP()</span><br><span class="line">sd = model.state_dict()</span><br><span class="line"></span><br><span class="line"><span class="keyword">for</span> key, val <span class="keyword">in</span> sd.items():</span><br><span class="line">    <span class="built_in">print</span>(key, val.shape)</span><br><span class="line"></span><br><span class="line"><span class="comment"># 输出：</span></span><br><span class="line"><span class="comment"># fc1.weight  torch.Size([16, 8])</span></span><br><span class="line"><span class="comment"># fc1.bias    torch.Size([16])</span></span><br><span class="line"><span class="comment"># fc2.weight  torch.Size([4, 16])</span></span><br><span class="line"><span class="comment"># fc2.bias    torch.Size([4])</span></span><br></pre></td></tr></table></figure>
+<p>注意 key 的格式：<code>子模块名.参数名</code>。如果有更深的嵌套，key 会更长，比如 <code>encoder.layer.0.fc.weight</code>。</p>
+<blockquote>
+<p><code>state_dict</code> 的键名与模块层次一一对应；加载报错时宜先比对键名与形状。</p>
+</blockquote>
+<hr>
+<h2 id="11-zheng-que-de-bao-cun-yu-jia-zai-fang-shi" tabindex="-1" id="11-正确的保存与加载方式">11. 正确的保存与加载方式</h2>
+<h3 id="bao-cun" tabindex="-1" id="保存">保存</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">torch.save(model.state_dict(), <span class="string">&quot;model.pt&quot;</span>)</span><br></pre></td></tr></table></figure>
+<h3 id="jia-zai" tabindex="-1" id="加载">加载</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 第一步：先构造一个同结构的模型</span></span><br><span class="line">model = MLP()</span><br><span class="line"></span><br><span class="line"><span class="comment"># 第二步：加载权重字典</span></span><br><span class="line">state_dict = torch.load(<span class="string">&quot;model.pt&quot;</span>, map_location=<span class="string">&quot;cpu&quot;</span>)</span><br><span class="line"></span><br><span class="line"><span class="comment"># 第三步：把权重填入模型</span></span><br><span class="line">model.load_state_dict(state_dict)</span><br></pre></td></tr></table></figure>
+<p>注意 <code>map_location=&quot;cpu&quot;</code>：如果保存时在 GPU 上，加载时可以先指定加载到 CPU，之后再 <code>.to(device)</code> 按需移动。</p>
+<h3 id="wei-shi-yao-bu-zhi-jie-code-torch-save-model-code-bao-cun-zheng-ge-mo-xing" tabindex="-1" id="为什么不直接-torch-save-model-保存整个模型">为什么不直接 <code>torch.save(model)</code> 保存整个模型</h3>
+<p>很多人这样写：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">torch.save(model, <span class="string">&quot;model_full.pt&quot;</span>)   <span class="comment"># 不推荐</span></span><br></pre></td></tr></table></figure>
+<p>这样要求加载时 Python 环境、模块类定义路径完全一致，换了机器或者重构了代码，很容易加载失败。</p>
+<p><strong>推荐方式</strong>：保存 <code>state_dict</code>，加载时在代码里重新定义模型结构，再填入权重。这样模型结构和权重解耦，工程上更稳。</p>
+<hr>
+<h2 id="12-code-load-state-dict-code-bao-cuo-shi-zen-yao-pai-cha" tabindex="-1" id="12-load-state-dict-报错时怎么排查">12. <code>load_state_dict()</code> 报错时怎么排查</h2>
+<p>这是实战里极常见的场景。报错信息通常有两种：</p>
+<h3 id="qing-kuang-1-duo-yu-de-key-quan-zhong-wen-jian-li-you-dan-mo-xing-li-mei-you" tabindex="-1" id="情况-1：多余的-key（权重文件里有，但模型里没有）">情况 1：多余的 key（权重文件里有，但模型里没有）</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">RuntimeError: Unexpected key(s) in state_dict: &quot;old_head.weight&quot;, &quot;old_head.bias&quot;</span><br></pre></td></tr></table></figure>
+<p>说明：权重文件是旧版本模型训练的，现在的代码里把那层改名了或删了。</p>
+<h3 id="qing-kuang-2-que-shao-de-key-mo-xing-xu-yao-dan-quan-zhong-wen-jian-mei-you" tabindex="-1" id="情况-2：缺少的-key（模型需要，但权重文件没有）">情况 2：缺少的 key（模型需要，但权重文件没有）</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">RuntimeError: Missing key(s) in state_dict: &quot;classifier.weight&quot;, &quot;classifier.bias&quot;</span><br></pre></td></tr></table></figure>
+<p>说明：模型代码里新增了某层，但权重文件是旧版本的，没有这一层的权重。</p>
+<h3 id="zhen-duan-bu-zou" tabindex="-1" id="诊断步骤">诊断步骤</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 对比两边的 key</span></span><br><span class="line">model_keys = <span class="built_in">set</span>(model.state_dict().keys())</span><br><span class="line">file_keys  = <span class="built_in">set</span>(torch.load(<span class="string">&quot;model.pt&quot;</span>).keys())</span><br><span class="line"></span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot;模型有但文件没有:&quot;</span>, model_keys - file_keys)</span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot;文件有但模型没有:&quot;</span>, file_keys - model_keys)</span><br></pre></td></tr></table></figure>
+<h3 id="chang-jian-yuan-yin" tabindex="-1" id="常见原因">常见原因</h3>
+<table>
+<thead>
+<tr>
+<th>现象</th>
+<th>可能原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>key 多了 <code>module.</code> 前缀</td>
+<td>权重是 DataParallel 训练的，有额外封装层</td>
+</tr>
+<tr>
+<td>key 名字不一样</td>
+<td>代码里子模块改名了（<code>fc</code> → <code>head</code>）</td>
+</tr>
+<tr>
+<td>shape 不匹配</td>
+<td>输出维度改了（比如分类数从 1000 → 10）</td>
+</tr>
+<tr>
+<td>buffer 丢失</td>
+<td>权重文件保存时用的是旧版本，buffer 名字变了</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="13-code-train-code-yu-code-eval-code-xing-wei-mo-shi-qie-huan" tabindex="-1" id="13-train-与-eval-：行为模式切换">13. <code>train()</code> 与 <code>eval()</code>：行为模式切换</h2>
+<p>这一节很多人会踩坑，搞清楚后面学混合精度和部署会顺很多。</p>
+<h3 id="xian-nong-qing-chu-yi-ge-wu-jie" tabindex="-1" id="先弄清楚一个误解">先弄清楚一个误解</h3>
+<p><strong><code>model.eval()</code> 不是关闭梯度，</strong> 它只是告诉模型：“现在是推理时间，不是训练时间。”</p>
+<p>而梯度的关闭，是靠 <code>torch.no_grad()</code> 或 <code>torch.inference_mode()</code> 完成的（见下一篇）。</p>
+<p>这两件事独立，必须都做：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">model.<span class="built_in">eval</span>()                        <span class="comment"># 切换行为模式</span></span><br><span class="line"><span class="keyword">with</span> torch.inference_mode():        <span class="comment"># 关闭梯度</span></span><br><span class="line">    y = model(x)</span><br></pre></td></tr></table></figure>
+<h3 id="code-eval-code-ju-ti-ying-xiang-na-xie-mo-kuai" tabindex="-1" id="eval-具体影响哪些模块"><code>eval()</code> 具体影响哪些模块</h3>
+<p>并不是所有模块都受影响，<strong>只有那些训练和推理行为本来就不同的模块</strong>：</p>
+<h4 id="dropout" tabindex="-1" id="Dropout">Dropout</h4>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">dropout = nn.Dropout(p=<span class="number">0.5</span>)   <span class="comment"># 训练时随机丢弃 50% 的值</span></span><br><span class="line"></span><br><span class="line">x = torch.ones(<span class="number">1</span>, <span class="number">10</span>)</span><br><span class="line"></span><br><span class="line">dropout.train()</span><br><span class="line"><span class="built_in">print</span>(dropout(x))   <span class="comment"># 某些位置会变成 0（随机的）</span></span><br><span class="line"></span><br><span class="line">dropout.<span class="built_in">eval</span>()</span><br><span class="line"><span class="built_in">print</span>(dropout(x))   <span class="comment"># 全部是 1.0，因为推理时不丢弃</span></span><br></pre></td></tr></table></figure>
+<p>输出示例：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">tensor([[0., 0., 2., 2., 0., 2., 0., 0., 2., 0.]])   ← train()，有随机 0</span><br><span class="line">tensor([[1., 1., 1., 1., 1., 1., 1., 1., 1., 1.]])   ← eval()，全部保留</span><br></pre></td></tr></table></figure>
+<h4 id="batch-norm" tabindex="-1" id="BatchNorm">BatchNorm</h4>
+<ul>
+<li><strong>训练时</strong>：用当前 batch 的均值和方差做归一化，同时更新 <code>running_mean</code> / <code>running_var</code></li>
+<li><strong>推理时</strong>：用保存下来的 <code>running_mean</code> / <code>running_var</code> 做归一化，不更新</li>
+</ul>
+<p>若推理前未调用 <code>model.eval()</code>，<code>BatchNorm</code> 等层可能仍使用 batch 统计量，导致同输入输出不稳定或与训练分布不一致。</p>
+<h3 id="biao-zhun-tui-li-mo-ban" tabindex="-1" id="标准推理模板">标准推理模板</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">model.<span class="built_in">eval</span>()                       <span class="comment"># 1. 切行为模式</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">with</span> torch.inference_mode():       <span class="comment"># 2. 关梯度</span></span><br><span class="line">    y = model(x)                   <span class="comment"># 3. 推理</span></span><br></pre></td></tr></table></figure>
+<p>这三行缺一不可。</p>
+<hr>
+<h2 id="14-code-model-to-code-zheng-ti-qian-yi-she-bei-he-jing-du" tabindex="-1" id="14-model-to-：整体迁移设备和精度">14. <code>model.to()</code>：整体迁移设备和精度</h2>
+<p>Tensor 的 <code>.to()</code> 与 Module 的 <code>.to()</code> 语义一致，后者会递归遍历子模块树：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">device = <span class="string">&quot;cuda&quot;</span> <span class="keyword">if</span> torch.cuda.is_available() <span class="keyword">else</span> <span class="string">&quot;cpu&quot;</span></span><br><span class="line">model = model.to(device)</span><br></pre></td></tr></table></figure>
+<p>这一句话会把：</p>
+<ul>
+<li>所有直接参数</li>
+<li>所有 buffer</li>
+<li>所有子模块的参数和 buffer</li>
+</ul>
+<p>全部移动到指定设备。</p>
+<p>也可以转精度：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">model = model.to(dtype=torch.float16)   <span class="comment"># 把所有参数转成 float16</span></span><br></pre></td></tr></table></figure>
+<blockquote>
+<p>实际工程中常用 <code>.to()</code> 统一迁移参数与 buffer，而无需手写遍历各子模块参数。</p>
+</blockquote>
+<hr>
+<h2 id="15-yi-ge-wan-zheng-de-tui-li-dai-ma-gu-jia" tabindex="-1" id="15-一个完整的推理代码骨架">15. 一个完整的推理代码骨架</h2>
+<p>下面用一个完整例子，把这一部分的所有核心概念串起来。</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"><span class="keyword">import</span> torch.nn <span class="keyword">as</span> nn</span><br><span class="line"></span><br><span class="line"><span class="comment"># ① 定义模型</span></span><br><span class="line"><span class="keyword">class</span> <span class="title class_">SimpleClassifier</span>(nn.Module):</span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">__init__</span>(<span class="params">self, in_dim, hidden_dim, num_classes</span>):</span><br><span class="line">        <span class="built_in">super</span>().__init__()</span><br><span class="line">        <span class="variable language_">self</span>.fc1 = nn.Linear(in_dim, hidden_dim)</span><br><span class="line">        <span class="variable language_">self</span>.relu = nn.ReLU()</span><br><span class="line">        <span class="variable language_">self</span>.drop = nn.Dropout(p=<span class="number">0.5</span>)</span><br><span class="line">        <span class="variable language_">self</span>.fc2 = nn.Linear(hidden_dim, num_classes)</span><br><span class="line"></span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">forward</span>(<span class="params">self, x</span>):</span><br><span class="line">        x = <span class="variable language_">self</span>.fc1(x)</span><br><span class="line">        x = <span class="variable language_">self</span>.relu(x)</span><br><span class="line">        x = <span class="variable language_">self</span>.drop(x)    <span class="comment"># ← eval() 下不起作用，train() 下随机丢弃</span></span><br><span class="line">        x = <span class="variable language_">self</span>.fc2(x)</span><br><span class="line">        <span class="keyword">return</span> x</span><br><span class="line"></span><br><span class="line"><span class="comment"># ② 初始化并迁移设备</span></span><br><span class="line">device = <span class="string">&quot;cuda&quot;</span> <span class="keyword">if</span> torch.cuda.is_available() <span class="keyword">else</span> <span class="string">&quot;cpu&quot;</span></span><br><span class="line">model = SimpleClassifier(in_dim=<span class="number">8</span>, hidden_dim=<span class="number">16</span>, num_classes=<span class="number">3</span>)</span><br><span class="line">model = model.to(device)</span><br><span class="line"></span><br><span class="line"><span class="comment"># ③ 保存权重</span></span><br><span class="line">torch.save(model.state_dict(), <span class="string">&quot;/tmp/classifier.pt&quot;</span>)</span><br><span class="line"></span><br><span class="line"><span class="comment"># ④ 重新加载（模拟部署场景）</span></span><br><span class="line">model2 = SimpleClassifier(in_dim=<span class="number">8</span>, hidden_dim=<span class="number">16</span>, num_classes=<span class="number">3</span>)</span><br><span class="line">state_dict = torch.load(<span class="string">&quot;/tmp/classifier.pt&quot;</span>, map_location=<span class="string">&quot;cpu&quot;</span>)</span><br><span class="line">model2.load_state_dict(state_dict)</span><br><span class="line">model2 = model2.to(device)</span><br><span class="line"></span><br><span class="line"><span class="comment"># ⑤ 推理</span></span><br><span class="line">model2.<span class="built_in">eval</span>()</span><br><span class="line"></span><br><span class="line">x = torch.randn(<span class="number">4</span>, <span class="number">8</span>).to(device)</span><br><span class="line"></span><br><span class="line"><span class="keyword">with</span> torch.inference_mode():</span><br><span class="line">    y = model2(x)</span><br><span class="line"></span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot;output shape:&quot;</span>, y.shape)    <span class="comment"># torch.Size([4, 3])</span></span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot;output device:&quot;</span>, y.device)  <span class="comment"># cuda:0 (或 cpu)</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># ⑥ 查看 state_dict 结构</span></span><br><span class="line"><span class="keyword">for</span> key, val <span class="keyword">in</span> model2.state_dict().items():</span><br><span class="line">    <span class="built_in">print</span>(<span class="string">f&quot;<span class="subst">&#123;key:20s&#125;</span> → <span class="subst">&#123;val.shape&#125;</span>&quot;</span>)</span><br><span class="line"></span><br><span class="line"><span class="comment"># 输出：</span></span><br><span class="line"><span class="comment"># fc1.weight           → torch.Size([16, 8])</span></span><br><span class="line"><span class="comment"># fc1.bias             → torch.Size([16])</span></span><br><span class="line"><span class="comment"># fc2.weight           → torch.Size([3, 16])</span></span><br><span class="line"><span class="comment"># fc2.bias             → torch.Size([3])</span></span><br></pre></td></tr></table></figure>
+<p><strong>自检表</strong></p>
+<table>
+<thead>
+<tr>
+<th>问题</th>
+<th>要点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>为什么 <code>fc1</code>、<code>relu</code> 会成为子模块？</td>
+<td>它们作为属性赋值在 <code>__init__</code> 里，PyTorch 自动注册</td>
+</tr>
+<tr>
+<td>为什么 <code>model(x)</code> 会走 <code>forward()</code>？</td>
+<td>调用模块会经过 <code>__call__</code>，它内部触发 <code>forward()</code></td>
+</tr>
+<tr>
+<td><code>model.eval()</code> 改变了什么？</td>
+<td>Dropout 不再丢弃，BatchNorm 用 running stats</td>
+</tr>
+<tr>
+<td><code>model.to(device)</code> 移动了什么？</td>
+<td>所有参数和 buffer，递归处理整个模块树</td>
+</tr>
+<tr>
+<td>为什么 key 是 <code>fc1.weight</code> 这种格式？</td>
+<td>子模块名 <code>.</code> 参数名，层级拼接</td>
+</tr>
+<tr>
+<td>为什么要 <code>model2 = SimpleClassifier(...)</code> 再 <code>load_state_dict</code>？</td>
+<td>PyTorch 推荐：结构和权重解耦，保存和恢复更稳定</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="16-yue-du-tui-li-dai-ma-de-biao-zhun-shun-xu" tabindex="-1" id="16-阅读推理代码的标准顺序">16. 阅读推理代码的标准顺序</h2>
+<p>拿到任何一个 PyTorch 推理项目，按这个顺序看：</p>
+<h3 id="di-yi-bu-zhao-mo-xing-ding-yi" tabindex="-1" id="第一步：找模型定义">第一步：找模型定义</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title class_">XXX</span>(nn.Module):</span><br><span class="line">    ...</span><br></pre></td></tr></table></figure>
+<h3 id="di-er-bu-kan-code-init-code" tabindex="-1" id="第二步：看-init">第二步：看 <code>__init__()</code></h3>
+<ul>
+<li>有哪些子模块？</li>
+<li>有哪些参数？</li>
+<li>有哪些 buffer？</li>
+<li>有没有 KV cache、位置编码相关状态？</li>
+</ul>
+<h3 id="di-san-bu-shun-zhao-code-forward-code-zou-yi-bian" tabindex="-1" id="第三步：顺着-forward-走一遍">第三步：顺着 <code>forward()</code> 走一遍</h3>
+<ul>
+<li>输入是什么？多少个参数？</li>
+<li>每一步 shape 怎么变？</li>
+<li>mask / position_ids / cache 在哪里出现？</li>
+<li>输出是什么？</li>
+</ul>
+<h3 id="di-si-bu-kan-quan-zhong-jia-zai" tabindex="-1" id="第四步：看权重加载">第四步：看权重加载</h3>
+<ul>
+<li><code>load_state_dict</code> 在哪里？</li>
+<li>有没有 <code>strict=False</code>？（这意味着部分权重不匹配，是刻意的还是 bug？）</li>
+<li>有没有 key 重命名操作？</li>
+</ul>
+<h3 id="di-wu-bu-kan-tui-li-ru-kou" tabindex="-1" id="第五步：看推理入口">第五步：看推理入口</h3>
+<ul>
+<li><code>model.eval()</code> 有没有做？</li>
+<li><code>torch.no_grad()</code> 或 <code>torch.inference_mode()</code> 有没有做？</li>
+<li>输入有没有 <code>.to(device)</code>？</li>
+</ul>
+<hr>
+<h2 id="17-chang-jian-wu-qu" tabindex="-1" id="17-常见误区">17. 常见误区</h2>
+<h3 id="wu-qu-1-pu-tong-tensor-cheng-yuan-shu-xing-suan-can-shu" tabindex="-1" id="误区-1：普通-Tensor-成员属性算参数">误区 1：普通 Tensor 成员属性算参数</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="variable language_">self</span>.scale = torch.ones(<span class="number">1</span>)      <span class="comment"># 反例: 不是参数，model.state_dict() 里没有它</span></span><br><span class="line"><span class="variable language_">self</span>.scale = nn.Parameter(torch.ones(<span class="number">1</span>))  <span class="comment"># 示例: 这才是</span></span><br></pre></td></tr></table></figure>
+<h3 id="wu-qu-2-code-model-eval-code-deng-yu-guan-bi-ti-du" tabindex="-1" id="误区-2：model-eval-等于关闭梯度">误区 2：<code>model.eval()</code> 等于关闭梯度</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">model.<span class="built_in">eval</span>()   <span class="comment"># 反例: 只切换行为模式，梯度还在</span></span><br><span class="line"></span><br><span class="line">model.<span class="built_in">eval</span>()</span><br><span class="line"><span class="keyword">with</span> torch.inference_mode():   <span class="comment"># 示例: 行为模式 + 梯度都处理了</span></span><br><span class="line">    y = model(x)</span><br></pre></td></tr></table></figure>
+<h3 id="wu-qu-3-zhi-jie-code-torch-save-model-code-jiu-xing" tabindex="-1" id="误区-3：直接-torch-save-model-就行">误区 3：直接 <code>torch.save(model)</code> 就行</h3>
+<p>工程上不推荐。加载时要求 Python 环境和代码路径完全一致，容易出问题。</p>
+<h3 id="wu-qu-4-code-sequential-code-zu-gou-yong-yu-tui-li" tabindex="-1" id="误区-4：Sequential-足够用于推理">误区 4：<code>Sequential</code> 足够用于推理</h3>
+<p>对于简单的 demo 够用，但真实推理代码（Attention、LLM、多流输入）几乎都需要自定义 <code>forward()</code>。</p>
+<h3 id="wu-qu-5-buffer-bu-zhong-yao" tabindex="-1" id="误区-5：buffer-不重要">误区 5：buffer 不重要</h3>
+<p>实际推理项目里很多奇怪 bug（BatchNorm 行为异常、权重加载 key 不匹配）都和 buffer 有关。</p>
+<hr>
+<h2 id="18-mian-shi-chang-jian-wen-ti" tabindex="-1" id="18-面试常见问题">18. 面试常见问题</h2>
+<p>下列对照可用于自检：</p>
+<p><strong>Q：<code>nn.Module</code> 是什么？</strong><br>
+A：PyTorch 中组织模型的基础类，能统一管理参数、buffer、子模块和前向计算逻辑。</p>
+<p><strong>Q：为什么写 <code>model(x)</code> 而不是 <code>model.forward(x)</code>？</strong><br>
+A：前者走 <code>__call__</code>，会触发 hooks 和框架级处理；后者直接调方法，会绕过这些机制。</p>
+<p><strong>Q：Parameter 和 Buffer 有什么区别？</strong><br>
+A：Parameter 是可学习的状态（优化器会更新），Buffer 是影响计算但不需要学习的状态（比如 BN 的 running mean）。两者都出现在 <code>state_dict</code> 中，都随 <code>.to()</code> 移动设备。</p>
+<p><strong>Q：为什么保存 <code>state_dict</code> 而不是整个模型？</strong><br>
+A：解耦结构和权重，可移植性更强，是官方推荐方式。</p>
+<p><strong>Q：<code>model.eval()</code> 具体影响了什么？</strong><br>
+A：关闭了 Dropout 的随机丢弃；让 BatchNorm 使用 running stats 而不是当前 batch 的统计量。不负责关梯度。</p>
+<hr>
+<h2 id="19-si-kao-ti" tabindex="-1" id="19-思考题">19. 思考题</h2>
+<p>建议自己跑一遍，先猜输出，再验证。</p>
+<h3 id="lian-xi-1-xie-yi-ge-zui-jian-dan-de-module" tabindex="-1" id="练习-1：写一个最简单的-Module">练习 1：写一个最简单的 Module</h3>
+<p>定义一个 <code>ScaleLayer</code>：初始化时接受一个 <code>float scale</code>，<code>forward()</code> 返回 <code>x * scale</code>。<br>
+然后打印 <code>named_parameters()</code>，看有没有参数。</p>
+<blockquote>
+<p>思考：改成用 <code>nn.Parameter</code> 存 scale 后，<code>named_parameters()</code> 输出有什么变化？</p>
+</blockquote>
+<h3 id="lian-xi-2-zi-mo-kuai-guan-cha" tabindex="-1" id="练习-2：子模块观察">练习 2：子模块观察</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title class_">Net</span>(nn.Module):</span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">__init__</span>(<span class="params">self</span>):</span><br><span class="line">        <span class="built_in">super</span>().__init__()</span><br><span class="line">        <span class="variable language_">self</span>.encoder = nn.Linear(<span class="number">8</span>, <span class="number">16</span>)</span><br><span class="line">        <span class="variable language_">self</span>.decoder = nn.Linear(<span class="number">16</span>, <span class="number">4</span>)</span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">forward</span>(<span class="params">self, x</span>):</span><br><span class="line">        <span class="keyword">return</span> <span class="variable language_">self</span>.decoder(torch.relu(<span class="variable language_">self</span>.encoder(x)))</span><br><span class="line"></span><br><span class="line">model = Net()</span><br></pre></td></tr></table></figure>
+<p>打印 <code>model.named_parameters()</code> 的所有 key，观察格式。</p>
+<blockquote>
+<p>思考：将子模块 <code>encoder</code> 重命名为 <code>layer1</code> 后，<code>state_dict</code> 键名如何变化？</p>
+</blockquote>
+<h3 id="lian-xi-3-guan-cha-dropout-zai-train-eval-xia-de-chai-yi" tabindex="-1" id="练习-3：观察-Dropout-在-train-eval-下的差异">练习 3：观察 Dropout 在 train/eval 下的差异</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">model = nn.Sequential(nn.Dropout(p=<span class="number">0.5</span>))</span><br><span class="line">x = torch.ones(<span class="number">1</span>, <span class="number">10</span>)</span><br><span class="line"></span><br><span class="line">model.train()</span><br><span class="line"><span class="keyword">for</span> _ <span class="keyword">in</span> <span class="built_in">range</span>(<span class="number">3</span>):</span><br><span class="line">    <span class="built_in">print</span>(model(x))</span><br><span class="line"></span><br><span class="line">model.<span class="built_in">eval</span>()</span><br><span class="line"><span class="keyword">for</span> _ <span class="keyword">in</span> <span class="built_in">range</span>(<span class="number">3</span>):</span><br><span class="line">    <span class="built_in">print</span>(model(x))</span><br></pre></td></tr></table></figure>
+<blockquote>
+<p>思考：train 模式下每次输出一样吗？eval 模式下呢？为什么？</p>
+</blockquote>
+<h3 id="lian-xi-4-bao-cun-jia-zai-dui-bi-key" tabindex="-1" id="练习-4：保存-加载-对比-key">练习 4：保存 / 加载 / 对比 key</h3>
+<p>自己写一个两层 MLP，保存 <code>state_dict</code> 到文件，再新建同结构模型加载，打印两边的 key 确认一致。</p>
+<blockquote>
+<p>进阶挑战：把第二个模型的第二层 Linear 改成 <code>out_features=10</code>（原来是 4），再 <code>load_state_dict</code>，观察报错信息。</p>
+</blockquote>
+<h3 id="lian-xi-5-buffer-zhu-ce-yu-jian-cha" tabindex="-1" id="练习-5：buffer-注册与检查">练习 5：buffer 注册与检查</h3>
+<p>写一个 <code>ScaleNorm</code> 模块：</p>
+<ul>
+<li>注册一个 buffer <code>running_scale</code>，初始值为 <code>torch.ones(1)</code></li>
+<li><code>forward()</code> 里返回 <code>x * self.running_scale</code></li>
+<li>打印 <code>named_parameters()</code>、<code>named_buffers()</code>、<code>state_dict()</code></li>
+</ul>
+<blockquote>
+<p>思考：<code>running_scale</code> 在 <code>named_parameters()</code> 里能看到吗？在 <code>named_buffers()</code> 里呢？</p>
+</blockquote>
+<hr>
+<h2 id="20-ben-jie-yao-dian-yu-zi-jian" tabindex="-1" id="20-本节要点与自检">20. 本节要点与自检</h2>
+<ul>
+<li>能看懂任意 PyTorch 模型类的基本结构</li>
+<li>理解 <code>__init__()</code> 和 <code>forward()</code> 各自负责什么</li>
+<li>区分 Parameter、Buffer、普通成员变量，知道它们的行为差异</li>
+<li>能用 <code>state_dict()</code> 正确保存和加载权重</li>
+<li>知道 <code>model(x)</code> vs <code>model.forward(x)</code> 的区别，以及为什么要用前者</li>
+<li>知道 <code>model.eval()</code> 影响哪些层，以及它和梯度关闭的关系</li>
+<li>能沿着子模块结构读懂简单推理项目</li>
+</ul>
+<hr>
+<h2 id="21-xiao-jie" tabindex="-1" id="21-小结">21. 小结</h2>
+<blockquote>
+<p><strong><code>nn.Module</code> 的本质，是把&quot;状态&quot;和&quot;前向计算&quot;统一组织起来；推理代码的阅读、改写、保存、加载，几乎都围绕它展开。</strong></p>
+</blockquote>
+<hr>
+<h2 id="xi-lie-dao-hang" tabindex="-1" id="系列导航">系列导航</h2>
+<ul>
+<li>上一篇：<a href="/posts/4cf4f348/">PyTorch推理工程：01 Tensor、dtype、device 与推理底层基础</a></li>
+<li>下一篇：<a href="/posts/62ab73e1/">PyTorch推理工程：03 train、eval、no_grad 与 inference_mode</a></li>
+<li><a href="/posts/846fbbaf/">系列索引（00 导读）</a></li>
+</ul>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/5bd3dfaf/">https://smarter.xin/posts/5bd3dfaf/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/deep-learning/">深度学习</a><a class="post-meta__tags" href="/tags/model-deployment/">模型部署</a><a class="post-meta__tags" href="/tags/python/">Python</a><a class="post-meta__tags" href="/tags/pytorch/">PyTorch</a></div><div class="post-share"><div class="social-share" data-image="/img/pytorch.avif" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/62ab73e1/" title="PyTorch推理工程：03 train、eval、no_grad 与 inference_mode"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">PyTorch推理工程：03 train、eval、no_grad 与 inference_mode</div></div></div></a><a class="pagination-related  no-desc" href="/posts/4cf4f348/" title="PyTorch推理工程：01 Tensor、dtype、device 与推理底层基础"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">PyTorch推理工程：01 Tensor、dtype、device 与推理底层基础</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/846fbbaf/" title="PyTorch推理工程：00 系列导读——从张量语义到可展示项目的学习路线"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-29</div><div class="info-item-2">PyTorch推理工程：00 系列导读——从张量语义到可展示项目的学习路线</div></div></div></a><a class="pagination-related no-desc" href="/posts/62ab73e1/" title="PyTorch推理工程：03 train、eval、no_grad 与 inference_mode"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-29</div><div class="info-item-2">PyTorch推理工程：03 train、eval、no_grad 与 inference_mode</div></div></div></a><a class="pagination-related no-desc" href="/posts/4cf4f348/" title="PyTorch推理工程：01 Tensor、dtype、device 与推理底层基础"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-29</div><div class="info-item-2">PyTorch推理工程：01 Tensor、dtype、device 与推理底层基础</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">我就是要爬这座山<br>再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">142</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">264</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">25</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#py-torch-tui-li-gong-cheng-02-nn-module-forward-yu-state-dict"><span class="toc-text">PyTorch 推理工程（02）：nn.Module、forward 与 state_dict</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#1-ben-jie-ding-wei"><span class="toc-text">1. 本节定位</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-shi-yao-shi-code-nn-module-code"><span class="toc-text">2. 什么是 nn.Module</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#ding-yi"><span class="toc-text">定义</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#3-yi-ge-zui-xiao-de-module"><span class="toc-text">3. 一个最小的 Module</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#4-wei-shi-yao-xie-code-model-x-code-er-bu-shi-code-model-forward-x-code"><span class="toc-text">4. 为什么写 model(x)，而不是 model.forward(x)</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#zhi-jie-diao-yong-code-forward-code-you-shi-yao-wen-ti"><span class="toc-text">直接调用 forward() 有什么问题</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#5-dai-can-shu-de-mo-kuai-can-shu-parameter-shi-shi-yao"><span class="toc-text">5. 带参数的模块：参数（Parameter）是什么</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#xian-kan-yi-ge-you-can-shu-de-mo-kuai"><span class="toc-text">先看一个有参数的模块</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#code-nn-parameter-code-he-pu-tong-tensor-you-shi-yao-qu-bie"><span class="toc-text">nn.Parameter 和普通 Tensor 有什么区别</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#zen-yao-cha-kan-mo-kuai-you-na-xie-can-shu"><span class="toc-text">怎么查看模块有哪些参数</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#6-zi-mo-kuai-mo-kuai-li-tao-mo-kuai"><span class="toc-text">6. 子模块：模块里套模块</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#bian-li-zi-mo-kuai"><span class="toc-text">遍历子模块</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#zi-mo-kuai-de-can-shu-hui-zi-dong-bei-zhui-zong"><span class="toc-text">子模块的参数会自动被追踪</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#7-code-forward-code-dao-di-zai-gan-shi-yao"><span class="toc-text">7. forward() 到底在干什么</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#forward-ke-yi-xie-ren-yi-luo-ji"><span class="toc-text">forward() 可以写任意逻辑</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#tui-li-dai-ma-li-yue-du-forward-de-fang-shi"><span class="toc-text">推理代码里阅读 forward() 的方式</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#8-code-nn-sequential-code-fang-bian-dan-you-ju-xian"><span class="toc-text">8. nn.Sequential：方便但有局限</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#9-can-shu-parameter-he-huan-chong-qu-buffer-de-qu-bie"><span class="toc-text">9. 参数（Parameter）和缓冲区（Buffer）的区别</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#lei-bi-li-jie"><span class="toc-text">类比理解</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#zui-dian-xing-de-li-zi-batch-norm-de-running-mean"><span class="toc-text">最典型的例子：BatchNorm 的 running mean</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#ru-he-zai-zi-ding-yi-mo-kuai-li-zhu-ce-buffer"><span class="toc-text">如何在自定义模块里注册 buffer</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#san-chong-zhuang-tai-de-dui-bi"><span class="toc-text">三种状态的对比</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#10-code-state-dict-code-mo-xing-zhuang-tai-de-biao-zhun-dao-chu-ge-shi"><span class="toc-text">10. state_dict：模型状态的标准导出格式</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#shi-yao-shi-state-dict"><span class="toc-text">什么是 state_dict</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#duo-ceng-mo-xing-de-state-dict-chang-shi-yao-yang"><span class="toc-text">多层模型的 state_dict 长什么样</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#11-zheng-que-de-bao-cun-yu-jia-zai-fang-shi"><span class="toc-text">11. 正确的保存与加载方式</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#bao-cun"><span class="toc-text">保存</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#jia-zai"><span class="toc-text">加载</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#wei-shi-yao-bu-zhi-jie-code-torch-save-model-code-bao-cun-zheng-ge-mo-xing"><span class="toc-text">为什么不直接 torch.save(model) 保存整个模型</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#12-code-load-state-dict-code-bao-cuo-shi-zen-yao-pai-cha"><span class="toc-text">12. load_state_dict() 报错时怎么排查</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#qing-kuang-1-duo-yu-de-key-quan-zhong-wen-jian-li-you-dan-mo-xing-li-mei-you"><span class="toc-text">情况 1：多余的 key（权重文件里有，但模型里没有）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#qing-kuang-2-que-shao-de-key-mo-xing-xu-yao-dan-quan-zhong-wen-jian-mei-you"><span class="toc-text">情况 2：缺少的 key（模型需要，但权重文件没有）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#zhen-duan-bu-zou"><span class="toc-text">诊断步骤</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#chang-jian-yuan-yin"><span class="toc-text">常见原因</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#13-code-train-code-yu-code-eval-code-xing-wei-mo-shi-qie-huan"><span class="toc-text">13. train() 与 eval()：行为模式切换</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#xian-nong-qing-chu-yi-ge-wu-jie"><span class="toc-text">先弄清楚一个误解</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#code-eval-code-ju-ti-ying-xiang-na-xie-mo-kuai"><span class="toc-text">eval() 具体影响哪些模块</span></a><ol class="toc-child"><li class="toc-item toc-level-4"><a class="toc-link" href="#dropout"><span class="toc-text">Dropout</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#batch-norm"><span class="toc-text">BatchNorm</span></a></li></ol></li><li class="toc-item toc-level-3"><a class="toc-link" href="#biao-zhun-tui-li-mo-ban"><span class="toc-text">标准推理模板</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#14-code-model-to-code-zheng-ti-qian-yi-she-bei-he-jing-du"><span class="toc-text">14. model.to()：整体迁移设备和精度</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#15-yi-ge-wan-zheng-de-tui-li-dai-ma-gu-jia"><span class="toc-text">15. 一个完整的推理代码骨架</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#16-yue-du-tui-li-dai-ma-de-biao-zhun-shun-xu"><span class="toc-text">16. 阅读推理代码的标准顺序</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#di-yi-bu-zhao-mo-xing-ding-yi"><span class="toc-text">第一步：找模型定义</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#di-er-bu-kan-code-init-code"><span class="toc-text">第二步：看 __init__()</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#di-san-bu-shun-zhao-code-forward-code-zou-yi-bian"><span class="toc-text">第三步：顺着 forward() 走一遍</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#di-si-bu-kan-quan-zhong-jia-zai"><span class="toc-text">第四步：看权重加载</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#di-wu-bu-kan-tui-li-ru-kou"><span class="toc-text">第五步：看推理入口</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#17-chang-jian-wu-qu"><span class="toc-text">17. 常见误区</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#wu-qu-1-pu-tong-tensor-cheng-yuan-shu-xing-suan-can-shu"><span class="toc-text">误区 1：普通 Tensor 成员属性算参数</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#wu-qu-2-code-model-eval-code-deng-yu-guan-bi-ti-du"><span class="toc-text">误区 2：model.eval() 等于关闭梯度</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#wu-qu-3-zhi-jie-code-torch-save-model-code-jiu-xing"><span class="toc-text">误区 3：直接 torch.save(model) 就行</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#wu-qu-4-code-sequential-code-zu-gou-yong-yu-tui-li"><span class="toc-text">误区 4：Sequential 足够用于推理</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#wu-qu-5-buffer-bu-zhong-yao"><span class="toc-text">误区 5：buffer 不重要</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#18-mian-shi-chang-jian-wen-ti"><span class="toc-text">18. 面试常见问题</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#19-si-kao-ti"><span class="toc-text">19. 思考题</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#lian-xi-1-xie-yi-ge-zui-jian-dan-de-module"><span class="toc-text">练习 1：写一个最简单的 Module</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#lian-xi-2-zi-mo-kuai-guan-cha"><span class="toc-text">练习 2：子模块观察</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#lian-xi-3-guan-cha-dropout-zai-train-eval-xia-de-chai-yi"><span class="toc-text">练习 3：观察 Dropout 在 train&#x2F;eval 下的差异</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#lian-xi-4-bao-cun-jia-zai-dui-bi-key"><span class="toc-text">练习 4：保存 &#x2F; 加载 &#x2F; 对比 key</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#lian-xi-5-buffer-zhu-ce-yu-jian-cha"><span class="toc-text">练习 5：buffer 注册与检查</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#20-ben-jie-yao-dian-yu-zi-jian"><span class="toc-text">20. 本节要点与自检</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#21-xiao-jie"><span class="toc-text">21. 小结</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xi-lie-dao-hang"><span class="toc-text">系列导航</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/7ab343d0/" title="PyTorch推理工程：10 里程碑、简历转化与面试表达"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PyTorch推理工程：10 里程碑、简历转化与面试表达"/></a><div class="content"><a class="title" href="/posts/7ab343d0/" title="PyTorch推理工程：10 里程碑、简历转化与面试表达">PyTorch推理工程：10 里程碑、简历转化与面试表达</a><time datetime="2026-03-29T11:00:00.000Z" title="发表于 2026-03-29 19:00:00">2026-03-29</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/432e473/" title="PyTorch推理工程：09 最小可展示推理项目骨架"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PyTorch推理工程：09 最小可展示推理项目骨架"/></a><div class="content"><a class="title" href="/posts/432e473/" title="PyTorch推理工程：09 最小可展示推理项目骨架">PyTorch推理工程：09 最小可展示推理项目骨架</a><time datetime="2026-03-29T10:00:00.000Z" title="发表于 2026-03-29 18:00:00">2026-03-29</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/fb17598c/" title="PyTorch推理工程：08 批处理、KV Cache 与 Serving 视角"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PyTorch推理工程：08 批处理、KV Cache 与 Serving 视角"/></a><div class="content"><a class="title" href="/posts/fb17598c/" title="PyTorch推理工程：08 批处理、KV Cache 与 Serving 视角">PyTorch推理工程：08 批处理、KV Cache 与 Serving 视角</a><time datetime="2026-03-29T09:00:00.000Z" title="发表于 2026-03-29 17:00:00">2026-03-29</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/attentionisallyouneed.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">从 Self-Attention、位置编码到 Encoder-Decoder，系统梳理 Transformer 的核心结构、设计动机与理解路径</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/d6fa227a/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-16</span><a class="blog-slider__title" href="posts/d6fa227a/" alt="">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</a><div class="blog-slider__text">从访存优化到多卡通信，一篇看清 CUDA 实践系列的结构与学习路线</div><a class="blog-slider__button" href="posts/d6fa227a/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/43c4b52e/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/agent.webp" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-24</span><a class="blog-slider__title" href="posts/43c4b52e/" alt="">从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路</a><div class="blog-slider__text">使用飞书与本地 Agent 对话，远程也要让本地 Agent 干活，当一名狠狠的资本家</div><a class="blog-slider__button" href="posts/43c4b52e/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/92dc1028/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/CUDA_C.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-02-05</span><a class="blog-slider__title" href="posts/92dc1028/" alt="">CUDA C编程权威指南-导读</a><div class="blog-slider__text">从异构并行到多 GPU 实践，串起 CUDA C 权威指南的核心学习路线</div><a class="blog-slider__button" href="posts/92dc1028/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">从全书视角出发，一篇看清 PMPP 的章节结构、核心主题与学习主线</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/aac6e27d/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Computer_System.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/aac6e27d/" alt="">深入理解计算机系统知识点总结</a><div class="blog-slider__text">从程序员视角梳理 CSAPP 的知识脉络、系统抽象与性能理解</div><a class="blog-slider__button" href="posts/aac6e27d/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">围绕类型推导、移动语义与并发，提炼现代 C++ 的核心实践</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>

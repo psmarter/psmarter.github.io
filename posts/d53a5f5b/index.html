@@ -1,0 +1,744 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>PyTorch推理工程：07 Profiling、Benchmark 与瓶颈定位 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="PyTorch 推理工程（07）：Profiling、Benchmark 与瓶颈定位 1. 本节定位 性能问题需要可复现的测量与分解：区分主机预处理与设备计算、算子时间与同步开销、冷启动与稳态、batch 规模与硬件利用率（算力或带宽约束）。本篇整理 PyTorch 侧计时、benchmark 与 Profiler 的基本用法及常见误判来源（尤其未同步的 CUDA 计时）。  2. 性能分析流程">
+<meta property="og:type" content="article">
+<meta property="og:title" content="PyTorch推理工程：07 Profiling、Benchmark 与瓶颈定位">
+<meta property="og:url" content="https://smarter.xin/posts/d53a5f5b/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="PyTorch 推理工程（07）：Profiling、Benchmark 与瓶颈定位 1. 本节定位 性能问题需要可复现的测量与分解：区分主机预处理与设备计算、算子时间与同步开销、冷启动与稳态、batch 规模与硬件利用率（算力或带宽约束）。本篇整理 PyTorch 侧计时、benchmark 与 Profiler 的基本用法及常见误判来源（尤其未同步的 CUDA 计时）。  2. 性能分析流程">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/pytorch.avif">
+<meta property="article:published_time" content="2026-03-29T08:00:00.000Z">
+<meta property="article:modified_time" content="2026-03-29T11:38:27.486Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="Python">
+<meta property="article:tag" content="性能优化">
+<meta property="article:tag" content="PyTorch">
+<meta property="article:tag" content="性能分析">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/pytorch.avif"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "PyTorch推理工程：07 Profiling、Benchmark 与瓶颈定位",
+  "url": "https://smarter.xin/posts/d53a5f5b/",
+  "image": "https://smarter.xin/img/pytorch.avif",
+  "datePublished": "2026-03-29T08:00:00.000Z",
+  "dateModified": "2026-03-29T11:38:27.486Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/d53a5f5b/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'PyTorch推理工程：07 Profiling、Benchmark 与瓶颈定位',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">142</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">264</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">25</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/pytorch.avif);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">PyTorch推理工程：07 Profiling、Benchmark 与瓶颈定位</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">PyTorch推理工程：07 Profiling、Benchmark 与瓶颈定位</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-03-29T08:00:00.000Z" title="发表于 2026-03-29 16:00:00">2026-03-29</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-03-29T11:38:27.486Z" title="更新于 2026-03-29 19:38:27">2026-03-29</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/">AI Infra</a><i class="fas fa-angle-right post-meta-separator"></i><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/pytorch/">Pytorch</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">5.1k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>20分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="py-torch-tui-li-gong-cheng-07-profiling-benchmark-yu-ping-jing-ding-wei" tabindex="-1">PyTorch 推理工程（07）：Profiling、Benchmark 与瓶颈定位</h1>
+<h2 id="1-ben-jie-ding-wei" tabindex="-1" id="1-本节定位">1. 本节定位</h2>
+<p>性能问题需要可复现的测量与分解：区分主机预处理与设备计算、算子时间与同步开销、冷启动与稳态、batch 规模与硬件利用率（算力或带宽约束）。本篇整理 PyTorch 侧计时、<code>benchmark</code> 与 Profiler 的基本用法及常见误判来源（尤其未同步的 CUDA 计时）。</p>
+<hr>
+<h2 id="2-xing-neng-fen-xi-liu-cheng" tabindex="-1" id="2-性能分析流程">2. 性能分析流程</h2>
+<p>性能分析里最常见的错误：</p>
+<ol>
+<li>先改一堆东西</li>
+<li>发现稍微快了点</li>
+<li>完全不知道是哪一步起作用的</li>
+</ol>
+<p><strong>正确流程</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">第 1 步：定义待测指标</span><br><span class="line">    ↓ 单次延迟？平均吞吐？某个模块耗时？显存峰值？</span><br><span class="line">第 2 步：保证计时方法正确</span><br><span class="line">    ↓ CUDA 异步执行，不做同步就测 = 测了个寂寞</span><br><span class="line">第 3 步：benchmark 做对比</span><br><span class="line">    ↓ 对照组 vs 实验组，公平比较</span><br><span class="line">第 4 步：profiler 找热点</span><br><span class="line">    ↓ 哪个 op 最贵？CPU 还是 GPU？哪行代码触发的？</span><br><span class="line">第 5 步：针对性优化</span><br><span class="line">    ↓ 仅修改已定位瓶颈相关实现，避免无依据改动</span><br></pre></td></tr></table></figure>
+<p>这个流程比&quot;先 half 一下、compile 一下试试&quot;专业得多。</p>
+<hr>
+<h2 id="3-wei-shi-yao-code-time-time-code-zai-cuda-chang-jing-xia-bu-kao-pu" tabindex="-1" id="3-为什么-time-time-在-CUDA-场景下不靠谱">3. 为什么 <code>time.time()</code> 在 CUDA 场景下不靠谱</h2>
+<p>很多人测推理时间，会这样写：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> time</span><br><span class="line"></span><br><span class="line">start = time.time()</span><br><span class="line">y = model(x)</span><br><span class="line">end = time.time()</span><br><span class="line"><span class="built_in">print</span>(<span class="string">f&quot;耗时: <span class="subst">&#123;(end - start) * <span class="number">1000</span>:<span class="number">.2</span>f&#125;</span> ms&quot;</span>)</span><br></pre></td></tr></table></figure>
+<p>在 CPU 场景里还算凑合，但在 CUDA 推理里，这<strong>经常是错的</strong>。</p>
+<h3 id="yuan-yin-cuda-cao-zuo-shi-yi-bu-fa-qi-de" tabindex="-1" id="原因：CUDA-操作是异步发起的">原因：CUDA 操作是异步发起的</h3>
+<p>GPU 为异步执行设备。当执行 <code>y = model(x)</code> 时：</p>
+<ul>
+<li>CPU 把计算指令发给 GPU 就返回了</li>
+<li>GPU 还在后台执行</li>
+<li>这时 <code>time.time()</code> 记录的是&quot;CPU 发完指令的时间&quot;，不是&quot;GPU 真正执行完的时间&quot;</li>
+</ul>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">CPU: [发指令] → [调用 time.time()] ← 常见打点在主机侧</span><br><span class="line">GPU:           [还在跑...]</span><br></pre></td></tr></table></figure>
+<p>该方式测得的间隔可能显著短于 GPU 实际执行时间。</p>
+<h3 id="tong-bu-hou-zai-ji-shi-geng-jie-jin-zhen-shi" tabindex="-1" id="同步后再计时：更接近真实">同步后再计时：更接近真实</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> time</span><br><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"></span><br><span class="line"><span class="comment"># 先确保 GPU 把之前的工作做完</span></span><br><span class="line">torch.cuda.synchronize()</span><br><span class="line">start = time.time()</span><br><span class="line"></span><br><span class="line">y = model(x)</span><br><span class="line"></span><br><span class="line"><span class="comment"># 再等 GPU 把这次的工作做完</span></span><br><span class="line">torch.cuda.synchronize()</span><br><span class="line">end = time.time()</span><br><span class="line"></span><br><span class="line"><span class="built_in">print</span>(<span class="string">f&quot;GPU 推理耗时: <span class="subst">&#123;(end - start) * <span class="number">1000</span>:<span class="number">.2</span>f&#125;</span> ms&quot;</span>)</span><br></pre></td></tr></table></figure>
+<p><strong><code>torch.cuda.synchronize()</code></strong> 的作用：等待 GPU 完成当前所有已发起的操作，把 CPU 和 GPU 的时间线&quot;对齐&quot;。</p>
+<blockquote>
+<p>记住这个规则：<strong>CUDA 计时不做同步，很多结论都是虚的。</strong></p>
+</blockquote>
+<h3 id="dui-bi-shi-yan-gan-shou-chai-ju" tabindex="-1" id="对比实验：感受差距">对比实验：感受差距</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"><span class="keyword">import</span> torch.nn <span class="keyword">as</span> nn</span><br><span class="line"><span class="keyword">import</span> time</span><br><span class="line"></span><br><span class="line">device = <span class="string">&quot;cuda&quot;</span> <span class="keyword">if</span> torch.cuda.is_available() <span class="keyword">else</span> <span class="string">&quot;cpu&quot;</span></span><br><span class="line">model = nn.Sequential(nn.Linear(<span class="number">512</span>, <span class="number">2048</span>), nn.ReLU(), nn.Linear(<span class="number">2048</span>, <span class="number">512</span>)).to(device).<span class="built_in">eval</span>()</span><br><span class="line">x = torch.randn(<span class="number">64</span>, <span class="number">512</span>, device=device)</span><br><span class="line"></span><br><span class="line"><span class="keyword">with</span> torch.inference_mode():</span><br><span class="line">    <span class="comment"># 错误方式</span></span><br><span class="line">    start = time.time()</span><br><span class="line">    y = model(x)</span><br><span class="line">    end = time.time()</span><br><span class="line">    <span class="built_in">print</span>(<span class="string">f&quot;[未同步] 计时: <span class="subst">&#123;(end - start) * <span class="number">1000</span>:<span class="number">.3</span>f&#125;</span> ms&quot;</span>)</span><br><span class="line"></span><br><span class="line">    <span class="comment"># 正确方式</span></span><br><span class="line">    torch.cuda.synchronize()</span><br><span class="line">    start = time.time()</span><br><span class="line">    y = model(x)</span><br><span class="line">    torch.cuda.synchronize()</span><br><span class="line">    end = time.time()</span><br><span class="line">    <span class="built_in">print</span>(<span class="string">f&quot;[已同步] 计时: <span class="subst">&#123;(end - start) * <span class="number">1000</span>:<span class="number">.3</span>f&#125;</span> ms&quot;</span>)</span><br></pre></td></tr></table></figure>
+<p>未同步与同步后的读数可相差数量级（例如 0.01 ms 量级 vs 1–5 ms）。</p>
+<hr>
+<h2 id="4-code-torch-utils-benchmark-code-bi-shou-xie-xun-huan-geng-zhuan-ye-de-benchmark-gong-ju" tabindex="-1" id="4-torch-utils-benchmark：比手写循环更专业的-benchmark-工具">4. <code>torch.utils.benchmark</code>：比手写循环更专业的 benchmark 工具</h2>
+<p>虽然同步后的 <code>time.time()</code> 比不同步好，但还有个问题：<strong>一次计时的随机性太大</strong>。</p>
+<p><code>torch.utils.benchmark.Timer</code> 是 PyTorch 专为这类对比实验设计的工具，它比手写 <code>for + time.time()</code> 好在：</p>
+<ul>
+<li><strong>自动 warmup</strong>：首次运行有 CUDA 上下文初始化、kernel 选择等额外开销，会自动跳过</li>
+<li><strong>自动重复</strong>：运行足够多次，统计稳定的均值、中位数、IQR</li>
+<li><strong>知道 GPU 是异步的</strong>：在必要时自动处理同步</li>
+<li><strong>更公平的线程环境</strong>：控制 CPU 线程池，避免并发干扰对比结果</li>
+</ul>
+<h3 id="zui-xiao-shi-li" tabindex="-1" id="最小示例">最小示例</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"><span class="keyword">import</span> torch.nn <span class="keyword">as</span> nn</span><br><span class="line"><span class="keyword">import</span> torch.utils.benchmark <span class="keyword">as</span> benchmark</span><br><span class="line"></span><br><span class="line">device = <span class="string">&quot;cuda&quot;</span> <span class="keyword">if</span> torch.cuda.is_available() <span class="keyword">else</span> <span class="string">&quot;cpu&quot;</span></span><br><span class="line"></span><br><span class="line">model = nn.Sequential(</span><br><span class="line">    nn.Linear(<span class="number">128</span>, <span class="number">256</span>),</span><br><span class="line">    nn.ReLU(),</span><br><span class="line">    nn.Linear(<span class="number">256</span>, <span class="number">64</span>),</span><br><span class="line">).to(device).<span class="built_in">eval</span>()</span><br><span class="line"></span><br><span class="line">x = torch.randn(<span class="number">32</span>, <span class="number">128</span>, device=device)</span><br><span class="line"></span><br><span class="line"><span class="comment"># 用 inference_mode 包住 stmt（在 globals 里设置好上下文）</span></span><br><span class="line">t = benchmark.Timer(</span><br><span class="line">    stmt=<span class="string">&quot;with torch.inference_mode(): model(x)&quot;</span>,</span><br><span class="line">    <span class="built_in">globals</span>=&#123;<span class="string">&quot;model&quot;</span>: model, <span class="string">&quot;x&quot;</span>: x, <span class="string">&quot;torch&quot;</span>: torch&#125;,</span><br><span class="line">    label=<span class="string">&quot;MLP forward&quot;</span>,</span><br><span class="line">    sub_label=<span class="string">&quot;batch=32&quot;</span>,</span><br><span class="line">)</span><br><span class="line"></span><br><span class="line">result = t.blocked_autorange(min_run_time=<span class="number">1.0</span>)</span><br><span class="line"><span class="built_in">print</span>(result)</span><br></pre></td></tr></table></figure>
+<h3 id="li-jie-shu-chu" tabindex="-1" id="理解输出">理解输出</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">MLP forward: batch=32</span><br><span class="line">  Median: 0.12 ms</span><br><span class="line">  IQR:    0.01 ms (0.12 to 0.13)</span><br><span class="line">  337 measurements, 100 runs per measurement, 1 thread</span><br></pre></td></tr></table></figure>
+<table>
+<thead>
+<tr>
+<th>字段</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Median</code></td>
+<td>中位数延迟，比均值更抗噪声</td>
+</tr>
+<tr>
+<td><code>IQR</code></td>
+<td>四分位距（第 75 百分位 - 第 25 百分位），越小说明越稳定</td>
+</tr>
+<tr>
+<td><code>measurements</code></td>
+<td>跑了多少组</td>
+</tr>
+<tr>
+<td><code>runs per measurement</code></td>
+<td>每组跑多少次（自动决定）</td>
+</tr>
+</tbody>
+</table>
+<h3 id="bi-jiao-liang-ge-shi-xian" tabindex="-1" id="比较两个实现">比较两个实现</h3>
+<p><code>benchmark</code> 真正强大的地方是对比实验：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br></pre></td><td class="code"><pre><span class="line">results = []</span><br><span class="line"></span><br><span class="line"><span class="comment"># FP32 基线</span></span><br><span class="line">model_fp32 = nn.Linear(<span class="number">512</span>, <span class="number">512</span>).to(device).<span class="built_in">eval</span>()</span><br><span class="line">x_fp32 = torch.randn(<span class="number">64</span>, <span class="number">512</span>, device=device)</span><br><span class="line"></span><br><span class="line">t1 = benchmark.Timer(</span><br><span class="line">    stmt=<span class="string">&quot;with torch.inference_mode(): model(x)&quot;</span>,</span><br><span class="line">    <span class="built_in">globals</span>=&#123;<span class="string">&quot;model&quot;</span>: model_fp32, <span class="string">&quot;x&quot;</span>: x_fp32, <span class="string">&quot;torch&quot;</span>: torch&#125;,</span><br><span class="line">    label=<span class="string">&quot;Linear 512x512&quot;</span>,</span><br><span class="line">    sub_label=<span class="string">&quot;FP32&quot;</span>,</span><br><span class="line">)</span><br><span class="line">results.append(t1.blocked_autorange(min_run_time=<span class="number">1.0</span>))</span><br><span class="line"></span><br><span class="line"><span class="comment"># FP16 autocast</span></span><br><span class="line">t2 = benchmark.Timer(</span><br><span class="line">    stmt=<span class="string">&quot;&quot;&quot;</span></span><br><span class="line"><span class="string">with torch.inference_mode():</span></span><br><span class="line"><span class="string">    with torch.autocast(device_type=&#x27;cuda&#x27;, dtype=torch.float16):</span></span><br><span class="line"><span class="string">        model(x)</span></span><br><span class="line"><span class="string">&quot;&quot;&quot;</span>,</span><br><span class="line">    <span class="built_in">globals</span>=&#123;<span class="string">&quot;model&quot;</span>: model_fp32, <span class="string">&quot;x&quot;</span>: x_fp32, <span class="string">&quot;torch&quot;</span>: torch&#125;,</span><br><span class="line">    label=<span class="string">&quot;Linear 512x512&quot;</span>,</span><br><span class="line">    sub_label=<span class="string">&quot;FP16 autocast&quot;</span>,</span><br><span class="line">)</span><br><span class="line">results.append(t2.blocked_autorange(min_run_time=<span class="number">1.0</span>))</span><br><span class="line"></span><br><span class="line"><span class="comment"># 打印对比表</span></span><br><span class="line">compare = benchmark.Compare(results)</span><br><span class="line">compare.<span class="built_in">print</span>()</span><br></pre></td></tr></table></figure>
+<p>输出为各实现耗时的对比表及统计量。</p>
+<hr>
+<h2 id="5-code-torch-profiler-code-zhao-dao-quot-shi-shi-yao-man-quot-er-bu-zhi-shi-quot-duo-man-quot" tabindex="-1" id="5-torch-profiler：找到-是什么慢-而不只是-多慢">5. <code>torch.profiler</code>：找到&quot;是什么慢&quot;而不只是&quot;多慢&quot;</h2>
+<p>benchmark 侧重整体耗时；<strong>profiler 将耗时分解到算子与调用栈</strong>。</p>
+<h3 id="profiler-neng-hui-da-de-wen-ti" tabindex="-1" id="profiler-能回答的问题">profiler 能回答的问题</h3>
+<ul>
+<li>哪个 op 耗时最多？（CPU 时间 vs CUDA 时间）</li>
+<li>某个 op 被调用了多少次？</li>
+<li>某个 op 处理的输入 shape 是多少？</li>
+<li>这段热点代码在模型的哪一行触发的？</li>
+<li>是哪类 op 占主导：matmul、LayerNorm、Softmax？</li>
+<li>显存分配和释放有没有异常？</li>
+</ul>
+<h3 id="zui-ji-chu-de-profiler-xie-fa" tabindex="-1" id="最基础的-profiler-写法">最基础的 profiler 写法</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"><span class="keyword">import</span> torch.nn <span class="keyword">as</span> nn</span><br><span class="line"></span><br><span class="line">device = <span class="string">&quot;cuda&quot;</span> <span class="keyword">if</span> torch.cuda.is_available() <span class="keyword">else</span> <span class="string">&quot;cpu&quot;</span></span><br><span class="line"></span><br><span class="line">model = nn.Sequential(</span><br><span class="line">    nn.Linear(<span class="number">128</span>, <span class="number">256</span>),</span><br><span class="line">    nn.ReLU(),</span><br><span class="line">    nn.Linear(<span class="number">256</span>, <span class="number">64</span>),</span><br><span class="line">).to(device).<span class="built_in">eval</span>()</span><br><span class="line"></span><br><span class="line">x = torch.randn(<span class="number">32</span>, <span class="number">128</span>, device=device)</span><br><span class="line"></span><br><span class="line"><span class="keyword">with</span> torch.inference_mode():</span><br><span class="line">    <span class="keyword">with</span> torch.profiler.profile(</span><br><span class="line">        activities=[</span><br><span class="line">            torch.profiler.ProfilerActivity.CPU,</span><br><span class="line">            torch.profiler.ProfilerActivity.CUDA,</span><br><span class="line">        ],</span><br><span class="line">        record_shapes=<span class="literal">True</span>,      <span class="comment"># 记录每个 op 的输入 shape</span></span><br><span class="line">        with_stack=<span class="literal">True</span>,         <span class="comment"># 记录代码调用位置（文件 + 行号）</span></span><br><span class="line">    ) <span class="keyword">as</span> prof:</span><br><span class="line">        y = model(x)</span><br><span class="line"></span><br><span class="line"><span class="comment"># 按 CUDA 耗时降序，打印前 20 个热点</span></span><br><span class="line"><span class="built_in">print</span>(prof.key_averages().table(sort_by=<span class="string">&quot;self_cuda_time_total&quot;</span>, row_limit=<span class="number">20</span>))</span><br></pre></td></tr></table></figure>
+<hr>
+<h2 id="6-du-dong-profiler-shu-chu-biao" tabindex="-1" id="6-读懂-profiler-输出表">6. 读懂 profiler 输出表</h2>
+<p>这是初学者最容易卡住的地方。下面是一个典型的输出（已简化）：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">---------------------------------  -------  -------  -------  -------  --------</span><br><span class="line">Name                               CPU %    CPU us   CUDA %   CUDA us  Calls</span><br><span class="line">---------------------------------  -------  -------  -------  -------  --------</span><br><span class="line">aten::linear                        5.2%      120      62.1%    2450      2</span><br><span class="line">aten::addmm                         2.1%       48      58.3%    2300      2</span><br><span class="line">aten::relu                          1.0%       23       7.2%     285      1</span><br><span class="line">aten::t                             0.8%       18       2.1%      83      2</span><br><span class="line">ProfilerStep*                      91.0%     2100       0.0%       0      1</span><br><span class="line">---------------------------------  -------  -------  -------  -------  --------</span><br></pre></td></tr></table></figure>
+<table>
+<thead>
+<tr>
+<th>列名</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Name</code></td>
+<td>操作名称（aten op）</td>
+</tr>
+<tr>
+<td><code>CPU us</code></td>
+<td>CPU 侧累计花费的时间（微秒）</td>
+</tr>
+<tr>
+<td><code>CUDA us</code></td>
+<td>GPU 侧实际执行花费的时间（微秒）</td>
+</tr>
+<tr>
+<td><code>Calls</code></td>
+<td>被调用了多少次</td>
+</tr>
+</tbody>
+</table>
+<p><strong>关键：<code>self_cuda_time_total</code> vs <code>cuda_time_total</code></strong></p>
+<ul>
+<li><code>cuda_time_total</code>：这个 op 及其所有子调用的 GPU 时间总和（“包含子操作”）</li>
+<li><code>self_cuda_time_total</code>：这个 op <strong>自身</strong> 的 GPU 时间，不含子调用</li>
+</ul>
+<p>宜优先关注 <code>self_cuda_time_total</code>：<code>aten::linear</code> 等会调用子算子（如 <code>aten::addmm</code>），若仅看 <code>cuda_time_total</code> 易重复计入子调用；<code>self_cuda_time_total</code> 更贴近该算子自身开销。</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 看 CUDA 侧自身耗时排名</span></span><br><span class="line"><span class="built_in">print</span>(prof.key_averages().table(sort_by=<span class="string">&quot;self_cuda_time_total&quot;</span>, row_limit=<span class="number">20</span>))</span><br><span class="line"></span><br><span class="line"><span class="comment"># 看 CPU 侧自身耗时排名（排查 Python 开销）</span></span><br><span class="line"><span class="built_in">print</span>(prof.key_averages().table(sort_by=<span class="string">&quot;self_cpu_time_total&quot;</span>, row_limit=<span class="number">20</span>))</span><br></pre></td></tr></table></figure>
+<hr>
+<h2 id="7-profiler-de-ge-ge-can-shu-fen-bie-you-shi-yao-yong" tabindex="-1" id="7-profiler-的各个参数：分别有什么用">7. profiler 的各个参数：分别有什么用</h2>
+<h3 id="code-activities-code-ji-lu-na-xie-she-bei-de-huo-dong" tabindex="-1" id="activities：记录哪些设备的活动"><code>activities</code>：记录哪些设备的活动</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">activities=[</span><br><span class="line">    torch.profiler.ProfilerActivity.CPU,    <span class="comment"># Python 端、算子调度</span></span><br><span class="line">    torch.profiler.ProfilerActivity.CUDA,   <span class="comment"># GPU kernel 执行</span></span><br><span class="line">]</span><br></pre></td></tr></table></figure>
+<p>两个都开才能看到完整的 CPU+GPU 时间分布。</p>
+<h3 id="code-record-shapes-true-code-ji-lu-mei-ge-op-de-shu-ru-xing-zhuang" tabindex="-1" id="record-shapes-True：记录每个-op-的输入形状"><code>record_shapes=True</code>：记录每个 op 的输入形状</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">热点在 aten::addmm，输入 shape 是 [32, 128] @ [128, 256]</span><br><span class="line">                                           ↑</span><br><span class="line">                           这是 batch=32 下的 Linear(128, 256)</span><br></pre></td></tr></table></figure>
+<p>有了 shape 信息，才能判断&quot;这个 op 贵，是因为它本来就贵，还是因为这个 shape 让它特别贵？&quot;</p>
+<h3 id="code-with-stack-true-code-ji-lu-re-dian-lai-zi-dai-ma-na-yi-xing" tabindex="-1" id="with-stack-True：记录热点来自代码哪一行"><code>with_stack=True</code>：记录热点来自代码哪一行</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">aten::addmm 热点</span><br><span class="line">  来自：model.py, line 45, forward()</span><br><span class="line">             └── transformer_block.py, line 12, attention()</span><br></pre></td></tr></table></figure>
+<p>若已知热点为 <code>matmul</code> 但需映射到具体层，可启用 <code>with_stack=True</code> 获取 Python 调用栈。</p>
+<h3 id="code-profile-memory-true-code-gen-zong-xian-cun-fen-pei-he-shi-fang" tabindex="-1" id="profile-memory-True：跟踪显存分配和释放"><code>profile_memory=True</code>：跟踪显存分配和释放</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">with</span> torch.profiler.profile(</span><br><span class="line">    activities=[...],</span><br><span class="line">    profile_memory=<span class="literal">True</span>,   <span class="comment"># 会大幅增加 profiler 自身开销</span></span><br><span class="line">) <span class="keyword">as</span> prof:</span><br><span class="line">    y = model(x)</span><br></pre></td></tr></table></figure>
+<p>适合排查：某段前向是不是在频繁分配临时 Tensor，或者显存峰值为什么突然高了。</p>
+<blockquote>
+<p>⚠️ 注意：<code>profile_memory=True</code> 会显著增加 profiler 本身的开销，不要在追求准确吞吐测量时同时开启。</p>
+</blockquote>
+<h3 id="code-with-flops-true-code-gu-suan-bu-fen-op-de-ji-suan-liang" tabindex="-1" id="with-flops-True：估算部分-op-的计算量"><code>with_flops=True</code>：估算部分 op 的计算量</h3>
+<p>对 <code>matmul</code>、<code>conv2d</code> 等 op 提供 FLOPs 估算，帮助判断&quot;是计算密集还是带宽密集&quot;。</p>
+<blockquote>
+<p>FLOPs 不等于性能。同样的 FLOPs，如果数据访问模式不好（比如非连续内存），实际执行可能很慢。</p>
+</blockquote>
+<hr>
+<h2 id="8-dao-chu-chrome-trace-yong-shi-jian-xian-kan-zhi-xing-jie-gou" tabindex="-1" id="8-导出-Chrome-trace：用时间线看执行结构">8. 导出 Chrome trace：用时间线看执行结构</h2>
+<p><code>key_averages().table()</code> 只能看热点排名，但不能看&quot;执行结构&quot;——CPU 和 GPU 是否重叠、哪里有空洞、kernel 是不是碎片化。</p>
+<p>这时要导出 Chrome trace：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">with</span> torch.inference_mode():</span><br><span class="line">    <span class="keyword">with</span> torch.profiler.profile(</span><br><span class="line">        activities=[</span><br><span class="line">            torch.profiler.ProfilerActivity.CPU,</span><br><span class="line">            torch.profiler.ProfilerActivity.CUDA,</span><br><span class="line">        ],</span><br><span class="line">        record_shapes=<span class="literal">True</span>,</span><br><span class="line">    ) <span class="keyword">as</span> prof:</span><br><span class="line">        y = model(x)</span><br><span class="line"></span><br><span class="line"><span class="comment"># 导出 trace 文件</span></span><br><span class="line">prof.export_chrome_trace(<span class="string">&quot;trace.json&quot;</span>)</span><br></pre></td></tr></table></figure>
+<p>然后在浏览器打开 <code>chrome://tracing</code>，把 <code>trace.json</code> 拖入，就能看到完整的时间线视图：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">CPU:  [dispatch] [dispatch] [dispatch]</span><br><span class="line">GPU:                 [kernel A] [kernel B] [kernel C]</span><br><span class="line">      ←────── 重叠执行，好 ──────→</span><br></pre></td></tr></table></figure>
+<p>vs</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">CPU:  [dispatch] [等待] [dispatch] [等待] [dispatch]</span><br><span class="line">GPU:             [A]              [B]              [C]</span><br><span class="line">      ← 串行等待，坏，说明有同步点 →</span><br></pre></td></tr></table></figure>
+<p><strong>时间线能发现的问题</strong>：</p>
+<ul>
+<li>CPU/GPU 长时间没有重叠 → 有不必要的同步点</li>
+<li>GPU 时间线里有大量零散小 kernel → 可能需要 kernel fusion</li>
+<li>GPU 有大段空白 → 数据供给不足（CPU 预处理太慢或搬运是瓶颈）</li>
+</ul>
+<hr>
+<h2 id="9-schedule-chang-tui-li-xun-huan-li-ru-he-an-xu-profiling" tabindex="-1" id="9-schedule：长推理循环里如何按需-profiling">9. schedule：长推理循环里如何按需 profiling</h2>
+<p>对长循环推理若全程全量记录，profiler 自身开销与 trace 体积均会扭曲结果或难以分析。</p>
+<p><strong>schedule</strong> 用于限定在指定步区间内开启采集，以控制开销与 trace 规模：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"><span class="keyword">import</span> torch.nn <span class="keyword">as</span> nn</span><br><span class="line"></span><br><span class="line">device = <span class="string">&quot;cuda&quot;</span> <span class="keyword">if</span> torch.cuda.is_available() <span class="keyword">else</span> <span class="string">&quot;cpu&quot;</span></span><br><span class="line">model = nn.Linear(<span class="number">128</span>, <span class="number">64</span>).to(device).<span class="built_in">eval</span>()</span><br><span class="line">x = torch.randn(<span class="number">32</span>, <span class="number">128</span>, device=device)</span><br><span class="line"></span><br><span class="line"><span class="keyword">with</span> torch.inference_mode():</span><br><span class="line">    <span class="keyword">with</span> torch.profiler.profile(</span><br><span class="line">        activities=[</span><br><span class="line">            torch.profiler.ProfilerActivity.CPU,</span><br><span class="line">            torch.profiler.ProfilerActivity.CUDA,</span><br><span class="line">        ],</span><br><span class="line">        schedule=torch.profiler.schedule(</span><br><span class="line">            skip_first=<span class="number">2</span>,   <span class="comment"># 跳过前 2 轮（CUDA 上下文初始化）</span></span><br><span class="line">            wait=<span class="number">1</span>,         <span class="comment"># 等待 1 轮（不记录，让系统稳定）</span></span><br><span class="line">            warmup=<span class="number">1</span>,       <span class="comment"># warmup 1 轮（记录但不纳入分析）</span></span><br><span class="line">            active=<span class="number">3</span>,       <span class="comment"># 只分析这 3 轮</span></span><br><span class="line">            repeat=<span class="number">1</span>,       <span class="comment"># 只做一次 skip+wait+warmup+active 循环</span></span><br><span class="line">        ),</span><br><span class="line">        on_trace_ready=torch.profiler.tensorboard_trace_handler(<span class="string">&quot;./log&quot;</span>),</span><br><span class="line">    ) <span class="keyword">as</span> prof:</span><br><span class="line">        <span class="keyword">for</span> i <span class="keyword">in</span> <span class="built_in">range</span>(<span class="number">10</span>):</span><br><span class="line">            y = model(x)</span><br><span class="line">            prof.step()   <span class="comment"># 告诉 profiler：这一轮结束了</span></span><br></pre></td></tr></table></figure>
+<p><strong>各阶段含义</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">轮次:  0    1    2    3    4    5    6    7    8    9</span><br><span class="line">阶段:  skip skip wait warm act  act  act  done done done</span><br><span class="line">                 ↑              ↑</span><br><span class="line">          不记录，稳定       这 3 轮被完整记录</span><br></pre></td></tr></table></figure>
+<p><code>prof.step()</code> 是关键——它告诉 profiler “当前轮结束”，profiler 才知道要切换到下一个阶段。</p>
+<hr>
+<h2 id="10-profiler-vs-benchmark-fen-gong-qing-xi" tabindex="-1" id="10-profiler-vs-benchmark：分工清晰">10. profiler vs benchmark：分工清晰</h2>
+<p>很多人会把两者混用，这里说清楚：</p>
+<table>
+<thead>
+<tr>
+<th>工具</th>
+<th>核心问题</th>
+<th>输出形式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>torch.profiler</code></td>
+<td>哪里慢？热点在哪？</td>
+<td>op 表格 + 时间线</td>
+</tr>
+<tr>
+<td><code>torch.utils.benchmark.Timer</code></td>
+<td>哪个实现更快？快了多少？</td>
+<td>中位数 + IQR + 对比表</td>
+</tr>
+</tbody>
+</table>
+<p><strong>标准工作流</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">先用 benchmark 确认：&quot;A 比 B 快了 30%&quot;</span><br><span class="line">再用 profiler 解释：&quot;因为 A 的 attention QK matmul 用了 float16，节省了 2x CUDA 时间&quot;</span><br></pre></td></tr></table></figure>
+<p>仅有 benchmark 无量化归因 → 难以解释加速来源、难以迁移到其他配置<br>
+仅有 profiler 无前后对比 → 难以量化优化收益</p>
+<hr>
+<h2 id="11-leng-qi-dong-yu-wen-tai-xu-fen-bie-tao-lun" tabindex="-1" id="11-冷启动与稳态须分别讨论">11. 冷启动与稳态须分别讨论</h2>
+<p>这是容易被忽视的问题。</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"><span class="keyword">import</span> torch.nn <span class="keyword">as</span> nn</span><br><span class="line"><span class="keyword">import</span> time</span><br><span class="line"></span><br><span class="line">device = <span class="string">&quot;cuda&quot;</span> <span class="keyword">if</span> torch.cuda.is_available() <span class="keyword">else</span> <span class="string">&quot;cpu&quot;</span></span><br><span class="line">model = nn.Linear(<span class="number">512</span>, <span class="number">512</span>).to(device).<span class="built_in">eval</span>()</span><br><span class="line">x = torch.randn(<span class="number">64</span>, <span class="number">512</span>, device=device)</span><br><span class="line"></span><br><span class="line"><span class="keyword">with</span> torch.inference_mode():</span><br><span class="line">    <span class="keyword">for</span> i <span class="keyword">in</span> <span class="built_in">range</span>(<span class="number">6</span>):</span><br><span class="line">        torch.cuda.synchronize()</span><br><span class="line">        t0 = time.time()</span><br><span class="line">        y = model(x)</span><br><span class="line">        torch.cuda.synchronize()</span><br><span class="line">        t1 = time.time()</span><br><span class="line">        <span class="built_in">print</span>(<span class="string">f&quot;第 <span class="subst">&#123;i+<span class="number">1</span>&#125;</span> 次: <span class="subst">&#123;(t1 - t0) * <span class="number">1000</span>:<span class="number">.2</span>f&#125;</span> ms&quot;</span>)</span><br></pre></td></tr></table></figure>
+<p>典型日志类似：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">第 1 次: 45.23 ms  ← 首次：CUDA 上下文初始化 + kernel 选择</span><br><span class="line">第 2 次:  1.12 ms  ← 稳态开始</span><br><span class="line">第 3 次:  1.09 ms</span><br><span class="line">第 4 次:  1.11 ms</span><br><span class="line">第 5 次:  1.08 ms</span><br><span class="line">第 6 次:  1.10 ms</span><br></pre></td></tr></table></figure>
+<p>第 1 次慢了 40 倍，但这不是&quot;模型慢&quot;，而是<strong>冷启动开销</strong>。</p>
+<table>
+<thead>
+<tr>
+<th>首轮慢的常见原因</th>
+<th>稳态慢的常见原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CUDA 上下文初始化</td>
+<td>模型算子本身开销</td>
+</tr>
+<tr>
+<td>cuDNN/cuBLAS kernel 选择</td>
+<td>batch 配置不合理</td>
+</tr>
+<tr>
+<td><code>torch.compile()</code> 编译</td>
+<td>内存带宽瓶颈</td>
+</tr>
+<tr>
+<td>GPU 内存分配首次开销</td>
+<td>数据搬运频繁</td>
+</tr>
+<tr>
+<td>Python lazy initialization</td>
+<td>同步点过多</td>
+</tr>
+</tbody>
+</table>
+<p><strong>结论</strong>：benchmark 前宜 warmup，并将首轮与稳态分开报告。</p>
+<hr>
+<h2 id="12-yi-ge-wan-zheng-de-xing-neng-fen-xi-an-li" tabindex="-1" id="12-一个完整的性能分析案例">12. 一个完整的性能分析案例</h2>
+<p>可将下列步骤串为一次完整诊断流程：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"><span class="keyword">import</span> torch.nn <span class="keyword">as</span> nn</span><br><span class="line"><span class="keyword">import</span> torch.utils.benchmark <span class="keyword">as</span> benchmark</span><br><span class="line"><span class="keyword">import</span> time</span><br><span class="line"></span><br><span class="line">device = <span class="string">&quot;cuda&quot;</span> <span class="keyword">if</span> torch.cuda.is_available() <span class="keyword">else</span> <span class="string">&quot;cpu&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 待分析的模型</span></span><br><span class="line">model = nn.Sequential(</span><br><span class="line">    nn.Linear(<span class="number">512</span>, <span class="number">2048</span>),</span><br><span class="line">    nn.ReLU(),</span><br><span class="line">    nn.Linear(<span class="number">2048</span>, <span class="number">2048</span>),</span><br><span class="line">    nn.ReLU(),</span><br><span class="line">    nn.Linear(<span class="number">2048</span>, <span class="number">512</span>)</span><br><span class="line">).to(device).<span class="built_in">eval</span>()</span><br><span class="line"></span><br><span class="line">x = torch.randn(<span class="number">64</span>, <span class="number">512</span>, device=device)</span><br><span class="line"></span><br><span class="line"><span class="comment"># ─── 第 1 步：正确计时，观察首轮慢 ───────────────────────────────────────</span></span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot;=== 第 1 步：观察首轮 vs 稳态 ===&quot;</span>)</span><br><span class="line"><span class="keyword">with</span> torch.inference_mode():</span><br><span class="line">    <span class="keyword">for</span> i <span class="keyword">in</span> <span class="built_in">range</span>(<span class="number">5</span>):</span><br><span class="line">        <span class="keyword">if</span> device == <span class="string">&quot;cuda&quot;</span>:</span><br><span class="line">            torch.cuda.synchronize()</span><br><span class="line">        t0 = time.time()</span><br><span class="line">        y = model(x)</span><br><span class="line">        <span class="keyword">if</span> device == <span class="string">&quot;cuda&quot;</span>:</span><br><span class="line">            torch.cuda.synchronize()</span><br><span class="line">        t1 = time.time()</span><br><span class="line">        <span class="built_in">print</span>(<span class="string">f&quot;  第 <span class="subst">&#123;i+<span class="number">1</span>&#125;</span> 次: <span class="subst">&#123;(t1-t0)*<span class="number">1000</span>:<span class="number">.2</span>f&#125;</span> ms&quot;</span>)</span><br><span class="line"></span><br><span class="line"><span class="comment"># ─── 第 2 步：benchmark 稳态性能 ─────────────────────────────────────────</span></span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot;\n=== 第 2 步：benchmark ===&quot;</span>)</span><br><span class="line">t = benchmark.Timer(</span><br><span class="line">    stmt=<span class="string">&quot;with torch.inference_mode(): model(x)&quot;</span>,</span><br><span class="line">    <span class="built_in">globals</span>=&#123;<span class="string">&quot;model&quot;</span>: model, <span class="string">&quot;x&quot;</span>: x, <span class="string">&quot;torch&quot;</span>: torch&#125;,</span><br><span class="line">    label=<span class="string">&quot;MLP&quot;</span>,</span><br><span class="line">    sub_label=<span class="string">&quot;FP32, batch=64&quot;</span>,</span><br><span class="line">)</span><br><span class="line">result = t.blocked_autorange(min_run_time=<span class="number">2.0</span>)</span><br><span class="line"><span class="built_in">print</span>(result)</span><br><span class="line"></span><br><span class="line"><span class="comment"># ─── 第 3 步：profiler 找热点 ────────────────────────────────────────────</span></span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot;\n=== 第 3 步：profiler 热点分析 ===&quot;</span>)</span><br><span class="line"><span class="keyword">with</span> torch.inference_mode():</span><br><span class="line">    <span class="keyword">with</span> torch.profiler.profile(</span><br><span class="line">        activities=[</span><br><span class="line">            torch.profiler.ProfilerActivity.CPU,</span><br><span class="line">            torch.profiler.ProfilerActivity.CUDA,</span><br><span class="line">        ],</span><br><span class="line">        record_shapes=<span class="literal">True</span>,</span><br><span class="line">        with_stack=<span class="literal">True</span>,</span><br><span class="line">    ) <span class="keyword">as</span> prof:</span><br><span class="line">        <span class="comment"># 先 warmup 几次</span></span><br><span class="line">        <span class="keyword">for</span> _ <span class="keyword">in</span> <span class="built_in">range</span>(<span class="number">3</span>):</span><br><span class="line">            y = model(x)</span><br><span class="line">        <span class="comment"># 再 profile 一次</span></span><br><span class="line">        y = model(x)</span><br><span class="line"></span><br><span class="line"><span class="comment"># 打印 CUDA 热点</span></span><br><span class="line"><span class="built_in">print</span>(prof.key_averages().table(sort_by=<span class="string">&quot;self_cuda_time_total&quot;</span>, row_limit=<span class="number">15</span>))</span><br><span class="line"></span><br><span class="line"><span class="comment"># 导出时间线（可选）</span></span><br><span class="line">prof.export_chrome_trace(<span class="string">&quot;mlp_trace.json&quot;</span>)</span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot;trace 已导出到 mlp_trace.json，用 chrome://tracing 打开查看&quot;</span>)</span><br></pre></td></tr></table></figure>
+<hr>
+<h2 id="13-tui-li-dai-ma-li-de-quot-yin-xing-tong-bu-keng-quot-yong-profiler-yi-shi-pai-cha" tabindex="-1" id="13-推理代码里的-隐形同步坑-：用-profiler-意识排查">13. 推理代码里的&quot;隐形同步坑&quot;：用 profiler 意识排查</h2>
+<p>即使没开 profiler，也要带着这种意识看代码：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 反例: 每次循环都 .item()：触发 GPU→CPU 同步</span></span><br><span class="line"><span class="keyword">for</span> batch <span class="keyword">in</span> dataloader:</span><br><span class="line">    output = model(batch.to(device))</span><br><span class="line">    loss = output.<span class="built_in">sum</span>().item()   <span class="comment"># ← 每次都同步，GPU 等一次，大幅降低吞吐</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 示例: 推理结束后统一处理</span></span><br><span class="line">outputs = []</span><br><span class="line"><span class="keyword">with</span> torch.inference_mode():</span><br><span class="line">    <span class="keyword">for</span> batch <span class="keyword">in</span> dataloader:</span><br><span class="line">        y = model(batch.to(device))</span><br><span class="line">        outputs.append(y)   <span class="comment"># 保留在 GPU 上</span></span><br><span class="line"><span class="comment"># 循环结束后一次性取结果</span></span><br><span class="line">all_outputs = torch.cat(outputs, dim=<span class="number">0</span>)</span><br><span class="line">total_sum = all_outputs.<span class="built_in">sum</span>().item()   <span class="comment"># 只同步一次</span></span><br></pre></td></tr></table></figure>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 反例: 打印中间结果：可能触发同步</span></span><br><span class="line"><span class="keyword">for</span> i <span class="keyword">in</span> <span class="built_in">range</span>(<span class="number">100</span>):</span><br><span class="line">    y = model(x)</span><br><span class="line">    <span class="built_in">print</span>(<span class="string">f&quot;step <span class="subst">&#123;i&#125;</span>: output sum = <span class="subst">&#123;y.<span class="built_in">sum</span>()&#125;</span>&quot;</span>)   <span class="comment"># 每次打印都要等 GPU</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 示例: 只在需要时打印</span></span><br><span class="line"><span class="keyword">for</span> i <span class="keyword">in</span> <span class="built_in">range</span>(<span class="number">100</span>):</span><br><span class="line">    y = model(x)</span><br><span class="line">    <span class="keyword">if</span> i % <span class="number">20</span> == <span class="number">0</span> <span class="keyword">and</span> i &gt; <span class="number">0</span>:</span><br><span class="line">        torch.cuda.synchronize()</span><br><span class="line">        <span class="built_in">print</span>(<span class="string">f&quot;step <span class="subst">&#123;i&#125;</span>: 检查点&quot;</span>)</span><br></pre></td></tr></table></figure>
+<hr>
+<h2 id="14-kan-profiler-shu-chu-shi-ying-gai-zen-yao-xiang" tabindex="-1" id="14-看-profiler-输出时，应该怎么想">14. 看 profiler 输出时，应该怎么想</h2>
+<p>阅读 profiler 汇总表时，除排名第一项外，宜结合占比分布与调用关系综合判断。</p>
+<p><strong>系统性阅读步骤</strong>：</p>
+<h3 id="xian-kan-zong-cpu-vs-cuda-shi-jian-bi-li" tabindex="-1" id="①-先看总-CPU-vs-CUDA-时间比例">① 先看总 CPU vs CUDA 时间比例</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">CPU total: 500 μs   CUDA total: 2000 μs</span><br></pre></td></tr></table></figure>
+<p>CUDA 占大头 → GPU 是主要执行者，符合预期<br>
+CPU 占大头 → 可能有大量 Python 开销或同步等待</p>
+<h3 id="kan-shi-shao-shu-da-op-huan-shi-da-liang-xiao-op" tabindex="-1" id="②-看是少数大-op-还是大量小-op">② 看是少数大 op 还是大量小 op</h3>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">情况 A：matmul 占 80% CUDA 时间，其余分散  → 单一瓶颈，集中优化</span><br><span class="line">情况 B：300 个小 op 各占 0.3% CUDA 时间   → 碎片化，考虑 kernel fusion</span><br></pre></td></tr></table></figure>
+<h3 id="kan-calls-lie" tabindex="-1" id="③-看-Calls-列">③ 看 Calls 列</h3>
+<p>某个 op 单次不贵（10μs），但被调用了 500 次 → 累计 5ms，可能值得优化</p>
+<h3 id="kan-shape-xu-yao-code-record-shapes-true-code" tabindex="-1" id="④-看-shape（需要-record-shapes-True）">④ 看 shape（需要 <code>record_shapes=True</code>）</h3>
+<p>热点 op 的 shape 是不是很&quot;尴尬&quot;（比如 <code>matmul [1, 4096] @ [4096, 512]</code>，batch=1 没法吃满 GPU）</p>
+<h3 id="kan-stack-xu-yao-code-with-stack-true-code" tabindex="-1" id="⑤-看-stack（需要-with-stack-True）">⑤ 看 stack（需要 <code>with_stack=True</code>）</h3>
+<p>热点映射到 <code>attention.py:35</code> 还是 <code>preprocess.py:12</code> 等自有代码？</p>
+<hr>
+<h2 id="15-xing-neng-fen-xi-de-chang-jian-wu-qu" tabindex="-1" id="15-性能分析的常见误区">15. 性能分析的常见误区</h2>
+<table>
+<thead>
+<tr>
+<th>误区</th>
+<th>正确认识</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>看一次 time.time() 就下结论</td>
+<td>CUDA 异步，必须同步后计时，而且要多次取中位数</td>
+</tr>
+<tr>
+<td>首次运行慢就以为模型慢</td>
+<td>冷启动开销，warmup 之后才是稳态</td>
+</tr>
+<tr>
+<td>FLOPs 高的 op 一定慢</td>
+<td>实际性能取决于是否能吃满算力，带宽和访存也是关键</td>
+</tr>
+<tr>
+<td>profiler 全开所有选项才准</td>
+<td>profiler 本身有开销，<code>profile_memory=True</code> 会显著影响时序</td>
+</tr>
+<tr>
+<td>第一个热点就是唯一瓶颈</td>
+<td>可能有多个同等量级的热点，改一个另一个会浮出来</td>
+</tr>
+<tr>
+<td>快了就行，不需要解释</td>
+<td>benchmark 对比 + profiler 解释 = 可推广的结论</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="16-mian-shi-chang-jian-wen-ti" tabindex="-1" id="16-面试常见问题">16. 面试常见问题</h2>
+<p><strong>Q：为什么 CUDA 场景下直接用 <code>time.time()</code> 包住前向不准确？</strong><br>
+A：CUDA 操作是异步发起的，<code>model(x)</code> 返回时 GPU 可能还在执行，<code>time.time()</code> 测到的只是&quot;CPU 发完指令&quot;的时间，不是 GPU 执行完成的时间。必须用 <code>torch.cuda.synchronize()</code> 确保 GPU 完成后再打时间戳。</p>
+<p><strong>Q：<code>torch.profiler</code> 可提供哪些观测项？</strong><br>
+A：可以看哪些 op 最贵（CPU time / CUDA time）、op 的调用次数、输入 shape、代码调用栈位置，以及导出时间线查看 CPU/GPU 重叠情况和 kernel 碎片化。</p>
+<p><strong>Q：<code>self_cuda_time_total</code> 和 <code>cuda_time_total</code> 有什么区别？</strong><br>
+A：<code>cuda_time_total</code> 包含子 op 的时间（比如 <code>aten::linear</code> 会包含它内部调用的 <code>aten::addmm</code>），<code>self_cuda_time_total</code> 只看这个 op 自身的时间。分析热点时优先看 <code>self_cuda_time_total</code>，避免重复计算。</p>
+<p><strong>Q：<code>torch.utils.benchmark.Timer</code> 比手写循环计时好在哪里？</strong><br>
+A：自动处理 warmup（跳过 CUDA 冷启动）、控制线程池保证对比公平、处理 GPU 异步同步、统计中位数和 IQR 而不只是均值，整体结果更可靠，适合对比两个实现的性能差距。</p>
+<p><strong>Q：profiler 和 benchmark 分别用来干什么？</strong><br>
+A：benchmark 回答&quot;谁更快、快了多少&quot;；profiler 回答&quot;慢在哪里、为什么&quot;。标准工作流：先 benchmark 确认收益，再 profiler 定位原因。</p>
+<p><strong>Q：为什么推理分析中要区分冷启动和稳态？</strong><br>
+A：首轮有 CUDA 上下文初始化、cuBLAS kernel 选择、<code>torch.compile</code> 编译等额外开销，远慢于稳态。如果不 warmup 就计时，结论会严重偏向冷启动而夸大延迟。</p>
+<hr>
+<h2 id="17-si-kao-ti" tabindex="-1" id="17-思考题">17. 思考题</h2>
+<h3 id="lian-xi-1-gan-shou-cuda-ji-shi-de-chai-ju" tabindex="-1" id="练习-1：感受-CUDA-计时的差距">练习 1：感受 CUDA 计时的差距</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> torch, torch.nn <span class="keyword">as</span> nn, time</span><br><span class="line"></span><br><span class="line">device = <span class="string">&quot;cuda&quot;</span> <span class="keyword">if</span> torch.cuda.is_available() <span class="keyword">else</span> <span class="string">&quot;cpu&quot;</span></span><br><span class="line">model = nn.Linear(<span class="number">1024</span>, <span class="number">1024</span>).to(device).<span class="built_in">eval</span>()</span><br><span class="line">x = torch.randn(<span class="number">64</span>, <span class="number">1024</span>, device=device)</span><br><span class="line"></span><br><span class="line"><span class="keyword">with</span> torch.inference_mode():</span><br><span class="line">    <span class="comment"># 不同步计时</span></span><br><span class="line">    t0 = time.time(); y = model(x); t1 = time.time()</span><br><span class="line">    <span class="built_in">print</span>(<span class="string">f&quot;不同步: <span class="subst">&#123;(t1-t0)*<span class="number">1000</span>:<span class="number">.3</span>f&#125;</span> ms&quot;</span>)</span><br><span class="line"></span><br><span class="line">    <span class="comment"># 同步计时</span></span><br><span class="line">    torch.cuda.synchronize()</span><br><span class="line">    t0 = time.time(); y = model(x); torch.cuda.synchronize(); t1 = time.time()</span><br><span class="line">    <span class="built_in">print</span>(<span class="string">f&quot;同步:   <span class="subst">&#123;(t1-t0)*<span class="number">1000</span>:<span class="number">.3</span>f&#125;</span> ms&quot;</span>)</span><br></pre></td></tr></table></figure>
+<blockquote>
+<p>思考：两次结果差了多少？不同步时测到的&quot;时间&quot;为什么这么短？</p>
+</blockquote>
+<h3 id="lian-xi-2-guan-cha-leng-qi-dong" tabindex="-1" id="练习-2：观察冷启动">练习 2：观察冷启动</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 对同一个模型连续调用 6 次，记录每次时间，观察第 1 次和后续的差异</span></span><br></pre></td></tr></table></figure>
+<blockquote>
+<p>思考：第 1 次慢的原因是什么？第 2 次之后时间为什么稳定了？</p>
+</blockquote>
+<h3 id="lian-xi-3-zui-xiao-profiler-shi-yan" tabindex="-1" id="练习-3：最小-profiler-实验">练习 3：最小 profiler 实验</h3>
+<p>对一个两层 MLP 运行 profiler，然后：</p>
+<ol>
+<li>打印 <code>sort_by=&quot;self_cuda_time_total&quot;</code> 的热点表</li>
+<li>找出排名第一的 op，思考它是什么操作</li>
+</ol>
+<blockquote>
+<p>进阶：启用 <code>record_shapes=True</code>，核对热点算子的输入 shape 与模型定义是否一致</p>
+</blockquote>
+<h3 id="lian-xi-4-yong-benchmark-zuo-dui-bi-shi-yan" tabindex="-1" id="练习-4：用-benchmark-做对比实验">练习 4：用 benchmark 做对比实验</h3>
+<p>选一组对比（任选其一）：</p>
+<ul>
+<li>eager vs <code>torch.compile()</code></li>
+<li>FP32 forward vs autocast float16 forward</li>
+<li>batch=1 vs batch=64</li>
+</ul>
+<p>用 <code>benchmark.Timer</code> + <code>blocked_autorange</code> 测出中位数，打印对比结果。</p>
+<blockquote>
+<p>思考：IQR 大说明什么？中位数和均值哪个更能代表&quot;典型性能&quot;？</p>
+</blockquote>
+<h3 id="lian-xi-5-dao-chu-chrome-trace-bing-cha-kan-shi-jian-xian" tabindex="-1" id="练习-5：导出-Chrome-trace-并查看时间线">练习 5：导出 Chrome trace 并查看时间线</h3>
+<p>在练习 3 的基础上，加一行：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">prof.export_chrome_trace(<span class="string">&quot;my_trace.json&quot;</span>)</span><br></pre></td></tr></table></figure>
+<p>用 <code>chrome://tracing</code> 打开 trace，找到：</p>
+<ul>
+<li>CPU 调度层</li>
+<li>CUDA kernel 层</li>
+<li>两者是否有重叠</li>
+</ul>
+<blockquote>
+<p>思考：时间线里有没有 CPU 和 GPU 都空着的&quot;空洞&quot;？空洞说明什么？</p>
+</blockquote>
+<hr>
+<h2 id="18-ben-jie-yao-dian-yu-zi-jian" tabindex="-1" id="18-本节要点与自检">18. 本节要点与自检</h2>
+<ul>
+<li>知道 CUDA 计时为什么必须同步，会正确写同步计时代码</li>
+<li>理解冷启动和稳态的区别，做 benchmark 时会自动 warmup</li>
+<li>能用 <code>torch.profiler</code> 找到推理中的热点 op，读懂 <code>self_cuda_time_total</code> 等列的含义</li>
+<li>理解 <code>record_shapes</code>、<code>with_stack</code>、<code>profile_memory</code> 各自解决什么问题</li>
+<li>能用 <code>torch.utils.benchmark.Timer</code> 做公平的性能对比实验</li>
+<li>知道 profiler 偏&quot;诊断&quot;，benchmark 偏&quot;比较&quot;，会配合使用</li>
+<li>面对&quot;这个模型慢&quot;时，能给出系统的分析流程而不是拍脑袋猜</li>
+</ul>
+<hr>
+<h2 id="19-xiao-jie" tabindex="-1" id="19-小结">19. 小结</h2>
+<blockquote>
+<p><strong>真正的推理优化不是&quot;多试几个开关&quot;，而是&quot;先用正确计时排除噪声，用 benchmark 量化收益，用 profiler 定位热点，最后才针对性优化&quot;。</strong></p>
+</blockquote>
+<hr>
+<h2 id="xi-lie-dao-hang" tabindex="-1" id="系列导航">系列导航</h2>
+<ul>
+<li>上一篇：<a href="/posts/f1701a4d/">PyTorch推理工程：06 torch.compile、导出与 ONNX</a></li>
+<li>下一篇：<a href="/posts/fb17598c/">PyTorch推理工程：08 批处理、KV Cache 与 Serving 视角</a></li>
+<li><a href="/posts/846fbbaf/">系列索引（00 导读）</a></li>
+</ul>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/d53a5f5b/">https://smarter.xin/posts/d53a5f5b/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/python/">Python</a><a class="post-meta__tags" href="/tags/performance-optimization/">性能优化</a><a class="post-meta__tags" href="/tags/pytorch/">PyTorch</a><a class="post-meta__tags" href="/tags/performance-analysis/">性能分析</a></div><div class="post-share"><div class="social-share" data-image="/img/pytorch.avif" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/fb17598c/" title="PyTorch推理工程：08 批处理、KV Cache 与 Serving 视角"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">PyTorch推理工程：08 批处理、KV Cache 与 Serving 视角</div></div></div></a><a class="pagination-related  no-desc" href="/posts/f1701a4d/" title="PyTorch推理工程：06 torch.compile、导出与 ONNX"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">PyTorch推理工程：06 torch.compile、导出与 ONNX</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/62ab73e1/" title="PyTorch推理工程：03 train、eval、no_grad 与 inference_mode"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-29</div><div class="info-item-2">PyTorch推理工程：03 train、eval、no_grad 与 inference_mode</div></div></div></a><a class="pagination-related no-desc" href="/posts/4cf4f348/" title="PyTorch推理工程：01 Tensor、dtype、device 与推理底层基础"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-29</div><div class="info-item-2">PyTorch推理工程：01 Tensor、dtype、device 与推理底层基础</div></div></div></a><a class="pagination-related no-desc" href="/posts/82dbd045/" title="PyTorch推理工程：04 CUDA、设备迁移、显存与同步"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-29</div><div class="info-item-2">PyTorch推理工程：04 CUDA、设备迁移、显存与同步</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">我就是要爬这座山<br>再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">142</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">264</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">25</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#py-torch-tui-li-gong-cheng-07-profiling-benchmark-yu-ping-jing-ding-wei"><span class="toc-text">PyTorch 推理工程（07）：Profiling、Benchmark 与瓶颈定位</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#1-ben-jie-ding-wei"><span class="toc-text">1. 本节定位</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-xing-neng-fen-xi-liu-cheng"><span class="toc-text">2. 性能分析流程</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#3-wei-shi-yao-code-time-time-code-zai-cuda-chang-jing-xia-bu-kao-pu"><span class="toc-text">3. 为什么 time.time() 在 CUDA 场景下不靠谱</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#yuan-yin-cuda-cao-zuo-shi-yi-bu-fa-qi-de"><span class="toc-text">原因：CUDA 操作是异步发起的</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#tong-bu-hou-zai-ji-shi-geng-jie-jin-zhen-shi"><span class="toc-text">同步后再计时：更接近真实</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#dui-bi-shi-yan-gan-shou-chai-ju"><span class="toc-text">对比实验：感受差距</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#4-code-torch-utils-benchmark-code-bi-shou-xie-xun-huan-geng-zhuan-ye-de-benchmark-gong-ju"><span class="toc-text">4. torch.utils.benchmark：比手写循环更专业的 benchmark 工具</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#zui-xiao-shi-li"><span class="toc-text">最小示例</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#li-jie-shu-chu"><span class="toc-text">理解输出</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#bi-jiao-liang-ge-shi-xian"><span class="toc-text">比较两个实现</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#5-code-torch-profiler-code-zhao-dao-quot-shi-shi-yao-man-quot-er-bu-zhi-shi-quot-duo-man-quot"><span class="toc-text">5. torch.profiler：找到&quot;是什么慢&quot;而不只是&quot;多慢&quot;</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#profiler-neng-hui-da-de-wen-ti"><span class="toc-text">profiler 能回答的问题</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#zui-ji-chu-de-profiler-xie-fa"><span class="toc-text">最基础的 profiler 写法</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#6-du-dong-profiler-shu-chu-biao"><span class="toc-text">6. 读懂 profiler 输出表</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#7-profiler-de-ge-ge-can-shu-fen-bie-you-shi-yao-yong"><span class="toc-text">7. profiler 的各个参数：分别有什么用</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#code-activities-code-ji-lu-na-xie-she-bei-de-huo-dong"><span class="toc-text">activities：记录哪些设备的活动</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#code-record-shapes-true-code-ji-lu-mei-ge-op-de-shu-ru-xing-zhuang"><span class="toc-text">record_shapes&#x3D;True：记录每个 op 的输入形状</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#code-with-stack-true-code-ji-lu-re-dian-lai-zi-dai-ma-na-yi-xing"><span class="toc-text">with_stack&#x3D;True：记录热点来自代码哪一行</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#code-profile-memory-true-code-gen-zong-xian-cun-fen-pei-he-shi-fang"><span class="toc-text">profile_memory&#x3D;True：跟踪显存分配和释放</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#code-with-flops-true-code-gu-suan-bu-fen-op-de-ji-suan-liang"><span class="toc-text">with_flops&#x3D;True：估算部分 op 的计算量</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#8-dao-chu-chrome-trace-yong-shi-jian-xian-kan-zhi-xing-jie-gou"><span class="toc-text">8. 导出 Chrome trace：用时间线看执行结构</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#9-schedule-chang-tui-li-xun-huan-li-ru-he-an-xu-profiling"><span class="toc-text">9. schedule：长推理循环里如何按需 profiling</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#10-profiler-vs-benchmark-fen-gong-qing-xi"><span class="toc-text">10. profiler vs benchmark：分工清晰</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#11-leng-qi-dong-yu-wen-tai-xu-fen-bie-tao-lun"><span class="toc-text">11. 冷启动与稳态须分别讨论</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#12-yi-ge-wan-zheng-de-xing-neng-fen-xi-an-li"><span class="toc-text">12. 一个完整的性能分析案例</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#13-tui-li-dai-ma-li-de-quot-yin-xing-tong-bu-keng-quot-yong-profiler-yi-shi-pai-cha"><span class="toc-text">13. 推理代码里的&quot;隐形同步坑&quot;：用 profiler 意识排查</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#14-kan-profiler-shu-chu-shi-ying-gai-zen-yao-xiang"><span class="toc-text">14. 看 profiler 输出时，应该怎么想</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#xian-kan-zong-cpu-vs-cuda-shi-jian-bi-li"><span class="toc-text">① 先看总 CPU vs CUDA 时间比例</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#kan-shi-shao-shu-da-op-huan-shi-da-liang-xiao-op"><span class="toc-text">② 看是少数大 op 还是大量小 op</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#kan-calls-lie"><span class="toc-text">③ 看 Calls 列</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#kan-shape-xu-yao-code-record-shapes-true-code"><span class="toc-text">④ 看 shape（需要 record_shapes&#x3D;True）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#kan-stack-xu-yao-code-with-stack-true-code"><span class="toc-text">⑤ 看 stack（需要 with_stack&#x3D;True）</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#15-xing-neng-fen-xi-de-chang-jian-wu-qu"><span class="toc-text">15. 性能分析的常见误区</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#16-mian-shi-chang-jian-wen-ti"><span class="toc-text">16. 面试常见问题</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#17-si-kao-ti"><span class="toc-text">17. 思考题</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#lian-xi-1-gan-shou-cuda-ji-shi-de-chai-ju"><span class="toc-text">练习 1：感受 CUDA 计时的差距</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#lian-xi-2-guan-cha-leng-qi-dong"><span class="toc-text">练习 2：观察冷启动</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#lian-xi-3-zui-xiao-profiler-shi-yan"><span class="toc-text">练习 3：最小 profiler 实验</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#lian-xi-4-yong-benchmark-zuo-dui-bi-shi-yan"><span class="toc-text">练习 4：用 benchmark 做对比实验</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#lian-xi-5-dao-chu-chrome-trace-bing-cha-kan-shi-jian-xian"><span class="toc-text">练习 5：导出 Chrome trace 并查看时间线</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#18-ben-jie-yao-dian-yu-zi-jian"><span class="toc-text">18. 本节要点与自检</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#19-xiao-jie"><span class="toc-text">19. 小结</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xi-lie-dao-hang"><span class="toc-text">系列导航</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/7ab343d0/" title="PyTorch推理工程：10 里程碑、简历转化与面试表达"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PyTorch推理工程：10 里程碑、简历转化与面试表达"/></a><div class="content"><a class="title" href="/posts/7ab343d0/" title="PyTorch推理工程：10 里程碑、简历转化与面试表达">PyTorch推理工程：10 里程碑、简历转化与面试表达</a><time datetime="2026-03-29T11:00:00.000Z" title="发表于 2026-03-29 19:00:00">2026-03-29</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/432e473/" title="PyTorch推理工程：09 最小可展示推理项目骨架"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PyTorch推理工程：09 最小可展示推理项目骨架"/></a><div class="content"><a class="title" href="/posts/432e473/" title="PyTorch推理工程：09 最小可展示推理项目骨架">PyTorch推理工程：09 最小可展示推理项目骨架</a><time datetime="2026-03-29T10:00:00.000Z" title="发表于 2026-03-29 18:00:00">2026-03-29</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/fb17598c/" title="PyTorch推理工程：08 批处理、KV Cache 与 Serving 视角"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PyTorch推理工程：08 批处理、KV Cache 与 Serving 视角"/></a><div class="content"><a class="title" href="/posts/fb17598c/" title="PyTorch推理工程：08 批处理、KV Cache 与 Serving 视角">PyTorch推理工程：08 批处理、KV Cache 与 Serving 视角</a><time datetime="2026-03-29T09:00:00.000Z" title="发表于 2026-03-29 17:00:00">2026-03-29</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/attentionisallyouneed.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">从 Self-Attention、位置编码到 Encoder-Decoder，系统梳理 Transformer 的核心结构、设计动机与理解路径</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/d6fa227a/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-16</span><a class="blog-slider__title" href="posts/d6fa227a/" alt="">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</a><div class="blog-slider__text">从访存优化到多卡通信，一篇看清 CUDA 实践系列的结构与学习路线</div><a class="blog-slider__button" href="posts/d6fa227a/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/43c4b52e/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/agent.webp" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-24</span><a class="blog-slider__title" href="posts/43c4b52e/" alt="">从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路</a><div class="blog-slider__text">使用飞书与本地 Agent 对话，远程也要让本地 Agent 干活，当一名狠狠的资本家</div><a class="blog-slider__button" href="posts/43c4b52e/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/92dc1028/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/CUDA_C.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-02-05</span><a class="blog-slider__title" href="posts/92dc1028/" alt="">CUDA C编程权威指南-导读</a><div class="blog-slider__text">从异构并行到多 GPU 实践，串起 CUDA C 权威指南的核心学习路线</div><a class="blog-slider__button" href="posts/92dc1028/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">从全书视角出发，一篇看清 PMPP 的章节结构、核心主题与学习主线</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/aac6e27d/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Computer_System.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/aac6e27d/" alt="">深入理解计算机系统知识点总结</a><div class="blog-slider__text">从程序员视角梳理 CSAPP 的知识脉络、系统抽象与性能理解</div><a class="blog-slider__button" href="posts/aac6e27d/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">围绕类型推导、移动语义与并发，提炼现代 C++ 的核心实践</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>

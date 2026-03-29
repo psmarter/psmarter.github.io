@@ -1,0 +1,662 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>PyTorch推理工程：03 train、eval、no_grad 与 inference_mode | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="PyTorch 推理工程（03）：train、eval、no_grad 与 inference_mode 1. 本节定位 常见推理脚本同时包含 model.eval() 与 torch.inference_mode()（或 no_grad()）： 1234model.eval()with torch.inference_mode():    y &#x3D; model(x) 二者作用于不同子系统：eval">
+<meta property="og:type" content="article">
+<meta property="og:title" content="PyTorch推理工程：03 train、eval、no_grad 与 inference_mode">
+<meta property="og:url" content="https://smarter.xin/posts/62ab73e1/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="PyTorch 推理工程（03）：train、eval、no_grad 与 inference_mode 1. 本节定位 常见推理脚本同时包含 model.eval() 与 torch.inference_mode()（或 no_grad()）： 1234model.eval()with torch.inference_mode():    y &#x3D; model(x) 二者作用于不同子系统：eval">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/pytorch.avif">
+<meta property="article:published_time" content="2026-03-29T04:00:00.000Z">
+<meta property="article:modified_time" content="2026-03-29T11:38:27.486Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="深度学习">
+<meta property="article:tag" content="Python">
+<meta property="article:tag" content="性能优化">
+<meta property="article:tag" content="PyTorch">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/pytorch.avif"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "PyTorch推理工程：03 train、eval、no_grad 与 inference_mode",
+  "url": "https://smarter.xin/posts/62ab73e1/",
+  "image": "https://smarter.xin/img/pytorch.avif",
+  "datePublished": "2026-03-29T04:00:00.000Z",
+  "dateModified": "2026-03-29T11:38:27.486Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/62ab73e1/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'PyTorch推理工程：03 train、eval、no_grad 与 inference_mode',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">142</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">264</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">25</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/pytorch.avif);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">PyTorch推理工程：03 train、eval、no_grad 与 inference_mode</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">PyTorch推理工程：03 train、eval、no_grad 与 inference_mode</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-03-29T04:00:00.000Z" title="发表于 2026-03-29 12:00:00">2026-03-29</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-03-29T11:38:27.486Z" title="更新于 2026-03-29 19:38:27">2026-03-29</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/">AI Infra</a><i class="fas fa-angle-right post-meta-separator"></i><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/pytorch/">Pytorch</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">3.9k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>14分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="py-torch-tui-li-gong-cheng-03-train-eval-no-grad-yu-inference-mode" tabindex="-1">PyTorch 推理工程（03）：train、eval、no_grad 与 inference_mode</h1>
+<h2 id="1-ben-jie-ding-wei" tabindex="-1" id="1-本节定位">1. 本节定位</h2>
+<p>常见推理脚本同时包含 <code>model.eval()</code> 与 <code>torch.inference_mode()</code>（或 <code>no_grad()</code>）：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">model.<span class="built_in">eval</span>()</span><br><span class="line"></span><br><span class="line"><span class="keyword">with</span> torch.inference_mode():</span><br><span class="line">    y = model(x)</span><br></pre></td></tr></table></figure>
+<p>二者作用于不同子系统：<code>eval()</code> 调整部分模块（如 <code>BatchNorm</code>、<code>Dropout</code>）的行为；<code>inference_mode()</code> / <code>no_grad()</code> 控制是否构建 autograd 图。仅设置其一通常不足以同时满足数值行为与开销两方面的预期，混用不当也会出现与视图、原地操作相关的报错。</p>
+<hr>
+<h2 id="2-mo-kuai-mo-shi-yu-autograd-mo-shi-fen-lei-tu" tabindex="-1" id="2-模块模式与-autograd-模式（分类图）">2. 模块模式与 autograd 模式（分类图）</h2>
+<p>在展开讲之前，先把这 4 个东西的关系说清楚。</p>
+<p>它们其实分属<strong>两个完全独立的系统</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">┌─────────────────────────────────────────────────────┐</span><br><span class="line">│              两个独立的控制维度                        │</span><br><span class="line">│                                                     │</span><br><span class="line">│  维度 1：模块行为模式（某些层怎么跑）                   │</span><br><span class="line">│  ┌──────────────────────────────────────────────┐   │</span><br><span class="line">│  │  model.train()   ←→   model.eval()           │   │</span><br><span class="line">│  │  影响：Dropout, BatchNorm 等层的前向行为        │   │</span><br><span class="line">│  └──────────────────────────────────────────────┘   │</span><br><span class="line">│                                                     │</span><br><span class="line">│  维度 2：autograd 模式（PyTorch 要不要记录计算过程）   │</span><br><span class="line">│  ┌──────────────────────────────────────────────┐   │</span><br><span class="line">│  │  默认 grad mode                              │   │</span><br><span class="line">│  │  torch.no_grad()                             │   │</span><br><span class="line">│  │  torch.inference_mode()                      │   │</span><br><span class="line">│  └──────────────────────────────────────────────┘   │</span><br><span class="line">│                                                     │</span><br><span class="line">└─────────────────────────────────────────────────────┘</span><br></pre></td></tr></table></figure>
+<p>这两个维度<strong>互不干涉</strong>：</p>
+<ul>
+<li><code>eval()</code> 不会关闭梯度记录</li>
+<li><code>no_grad()</code> 不会让 Dropout 停下来</li>
+</ul>
+<p>两维相互独立：仅 <code>eval()</code> 不能关闭 autograd；仅 <code>no_grad()</code> 不能改变 Dropout/BatchNorm 等行为。典型推理路径需同时设置模块模式与 autograd 模式。</p>
+<p>后文均围绕下列关系展开：</p>
+<blockquote>
+<p><strong><code>train()</code> / <code>eval()</code> 控制的是模块行为模式；<code>no_grad()</code> / <code>inference_mode()</code> 控制的是 autograd 记录行为。两者是独立的，不能互相替代。</strong></p>
+</blockquote>
+<hr>
+<h2 id="3-bei-jing-py-torch-xun-lian-shi-zai-zuo-shi-yao-e-wai-de-shi" tabindex="-1" id="3-背景：PyTorch-训练时在做什么额外的事">3. 背景：PyTorch 训练时在做什么额外的事</h2>
+<h3 id="xun-lian-qian-xiang-yu-ji-suan-tu" tabindex="-1" id="训练前向与计算图">训练前向与计算图</h3>
+<p>训练分为前向与反向两阶段：前向计算 loss；反向沿计算图求梯度并更新参数。</p>
+<p>在默认梯度模式下，前向过程会同步构建供 <code>.backward()</code> 使用的计算图：</p>
+<p>具体来说，它会在内存里构建一张<strong>计算图（computation graph）</strong>，记录：</p>
+<ul>
+<li>每一步做了什么操作</li>
+<li>每个中间结果从哪里来</li>
+<li>这些信息是为了后面 <code>.backward()</code> 时能顺着图求导</li>
+</ul>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">前向：x → Linear → ReLU → Linear → loss</span><br><span class="line">                 ↓ 同时构建计算图 ↓</span><br><span class="line">反向：loss ← 求导 ← ReLU ← Linear ← x（利用计算图）</span><br></pre></td></tr></table></figure>
+<h3 id="tui-li-yu-autograd" tabindex="-1" id="推理与-autograd">推理与 autograd</h3>
+<p>推理仅需 <code>x → 模型 → y</code>，不求梯度、不更新权重。若仍启用默认梯度模式，将承担构图带来的内存与开销；故推理路径中通常使用 <code>torch.no_grad()</code> 或 <code>torch.inference_mode()</code> 关闭记录。</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">with</span> torch.no_grad():</span><br><span class="line">    y = model(x)</span><br></pre></td></tr></table></figure>
+<hr>
+<h2 id="4-code-train-code-he-code-eval-code-kong-zhi-mo-kuai-xing-wei" tabindex="-1" id="4-train-和-eval-：控制模块行为">4. <code>train()</code> 和 <code>eval()</code>：控制模块行为</h2>
+<p><code>train()</code> / <code>eval()</code> 切换模块的训练/评估状态；对 <code>Linear</code>、<code>ReLU</code>、<code>LayerNorm</code> 等多数算子无行为差异。</p>
+<p><strong>只有少数层在两种模式下行为不同</strong>，主要是：</p>
+<ul>
+<li><strong>Dropout</strong></li>
+<li><strong>BatchNorm</strong></li>
+</ul>
+<p>下面分别说说。</p>
+<hr>
+<h2 id="5-dropout-train-eval-xia-xing-wei-chai-yi" tabindex="-1" id="5-Dropout：train-eval-下行为差异">5. Dropout：train/eval 下行为差异</h2>
+<p><code>Dropout</code> 的原理是：训练时随机&quot;关掉&quot;一部分神经元（把它们的输出置零），强迫模型不依赖特定的某几个神经元，起到正则化的效果。</p>
+<p>但推理时不需要这个随机性：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"><span class="keyword">import</span> torch.nn <span class="keyword">as</span> nn</span><br><span class="line"></span><br><span class="line">drop = nn.Dropout(p=<span class="number">0.5</span>)    <span class="comment"># 每个元素有 50% 概率被置零</span></span><br><span class="line">x = torch.ones(<span class="number">10</span>)          <span class="comment"># 全 1 输入</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 训练模式：随机置零</span></span><br><span class="line">drop.train()</span><br><span class="line"><span class="built_in">print</span>(drop(x))   <span class="comment"># 例：tensor([2., 0., 2., 0., 2., 0., 0., 2., 0., 2.])</span></span><br><span class="line"><span class="built_in">print</span>(drop(x))   <span class="comment"># 例：tensor([0., 2., 0., 2., 0., 2., 2., 0., 2., 0.])</span></span><br><span class="line"><span class="comment"># 每次不一样！（而且没被置零的元素会乘以 1/(1-p)=2 补偿）</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 评估模式：原样通过</span></span><br><span class="line">drop.<span class="built_in">eval</span>()</span><br><span class="line"><span class="built_in">print</span>(drop(x))   <span class="comment"># tensor([1., 1., 1., 1., 1., 1., 1., 1., 1., 1.])</span></span><br><span class="line"><span class="built_in">print</span>(drop(x))   <span class="comment"># tensor([1., 1., 1., 1., 1., 1., 1., 1., 1., 1.])</span></span><br><span class="line"><span class="comment"># 每次都一样，不丢任何值</span></span><br></pre></td></tr></table></figure>
+<blockquote>
+<p>注意：训练模式下非零位置的值是 <code>2.0</code>，不是 <code>1.0</code>。这是 Dropout 的&quot;缩放补偿&quot;：为了让期望值一致，存活的元素会除以 <code>(1-p)</code>，这里 <code>1/(1-0.5)=2</code>。</p>
+</blockquote>
+<p><strong>结论</strong>：含 <code>Dropout</code> 的模型在推理前应调用 <code>model.eval()</code>，否则同一输入可能因随机掩码而得到不同输出。</p>
+<hr>
+<h2 id="6-batch-norm-train-eval-xia-xing-wei-chai-yi" tabindex="-1" id="6-BatchNorm：train-eval-下行为差异">6. BatchNorm：train/eval 下行为差异</h2>
+<p>BatchNorm 相对复杂，但推理岗位必须理解。</p>
+<h3 id="ta-zuo-liao-shi-yao" tabindex="-1" id="它做了什么">它做了什么</h3>
+<p>BatchNorm 对每个 batch 的输入做归一化：把均值调成 0，方差调成 1，然后用可学习的参数 <code>γ</code>（gamma，weight）和 <code>β</code>（beta，bias）还原尺度。</p>
+<h3 id="xun-lian-shi-he-tui-li-shi-de-qu-bie" tabindex="-1" id="训练时和推理时的区别">训练时和推理时的区别</h3>
+<table>
+<thead>
+<tr>
+<th>阶段</th>
+<th>用什么统计量归一化</th>
+<th>会不会更新 running 统计量</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>训练</td>
+<td>当前 batch 自己的均值/方差</td>
+<td>会，每个 batch 都更新</td>
+</tr>
+<tr>
+<td>推理</td>
+<td>训练时积累的 <code>running_mean</code> / <code>running_var</code></td>
+<td>不会</td>
+</tr>
+</tbody>
+</table>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"><span class="keyword">import</span> torch.nn <span class="keyword">as</span> nn</span><br><span class="line"></span><br><span class="line">bn = nn.BatchNorm1d(<span class="number">4</span>)</span><br><span class="line">x = torch.randn(<span class="number">8</span>, <span class="number">4</span>)   <span class="comment"># batch of 8 samples，每个 4 维</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 训练时：用当前 batch 的统计量</span></span><br><span class="line">bn.train()</span><br><span class="line">out = bn(x)</span><br><span class="line"><span class="built_in">print</span>(bn.running_mean)  <span class="comment"># 每次 forward 后都会更新</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 推理时：用积累下来的统计量</span></span><br><span class="line">bn.<span class="built_in">eval</span>()</span><br><span class="line">out = bn(x)</span><br><span class="line"><span class="built_in">print</span>(bn.running_mean)  <span class="comment"># 不再更新，保持训练时积累的值</span></span><br></pre></td></tr></table></figure>
+<p><strong>结论</strong>：如果推理时忘了 <code>model.eval()</code>，BatchNorm 会用当前 batch（可能只有 1 条数据）的统计量做归一化，而不是训练时学到的统计量，结果往往是错的。</p>
+<p>这是&quot;模型能跑但推理结果不对&quot;的经典原因之一。</p>
+<hr>
+<h2 id="7-code-eval-code-zhi-ying-xiang-mo-kuai-xing-wei-bu-ying-xiang-ti-du" tabindex="-1" id="7-eval-只影响模块行为，不影响梯度">7. <code>eval()</code> 只影响模块行为，不影响梯度</h2>
+<p>这是最容易误解的点，直接用代码证明：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"><span class="keyword">import</span> torch.nn <span class="keyword">as</span> nn</span><br><span class="line"></span><br><span class="line">model = nn.Linear(<span class="number">4</span>, <span class="number">2</span>)   <span class="comment"># Linear 层默认参数 requires_grad=True</span></span><br><span class="line">x = torch.randn(<span class="number">3</span>, <span class="number">4</span>)</span><br><span class="line"></span><br><span class="line">model.<span class="built_in">eval</span>()              <span class="comment"># 切换到评估模式</span></span><br><span class="line">y = model(x)              <span class="comment"># 前向推理</span></span><br><span class="line"></span><br><span class="line"><span class="built_in">print</span>(y.requires_grad)    <span class="comment"># True ← ！梯度追踪依然开着</span></span><br></pre></td></tr></table></figure>
+<p>即使 <code>model.eval()</code> 了，输出依然有 <code>requires_grad=True</code>，说明 autograd 依然在工作。</p>
+<p>因此仅调用 <code>eval()</code> 不足以关闭 autograd，仍需显式进入 <code>no_grad</code> 或 <code>inference_mode</code>：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">model.<span class="built_in">eval</span>()</span><br><span class="line"><span class="keyword">with</span> torch.no_grad():</span><br><span class="line">    y = model(x)</span><br><span class="line"></span><br><span class="line"><span class="built_in">print</span>(y.requires_grad)    <span class="comment"># False ← 现在才关掉了</span></span><br></pre></td></tr></table></figure>
+<hr>
+<h2 id="8-code-torch-no-grad-code-guan-bi-autograd-ji-lu" tabindex="-1" id="8-torch-no-grad-：关闭-autograd-记录">8. <code>torch.no_grad()</code>：关闭 autograd 记录</h2>
+<p><code>torch.no_grad()</code> 是一个上下文管理器，进入这个块后，PyTorch 不再构建计算图：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"></span><br><span class="line">x = torch.tensor([<span class="number">1.0</span>, <span class="number">2.0</span>, <span class="number">3.0</span>], requires_grad=<span class="literal">True</span>)</span><br><span class="line"><span class="comment"># x 本来要参与梯度计算</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">with</span> torch.no_grad():</span><br><span class="line">    y = x * <span class="number">2</span>        <span class="comment"># 这个计算不会被记录进计算图</span></span><br><span class="line"></span><br><span class="line"><span class="built_in">print</span>(y.requires_grad)   <span class="comment"># False ← 即使 x 有 grad，y 也没有</span></span><br></pre></td></tr></table></figure>
+<h3 id="zai-tui-li-li-de-shi-ji-yi-yi" tabindex="-1" id="在推理里的实际意义">在推理里的实际意义</h3>
+<p>模型参数默认 <code>requires_grad=True</code>。未进入 <code>no_grad()</code> / <code>inference_mode()</code> 时：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">model.<span class="built_in">eval</span>()</span><br><span class="line">y = model(x)   <span class="comment"># 所有中间激活值都被加入了计算图，占用额外内存</span></span><br></pre></td></tr></table></figure>
+<p>进入 <code>no_grad()</code> 后：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">model.<span class="built_in">eval</span>()</span><br><span class="line"><span class="keyword">with</span> torch.no_grad():</span><br><span class="line">    y = model(x)   <span class="comment"># 所有中间激活值不记入计算图，内存大幅减少</span></span><br></pre></td></tr></table></figure>
+<blockquote>
+<p>对于一个有很多层的大模型，<code>no_grad()</code> 带来的内存节省是相当可观的——因为不需要保存反向传播所需的中间激活值了。</p>
+</blockquote>
+<hr>
+<h2 id="9-code-torch-inference-mode-code-geng-gua-he-chun-tui-li-de-xuan-ze" tabindex="-1" id="9-torch-inference-mode-：更适合纯推理的选择">9. <code>torch.inference_mode()</code>：更适合纯推理的选择</h2>
+<p><code>inference_mode()</code> 是 PyTorch 1.9 之后引入的，可以理解为&quot;推理场景专用的 no_grad&quot;。</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">with</span> torch.inference_mode():</span><br><span class="line">    y = model(x)</span><br></pre></td></tr></table></figure>
+<h3 id="ta-he-code-no-grad-code-de-gong-tong-dian" tabindex="-1" id="它和-no-grad-的共同点">它和 <code>no_grad()</code> 的共同点</h3>
+<ul>
+<li>都不构建 backward 计算图</li>
+<li>都适合推理</li>
+<li>都能减少计算和内存开销</li>
+</ul>
+<h3 id="ta-bi-code-no-grad-code-duo-zuo-de-shi" tabindex="-1" id="它比-no-grad-多做的事">它比 <code>no_grad()</code> 多做的事</h3>
+<p>PyTorch 内部维护着很多状态，帮助 autograd 工作，比如：</p>
+<ul>
+<li><strong>version counter</strong>：追踪一个 Tensor 被 in-place 修改了几次（为了保证反向传播的正确性）</li>
+<li><strong>grad_fn 记录</strong>：记录每个 Tensor 的计算来源</li>
+</ul>
+<p><code>no_grad()</code> 只是不构建计算图，但上面这些内部跟踪机制还在运行。</p>
+<p><code>inference_mode()</code> 则更激进：<strong>直接告诉 PyTorch，这里创建的 Tensor 是纯推理产物，所有 autograd 相关的跟踪机制都不需要</strong>。</p>
+<p>所以 <code>inference_mode()</code> 通常比 <code>no_grad()</code> 省更多开销。</p>
+<h3 id="dai-jie-geng-yan-ge-de-xian-zhi" tabindex="-1" id="代价：更严格的限制">代价：更严格的限制</h3>
+<p>在 <code>inference_mode()</code> 里创建的 Tensor，离开这个上下文后，<strong>不能再参与需要 autograd 的计算</strong>：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">with</span> torch.inference_mode():</span><br><span class="line">    y = model(x)</span><br><span class="line"></span><br><span class="line"><span class="comment"># y 是 inference tensor，不能放回 autograd 计算图</span></span><br><span class="line">loss = y.<span class="built_in">sum</span>()</span><br><span class="line">loss.backward()   <span class="comment"># 反例: 可能报错：y 是 inference tensor</span></span><br></pre></td></tr></table></figure>
+<p>而用 <code>no_grad()</code> 产生的 Tensor 则没有这个限制（虽然它本身没有 grad，但可以参与后续有 grad 的计算）：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">with</span> torch.no_grad():</span><br><span class="line">    y = model(x)</span><br><span class="line"></span><br><span class="line"><span class="comment"># 可以继续用，例如 KL divergence 计算（虽然不常见）</span></span><br></pre></td></tr></table></figure>
+<hr>
+<h2 id="10-yi-zhang-biao-si-chong-zu-he-de-xiao-guo-dui-bi" tabindex="-1" id="10-一张表：四种组合的效果对比">10. 一张表：四种组合的效果对比</h2>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>Dropout 行为</th>
+<th>BatchNorm 行为</th>
+<th>梯度追踪</th>
+<th>额外 autograd 开销</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>model.train()</code> 默认</td>
+<td>随机丢弃</td>
+<td>用 batch 统计</td>
+<td>是</td>
+<td>是</td>
+</tr>
+<tr>
+<td><code>model.eval()</code> 默认</td>
+<td>全部保留</td>
+<td>用 running 统计</td>
+<td>是</td>
+<td>是</td>
+</tr>
+<tr>
+<td><code>model.eval()</code> + <code>no_grad()</code></td>
+<td>全部保留</td>
+<td>用 running 统计</td>
+<td>否</td>
+<td>部分节省</td>
+</tr>
+<tr>
+<td><code>model.eval()</code> + <code>inference_mode()</code></td>
+<td>全部保留</td>
+<td>用 running 统计</td>
+<td>否</td>
+<td>更省</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>推理时想要的是最后一行：Dropout 不丢弃、BatchNorm 用 running 统计、不追踪梯度、最小开销。</p>
+</blockquote>
+<hr>
+<h2 id="11-biao-zhun-tui-li-dai-ma-de-liang-ge-mo-ban" tabindex="-1" id="11-标准推理代码的两个模板">11. 标准推理代码的两个模板</h2>
+<h3 id="mo-ban-1-tong-yong-ban-jian-rong-xing-zui-hao" tabindex="-1" id="模板-1：通用版（兼容性最好）">模板 1：通用版（兼容性最好）</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">model.<span class="built_in">eval</span>()</span><br><span class="line"></span><br><span class="line"><span class="keyword">with</span> torch.no_grad():</span><br><span class="line">    y = model(x)</span><br></pre></td></tr></table></figure>
+<p>适合：</p>
+<ul>
+<li>大多数推理代码</li>
+<li>推理结果后面还可能参与其他计算</li>
+<li>兼容性要求高、不想踩 inference_mode 的兼容坑</li>
+</ul>
+<h3 id="mo-ban-2-chun-tui-li-ban-xing-neng-zui-you" tabindex="-1" id="模板-2：纯推理版（性能最优）">模板 2：纯推理版（性能最优）</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">model.<span class="built_in">eval</span>()</span><br><span class="line"></span><br><span class="line"><span class="keyword">with</span> torch.inference_mode():</span><br><span class="line">    y = model(x)</span><br></pre></td></tr></table></figure>
+<p>适合：</p>
+<ul>
+<li>纯前向推理，不需要后续梯度操作</li>
+<li>追求更低延迟和更少内存</li>
+<li>工程部署中的标准推理服务</li>
+</ul>
+<hr>
+<h2 id="12-wan-zheng-dui-bi-shi-yan-zi-ji-pao-yi-bian" tabindex="-1" id="12-完整对比实验：自己跑一遍">12. 完整对比实验：自己跑一遍</h2>
+<p>建议把下面这个脚本跑一遍，把每个输出和原理对应起来：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"><span class="keyword">import</span> torch.nn <span class="keyword">as</span> nn</span><br><span class="line"></span><br><span class="line">model = nn.Sequential(</span><br><span class="line">    nn.Linear(<span class="number">4</span>, <span class="number">8</span>),</span><br><span class="line">    nn.ReLU(),</span><br><span class="line">    nn.Dropout(p=<span class="number">0.5</span>),</span><br><span class="line">    nn.Linear(<span class="number">8</span>, <span class="number">2</span>)</span><br><span class="line">)</span><br><span class="line"></span><br><span class="line">x = torch.randn(<span class="number">3</span>, <span class="number">4</span>)</span><br><span class="line"></span><br><span class="line"><span class="comment"># ── 场景 1：train 模式，默认 grad ──</span></span><br><span class="line">model.train()</span><br><span class="line">y1 = model(x)</span><br><span class="line">y2 = model(x)</span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot;【场景1: train模式】&quot;</span>)</span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot;  两次输出相同？&quot;</span>, torch.allclose(y1, y2))   <span class="comment"># 大概率 False（Dropout 随机）</span></span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot;  requires_grad?&quot;</span>, y1.requires_grad)          <span class="comment"># True</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># ── 场景 2：eval 模式，默认 grad ──</span></span><br><span class="line">model.<span class="built_in">eval</span>()</span><br><span class="line">y3 = model(x)</span><br><span class="line">y4 = model(x)</span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot;\n【场景2: eval模式，无no_grad】&quot;</span>)</span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot;  两次输出相同？&quot;</span>, torch.allclose(y3, y4))   <span class="comment"># True（Dropout 关了）</span></span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot;  requires_grad?&quot;</span>, y3.requires_grad)          <span class="comment"># True  ← 注意！梯度还在</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># ── 场景 3：eval + no_grad ──</span></span><br><span class="line">model.<span class="built_in">eval</span>()</span><br><span class="line"><span class="keyword">with</span> torch.no_grad():</span><br><span class="line">    y5 = model(x)</span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot;\n【场景3: eval + no_grad】&quot;</span>)</span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot;  requires_grad?&quot;</span>, y5.requires_grad)          <span class="comment"># False ← 关了</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># ── 场景 4：eval + inference_mode ──</span></span><br><span class="line">model.<span class="built_in">eval</span>()</span><br><span class="line"><span class="keyword">with</span> torch.inference_mode():</span><br><span class="line">    y6 = model(x)</span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot;\n【场景4: eval + inference_mode】&quot;</span>)</span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot;  requires_grad?&quot;</span>, y6.requires_grad)          <span class="comment"># False</span></span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot;  is_inference?&quot;</span>, y6.is_inference())          <span class="comment"># True ← 被标记为推理 tensor</span></span><br></pre></td></tr></table></figure>
+<p>预期输出（大致）：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">【场景1: train模式】</span><br><span class="line">  两次输出相同？ False</span><br><span class="line">  requires_grad? True</span><br><span class="line"></span><br><span class="line">【场景2: eval模式，无no_grad】</span><br><span class="line">  两次输出相同？ True</span><br><span class="line">  requires_grad? True</span><br><span class="line"></span><br><span class="line">【场景3: eval + no_grad】</span><br><span class="line">  requires_grad? False</span><br><span class="line"></span><br><span class="line">【场景4: eval + inference_mode】</span><br><span class="line">  requires_grad? False</span><br><span class="line">  is_inference? True</span><br></pre></td></tr></table></figure>
+<blockquote>
+<p><code>y6.is_inference()</code> 为 <code>True</code>，说明这个 Tensor 被标记为&quot;推理产物&quot;，PyTorch 知道不能把它拿回 autograd 计算图里用。</p>
+</blockquote>
+<hr>
+<h2 id="13-code-requires-grad-code-he-mo-xing-can-shu-de-guan-xi-shuo-ming" tabindex="-1" id="13-requires-grad-和模型参数的关系说明">13. <code>requires_grad</code> 和模型参数的关系说明</h2>
+<p>初学者常见的困惑：<strong>我没有手动设 <code>requires_grad</code>，为什么输出有梯度跟踪？</strong></p>
+<p>原因：<code>nn.Linear</code> 等层的参数（weight、bias）默认 <code>requires_grad=True</code>。</p>
+<p>若参与运算的参数 <code>requires_grad=True</code>，即使输入未要求梯度，输出仍可能接入 autograd 计算链。</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">linear = nn.Linear(<span class="number">4</span>, <span class="number">2</span>)</span><br><span class="line"><span class="built_in">print</span>(linear.weight.requires_grad)   <span class="comment"># True（参数默认可学习）</span></span><br><span class="line"></span><br><span class="line">x = torch.randn(<span class="number">3</span>, <span class="number">4</span>)               <span class="comment"># x 本身没有 requires_grad</span></span><br><span class="line">y = linear(x)</span><br><span class="line"><span class="built_in">print</span>(y.requires_grad)               <span class="comment"># True！因为链路上有 requires_grad=True 的参数</span></span><br></pre></td></tr></table></figure>
+<p>因此即使输入 <code>x</code> 的 <code>requires_grad</code> 为假，只要参数需追踪，输出仍可携带梯度信息。</p>
+<p>而加了 <code>no_grad()</code> / <code>inference_mode()</code> 后，这条追踪链就被整个切断了。</p>
+<hr>
+<h2 id="14-tui-li-jiao-ben-jian-cha-qing-dan" tabindex="-1" id="14-推理脚本检查清单">14. 推理脚本检查清单</h2>
+<p>审阅推理脚本时可依次核对：</p>
+<ul>
+<li>
+<p>[ ] 推理前有没有 <code>model.eval()</code>？<br>
+→ 没有的话，Dropout 会随机丢值，BatchNorm 用 batch 统计</p>
+</li>
+<li>
+<p>[ ] 前向外面有没有 <code>torch.no_grad()</code> 或 <code>torch.inference_mode()</code>？<br>
+→ 没有的话，有不必要的计算图构建开销和内存占用</p>
+</li>
+<li>
+<p>[ ] 两件事有没有都做，还是只做了其中一个？<br>
+→ 只写 <code>eval()</code> 不够；只写 <code>no_grad()</code> 也不够</p>
+</li>
+<li>
+<p>[ ] 如果用了 <code>inference_mode()</code>，推理结果有没有拿去参与后续梯度计算？<br>
+→ 有的话要换成 <code>no_grad()</code></p>
+</li>
+</ul>
+<hr>
+<h2 id="15-chang-jian-wu-qu" tabindex="-1" id="15-常见误区">15. 常见误区</h2>
+<h3 id="wu-qu-1-code-eval-code-deng-yu-guan-bi-ti-du" tabindex="-1" id="误区-1：eval-等于关闭梯度">误区 1：<code>eval()</code> 等于关闭梯度</h3>
+<p>错。<code>eval()</code> 只切换模块的行为模式，不碰 autograd。</p>
+<h3 id="wu-qu-2-code-no-grad-code-hui-rang-dropout-ting-xia-lai" tabindex="-1" id="误区-2：no-grad-会让-Dropout-停下来">误区 2：<code>no_grad()</code> 会让 Dropout 停下来</h3>
+<p>错。<code>no_grad()</code> 只关 autograd，Dropout 的 train/eval 行为由模块模式决定，和 autograd 无关。</p>
+<h3 id="wu-qu-3-tui-li-zhi-xie-code-eval-code-jiu-wan-zheng-liao" tabindex="-1" id="误区-3：推理只写-eval-就完整了">误区 3：推理只写 <code>eval()</code> 就完整了</h3>
+<p>不完整。还需要 <code>no_grad()</code> 或 <code>inference_mode()</code> 来关闭不必要的梯度追踪。</p>
+<h3 id="wu-qu-4-code-inference-mode-code-jiu-shi-code-no-grad-code-de-bie-ming" tabindex="-1" id="误区-4：inference-mode-就是-no-grad-的别名">误区 4：<code>inference_mode()</code> 就是 <code>no_grad()</code> 的别名</h3>
+<p>不是。<code>inference_mode()</code> 更激进，额外关闭了更多 autograd 跟踪机制，产生的 Tensor 不能再参与 autograd 计算。</p>
+<h3 id="wu-qu-5-mo-xing-bu-zai-xun-lian-suo-yi-grad-zi-ran-bu-hui-ji-lu" tabindex="-1" id="误区-5：模型不在训练，所以-grad-自然不会记录">误区 5：模型不在训练，所以 grad 自然不会记录</h3>
+<p>否。默认梯度模式下前向会被 autograd 追踪，与是否处于训练业务逻辑无关。</p>
+<hr>
+<h2 id="16-yu-tui-li-mo-shi-xiang-guan-de-bian-xi" tabindex="-1" id="16-与推理模式相关的辨析">16. 与推理模式相关的辨析</h2>
+<p><strong>Q：<code>model.eval()</code> 做了什么？</strong><br>
+A：把模块切换到评估模式，影响的是那些训练和推理行为不同的层（主要是 Dropout 和 BatchNorm）。不影响梯度记录。</p>
+<p><strong>Q：为什么 <code>eval()</code> 不能代替 <code>torch.no_grad()</code>？</strong><br>
+A：两者控制的是完全不同的系统：<code>eval()</code> 控制模块行为，<code>no_grad()</code> 控制 autograd 记录。缺一不可。</p>
+<p><strong>Q：<code>torch.no_grad()</code> 的作用是什么？</strong><br>
+A：让这一段计算不被记录到 backward 计算图，忽略不必要的梯度追踪开销，减少内存占用。</p>
+<p><strong>Q：<code>torch.inference_mode()</code> 和 <code>torch.no_grad()</code> 的区别是什么？</strong><br>
+A：都不构建计算图；但 <code>inference_mode()</code> 更激进，还关闭了更多内部 autograd 跟踪机制（如 version counter），性能开销更小，但其中创建的 Tensor 不能再参与 autograd 计算。</p>
+<p><strong>Q：标准推理代码为什么要同时写 <code>model.eval()</code> 和 <code>torch.inference_mode()</code>？</strong><br>
+A：前者让 Dropout 不丢弃、BatchNorm 用 running 统计；后者让推理过程不做任何梯度相关的额外工作。二者分属不同系统，必须都写。</p>
+<hr>
+<h2 id="17-si-kao-ti" tabindex="-1" id="17-思考题">17. 思考题</h2>
+<p>建议自己动手跑，先猜输出，再验证。</p>
+<h3 id="lian-xi-1-yan-zheng-code-eval-code-bu-hui-guan-bi-ti-du" tabindex="-1" id="练习-1：验证-eval-不会关闭梯度">练习 1：验证 <code>eval()</code> 不会关闭梯度</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">model = nn.Linear(<span class="number">4</span>, <span class="number">2</span>)</span><br><span class="line">x = torch.randn(<span class="number">3</span>, <span class="number">4</span>)</span><br><span class="line"></span><br><span class="line">model.<span class="built_in">eval</span>()</span><br><span class="line">y = model(x)</span><br><span class="line"></span><br><span class="line"><span class="built_in">print</span>(y.requires_grad)   <span class="comment"># 猜一下：True 还是 False？</span></span><br></pre></td></tr></table></figure>
+<blockquote>
+<p>思考：为什么即使没有人设置 <code>requires_grad=True</code>，输出还是有梯度跟踪？</p>
+</blockquote>
+<h3 id="lian-xi-2-yan-zheng-dropout-shou-train-eval-kong-zhi-bu-shou-no-grad-kong-zhi" tabindex="-1" id="练习-2：验证-Dropout-受-train-eval-控制，不受-no-grad-控制">练习 2：验证 Dropout 受 train/eval 控制，不受 no_grad 控制</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">drop = nn.Dropout(p=<span class="number">0.5</span>)</span><br><span class="line">x = torch.ones(<span class="number">10</span>)</span><br><span class="line"></span><br><span class="line"><span class="comment"># 情况 A：train 模式 + no_grad</span></span><br><span class="line">drop.train()</span><br><span class="line"><span class="keyword">with</span> torch.no_grad():</span><br><span class="line">    <span class="built_in">print</span>(drop(x))   <span class="comment"># 猜：有没有被置零？</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 情况 B：eval 模式，无 no_grad</span></span><br><span class="line">drop.<span class="built_in">eval</span>()</span><br><span class="line"><span class="built_in">print</span>(drop(x))       <span class="comment"># 猜：有没有被置零？</span></span><br></pre></td></tr></table></figure>
+<blockquote>
+<p>思考：哪种情况下 Dropout 起作用？这说明了什么？</p>
+</blockquote>
+<h3 id="lian-xi-3-yan-zheng-code-no-grad-code-qie-duan-ti-du-lian" tabindex="-1" id="练习-3：验证-no-grad-切断梯度链">练习 3：验证 <code>no_grad()</code> 切断梯度链</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">linear = nn.Linear(<span class="number">4</span>, <span class="number">2</span>)</span><br><span class="line">x = torch.randn(<span class="number">3</span>, <span class="number">4</span>)</span><br><span class="line"></span><br><span class="line"><span class="comment"># 情况 A</span></span><br><span class="line">y1 = linear(x)</span><br><span class="line"><span class="built_in">print</span>(y1.requires_grad)   <span class="comment"># ?</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 情况 B</span></span><br><span class="line"><span class="keyword">with</span> torch.no_grad():</span><br><span class="line">    y2 = linear(x)</span><br><span class="line"><span class="built_in">print</span>(y2.requires_grad)   <span class="comment"># ?</span></span><br></pre></td></tr></table></figure>
+<blockquote>
+<p>思考：linear.weight 的 requires_grad 变化了吗？为什么 y2 没有 grad？</p>
+</blockquote>
+<h3 id="lian-xi-4-code-inference-mode-code-de-is-inference-biao-ji" tabindex="-1" id="练习-4：inference-mode-的-is-inference-标记">练习 4：<code>inference_mode</code> 的 is_inference 标记</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">model = nn.Linear(<span class="number">4</span>, <span class="number">2</span>)</span><br><span class="line">model.<span class="built_in">eval</span>()</span><br><span class="line"></span><br><span class="line"><span class="keyword">with</span> torch.inference_mode():</span><br><span class="line">    y = model(x)</span><br><span class="line"></span><br><span class="line"><span class="built_in">print</span>(y.is_inference())    <span class="comment"># True 还是 False？</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 离开 inference_mode 后，尝试对 y 做一个有梯度的操作</span></span><br><span class="line">z = y.<span class="built_in">sum</span>()</span><br><span class="line"><span class="comment"># z.backward()   # 取消注释，观察是否报错</span></span><br></pre></td></tr></table></figure>
+<blockquote>
+<p>思考：<code>inference_mode</code> 比 <code>no_grad</code> 多了哪些限制？为什么这些限制让它更快？</p>
+</blockquote>
+<h3 id="lian-xi-5-xie-yi-ge-biao-zhun-tui-li-han-shu" tabindex="-1" id="练习-5：写一个标准推理函数">练习 5：写一个标准推理函数</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">def</span> <span class="title function_">infer</span>(<span class="params">model, x, device=<span class="string">&quot;cpu&quot;</span></span>):</span><br><span class="line">    <span class="string">&quot;&quot;&quot;</span></span><br><span class="line"><span class="string">    标准推理函数模板：</span></span><br><span class="line"><span class="string">    1. 把输入移到正确设备</span></span><br><span class="line"><span class="string">    2. 切换模型行为模式</span></span><br><span class="line"><span class="string">    3. 关闭梯度追踪</span></span><br><span class="line"><span class="string">    4. 执行前向</span></span><br><span class="line"><span class="string">    5. 返回结果</span></span><br><span class="line"><span class="string">    &quot;&quot;&quot;</span></span><br><span class="line">    <span class="comment"># （补全）</span></span><br><span class="line"></span><br><span class="line">model = nn.Linear(<span class="number">4</span>, <span class="number">2</span>)</span><br><span class="line">x = torch.randn(<span class="number">3</span>, <span class="number">4</span>)</span><br><span class="line">y = infer(model, x)</span><br><span class="line"><span class="built_in">print</span>(y.shape, y.requires_grad)</span><br></pre></td></tr></table></figure>
+<blockquote>
+<p>进阶：让这个函数同时接受 <code>device</code> 参数，自动把 <code>model</code> 和 <code>x</code> 移到指定设备。</p>
+</blockquote>
+<hr>
+<h2 id="18-ben-jie-yao-dian-yu-zi-jian" tabindex="-1" id="18-本节要点与自检">18. 本节要点与自检</h2>
+<ul>
+<li>能清晰区分&quot;模块行为模式&quot;和&quot;autograd 模式&quot;，知道它们是两个独立维度</li>
+<li>知道 Dropout 和 BatchNorm 为什么在 train/eval 下行为不同</li>
+<li>知道 <code>eval()</code> 为什么不能代替 <code>no_grad()</code></li>
+<li>知道 <code>no_grad()</code> 为什么不能代替 <code>eval()</code></li>
+<li>理解 <code>inference_mode()</code> 比 <code>no_grad()</code> 多做了什么，以及对应的限制</li>
+<li>能一眼看出一个推理脚本是否缺了关键步骤</li>
+<li>能用标准模板正确写出纯推理函数</li>
+</ul>
+<hr>
+<h2 id="19-xiao-jie" tabindex="-1" id="19-小结">19. 小结</h2>
+<blockquote>
+<p><strong><code>eval()</code> 负责让模型&quot;像推理一样工作&quot;，<code>no_grad()</code> / <code>inference_mode()</code> 负责让 PyTorch&quot;像推理一样执行&quot;。两件事独立，推理时都要做。</strong></p>
+</blockquote>
+<hr>
+<h2 id="xi-lie-dao-hang" tabindex="-1" id="系列导航">系列导航</h2>
+<ul>
+<li>上一篇：<a href="/posts/5bd3dfaf/">PyTorch推理工程：02 nn.Module、forward 与 state_dict</a></li>
+<li>下一篇：<a href="/posts/82dbd045/">PyTorch推理工程：04 CUDA、设备迁移、显存与同步</a></li>
+<li><a href="/posts/846fbbaf/">系列索引（00 导读）</a></li>
+</ul>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/62ab73e1/">https://smarter.xin/posts/62ab73e1/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/deep-learning/">深度学习</a><a class="post-meta__tags" href="/tags/python/">Python</a><a class="post-meta__tags" href="/tags/performance-optimization/">性能优化</a><a class="post-meta__tags" href="/tags/pytorch/">PyTorch</a></div><div class="post-share"><div class="social-share" data-image="/img/pytorch.avif" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/82dbd045/" title="PyTorch推理工程：04 CUDA、设备迁移、显存与同步"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">PyTorch推理工程：04 CUDA、设备迁移、显存与同步</div></div></div></a><a class="pagination-related  no-desc" href="/posts/5bd3dfaf/" title="PyTorch推理工程：02 nn.Module、forward 与 state_dict"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">PyTorch推理工程：02 nn.Module、forward 与 state_dict</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/4cf4f348/" title="PyTorch推理工程：01 Tensor、dtype、device 与推理底层基础"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-29</div><div class="info-item-2">PyTorch推理工程：01 Tensor、dtype、device 与推理底层基础</div></div></div></a><a class="pagination-related no-desc" href="/posts/5bd3dfaf/" title="PyTorch推理工程：02 nn.Module、forward 与 state_dict"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-29</div><div class="info-item-2">PyTorch推理工程：02 nn.Module、forward 与 state_dict</div></div></div></a><a class="pagination-related no-desc" href="/posts/bc5b9a38/" title="PyTorch推理工程：05 混合精度、AMP 与吞吐、延迟"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-29</div><div class="info-item-2">PyTorch推理工程：05 混合精度、AMP 与吞吐、延迟</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">我就是要爬这座山<br>再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">142</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">264</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">25</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#py-torch-tui-li-gong-cheng-03-train-eval-no-grad-yu-inference-mode"><span class="toc-text">PyTorch 推理工程（03）：train、eval、no_grad 与 inference_mode</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#1-ben-jie-ding-wei"><span class="toc-text">1. 本节定位</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-mo-kuai-mo-shi-yu-autograd-mo-shi-fen-lei-tu"><span class="toc-text">2. 模块模式与 autograd 模式（分类图）</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#3-bei-jing-py-torch-xun-lian-shi-zai-zuo-shi-yao-e-wai-de-shi"><span class="toc-text">3. 背景：PyTorch 训练时在做什么额外的事</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#xun-lian-qian-xiang-yu-ji-suan-tu"><span class="toc-text">训练前向与计算图</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#tui-li-yu-autograd"><span class="toc-text">推理与 autograd</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#4-code-train-code-he-code-eval-code-kong-zhi-mo-kuai-xing-wei"><span class="toc-text">4. train() 和 eval()：控制模块行为</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#5-dropout-train-eval-xia-xing-wei-chai-yi"><span class="toc-text">5. Dropout：train&#x2F;eval 下行为差异</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#6-batch-norm-train-eval-xia-xing-wei-chai-yi"><span class="toc-text">6. BatchNorm：train&#x2F;eval 下行为差异</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#ta-zuo-liao-shi-yao"><span class="toc-text">它做了什么</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#xun-lian-shi-he-tui-li-shi-de-qu-bie"><span class="toc-text">训练时和推理时的区别</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#7-code-eval-code-zhi-ying-xiang-mo-kuai-xing-wei-bu-ying-xiang-ti-du"><span class="toc-text">7. eval() 只影响模块行为，不影响梯度</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#8-code-torch-no-grad-code-guan-bi-autograd-ji-lu"><span class="toc-text">8. torch.no_grad()：关闭 autograd 记录</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#zai-tui-li-li-de-shi-ji-yi-yi"><span class="toc-text">在推理里的实际意义</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#9-code-torch-inference-mode-code-geng-gua-he-chun-tui-li-de-xuan-ze"><span class="toc-text">9. torch.inference_mode()：更适合纯推理的选择</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#ta-he-code-no-grad-code-de-gong-tong-dian"><span class="toc-text">它和 no_grad() 的共同点</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#ta-bi-code-no-grad-code-duo-zuo-de-shi"><span class="toc-text">它比 no_grad() 多做的事</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#dai-jie-geng-yan-ge-de-xian-zhi"><span class="toc-text">代价：更严格的限制</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#10-yi-zhang-biao-si-chong-zu-he-de-xiao-guo-dui-bi"><span class="toc-text">10. 一张表：四种组合的效果对比</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#11-biao-zhun-tui-li-dai-ma-de-liang-ge-mo-ban"><span class="toc-text">11. 标准推理代码的两个模板</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#mo-ban-1-tong-yong-ban-jian-rong-xing-zui-hao"><span class="toc-text">模板 1：通用版（兼容性最好）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#mo-ban-2-chun-tui-li-ban-xing-neng-zui-you"><span class="toc-text">模板 2：纯推理版（性能最优）</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#12-wan-zheng-dui-bi-shi-yan-zi-ji-pao-yi-bian"><span class="toc-text">12. 完整对比实验：自己跑一遍</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#13-code-requires-grad-code-he-mo-xing-can-shu-de-guan-xi-shuo-ming"><span class="toc-text">13. requires_grad 和模型参数的关系说明</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#14-tui-li-jiao-ben-jian-cha-qing-dan"><span class="toc-text">14. 推理脚本检查清单</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#15-chang-jian-wu-qu"><span class="toc-text">15. 常见误区</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#wu-qu-1-code-eval-code-deng-yu-guan-bi-ti-du"><span class="toc-text">误区 1：eval() 等于关闭梯度</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#wu-qu-2-code-no-grad-code-hui-rang-dropout-ting-xia-lai"><span class="toc-text">误区 2：no_grad() 会让 Dropout 停下来</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#wu-qu-3-tui-li-zhi-xie-code-eval-code-jiu-wan-zheng-liao"><span class="toc-text">误区 3：推理只写 eval() 就完整了</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#wu-qu-4-code-inference-mode-code-jiu-shi-code-no-grad-code-de-bie-ming"><span class="toc-text">误区 4：inference_mode() 就是 no_grad() 的别名</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#wu-qu-5-mo-xing-bu-zai-xun-lian-suo-yi-grad-zi-ran-bu-hui-ji-lu"><span class="toc-text">误区 5：模型不在训练，所以 grad 自然不会记录</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#16-yu-tui-li-mo-shi-xiang-guan-de-bian-xi"><span class="toc-text">16. 与推理模式相关的辨析</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#17-si-kao-ti"><span class="toc-text">17. 思考题</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#lian-xi-1-yan-zheng-code-eval-code-bu-hui-guan-bi-ti-du"><span class="toc-text">练习 1：验证 eval() 不会关闭梯度</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#lian-xi-2-yan-zheng-dropout-shou-train-eval-kong-zhi-bu-shou-no-grad-kong-zhi"><span class="toc-text">练习 2：验证 Dropout 受 train&#x2F;eval 控制，不受 no_grad 控制</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#lian-xi-3-yan-zheng-code-no-grad-code-qie-duan-ti-du-lian"><span class="toc-text">练习 3：验证 no_grad() 切断梯度链</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#lian-xi-4-code-inference-mode-code-de-is-inference-biao-ji"><span class="toc-text">练习 4：inference_mode 的 is_inference 标记</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#lian-xi-5-xie-yi-ge-biao-zhun-tui-li-han-shu"><span class="toc-text">练习 5：写一个标准推理函数</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#18-ben-jie-yao-dian-yu-zi-jian"><span class="toc-text">18. 本节要点与自检</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#19-xiao-jie"><span class="toc-text">19. 小结</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xi-lie-dao-hang"><span class="toc-text">系列导航</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/7ab343d0/" title="PyTorch推理工程：10 里程碑、简历转化与面试表达"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PyTorch推理工程：10 里程碑、简历转化与面试表达"/></a><div class="content"><a class="title" href="/posts/7ab343d0/" title="PyTorch推理工程：10 里程碑、简历转化与面试表达">PyTorch推理工程：10 里程碑、简历转化与面试表达</a><time datetime="2026-03-29T11:00:00.000Z" title="发表于 2026-03-29 19:00:00">2026-03-29</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/432e473/" title="PyTorch推理工程：09 最小可展示推理项目骨架"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PyTorch推理工程：09 最小可展示推理项目骨架"/></a><div class="content"><a class="title" href="/posts/432e473/" title="PyTorch推理工程：09 最小可展示推理项目骨架">PyTorch推理工程：09 最小可展示推理项目骨架</a><time datetime="2026-03-29T10:00:00.000Z" title="发表于 2026-03-29 18:00:00">2026-03-29</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/fb17598c/" title="PyTorch推理工程：08 批处理、KV Cache 与 Serving 视角"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PyTorch推理工程：08 批处理、KV Cache 与 Serving 视角"/></a><div class="content"><a class="title" href="/posts/fb17598c/" title="PyTorch推理工程：08 批处理、KV Cache 与 Serving 视角">PyTorch推理工程：08 批处理、KV Cache 与 Serving 视角</a><time datetime="2026-03-29T09:00:00.000Z" title="发表于 2026-03-29 17:00:00">2026-03-29</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/attentionisallyouneed.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">从 Self-Attention、位置编码到 Encoder-Decoder，系统梳理 Transformer 的核心结构、设计动机与理解路径</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/d6fa227a/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-16</span><a class="blog-slider__title" href="posts/d6fa227a/" alt="">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</a><div class="blog-slider__text">从访存优化到多卡通信，一篇看清 CUDA 实践系列的结构与学习路线</div><a class="blog-slider__button" href="posts/d6fa227a/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/43c4b52e/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/agent.webp" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-24</span><a class="blog-slider__title" href="posts/43c4b52e/" alt="">从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路</a><div class="blog-slider__text">使用飞书与本地 Agent 对话，远程也要让本地 Agent 干活，当一名狠狠的资本家</div><a class="blog-slider__button" href="posts/43c4b52e/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/92dc1028/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/CUDA_C.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-02-05</span><a class="blog-slider__title" href="posts/92dc1028/" alt="">CUDA C编程权威指南-导读</a><div class="blog-slider__text">从异构并行到多 GPU 实践，串起 CUDA C 权威指南的核心学习路线</div><a class="blog-slider__button" href="posts/92dc1028/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">从全书视角出发，一篇看清 PMPP 的章节结构、核心主题与学习主线</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/aac6e27d/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Computer_System.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/aac6e27d/" alt="">深入理解计算机系统知识点总结</a><div class="blog-slider__text">从程序员视角梳理 CSAPP 的知识脉络、系统抽象与性能理解</div><a class="blog-slider__button" href="posts/aac6e27d/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">围绕类型推导、移动语义与并发，提炼现代 C++ 的核心实践</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>

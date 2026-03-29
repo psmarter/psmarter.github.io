@@ -1,0 +1,710 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>PyTorch推理工程：08 批处理、KV Cache 与 Serving 视角 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="PyTorch 推理工程（08）：批处理、KV Cache 与 Serving 视角 1. 本节定位 单机脚本中的 model(x) 仅覆盖推理链路的一小段。服务化场景下需同时考虑并发请求、变长输入、延迟与吞吐指标、显存中的 KV Cache，以及 Prefill 与 Decode 在计算与访存上的差异；执行后端也可能是 ORT、TensorRT、vLLM 等而非 Eager PyTorch。本篇">
+<meta property="og:type" content="article">
+<meta property="og:title" content="PyTorch推理工程：08 批处理、KV Cache 与 Serving 视角">
+<meta property="og:url" content="https://smarter.xin/posts/fb17598c/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="PyTorch 推理工程（08）：批处理、KV Cache 与 Serving 视角 1. 本节定位 单机脚本中的 model(x) 仅覆盖推理链路的一小段。服务化场景下需同时考虑并发请求、变长输入、延迟与吞吐指标、显存中的 KV Cache，以及 Prefill 与 Decode 在计算与访存上的差异；执行后端也可能是 ORT、TensorRT、vLLM 等而非 Eager PyTorch。本篇">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/pytorch.avif">
+<meta property="article:published_time" content="2026-03-29T09:00:00.000Z">
+<meta property="article:modified_time" content="2026-03-29T11:38:27.486Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="大模型推理">
+<meta property="article:tag" content="vLLM">
+<meta property="article:tag" content="LLM">
+<meta property="article:tag" content="KV Cache">
+<meta property="article:tag" content="推理优化">
+<meta property="article:tag" content="PyTorch">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/pytorch.avif"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "PyTorch推理工程：08 批处理、KV Cache 与 Serving 视角",
+  "url": "https://smarter.xin/posts/fb17598c/",
+  "image": "https://smarter.xin/img/pytorch.avif",
+  "datePublished": "2026-03-29T09:00:00.000Z",
+  "dateModified": "2026-03-29T11:38:27.486Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/fb17598c/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'PyTorch推理工程：08 批处理、KV Cache 与 Serving 视角',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">142</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">264</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">25</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/pytorch.avif);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">PyTorch推理工程：08 批处理、KV Cache 与 Serving 视角</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">PyTorch推理工程：08 批处理、KV Cache 与 Serving 视角</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-03-29T09:00:00.000Z" title="发表于 2026-03-29 17:00:00">2026-03-29</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-03-29T11:38:27.486Z" title="更新于 2026-03-29 19:38:27">2026-03-29</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/">AI Infra</a><i class="fas fa-angle-right post-meta-separator"></i><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/pytorch/">Pytorch</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">6.1k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>24分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="py-torch-tui-li-gong-cheng-08-pi-chu-li-kv-cache-yu-serving-shi-jiao" tabindex="-1">PyTorch 推理工程（08）：批处理、KV Cache 与 Serving 视角</h1>
+<h2 id="1-ben-jie-ding-wei" tabindex="-1" id="1-本节定位">1. 本节定位</h2>
+<p>单机脚本中的 <code>model(x)</code> 仅覆盖推理链路的一小段。服务化场景下需同时考虑并发请求、变长输入、延迟与吞吐指标、显存中的 KV Cache，以及 Prefill 与 Decode 在计算与访存上的差异；执行后端也可能是 ORT、TensorRT、vLLM 等而非 Eager PyTorch。本篇从系统约束出发，将前文中的张量与测量概念映射到上述工程语境。</p>
+<hr>
+<h2 id="2-tui-li-xi-tong-you-hua-de-he-xin-mao-dun" tabindex="-1" id="2-推理系统优化的核心矛盾">2. 推理系统优化的核心矛盾</h2>
+<p>真实推理系统不是单目标优化，而是在约束条件下的多目标平衡：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">┌─────────────────────────────────────────────────────┐</span><br><span class="line">│             推理系统的五个核心维度                     │</span><br><span class="line">│                                                     │</span><br><span class="line">│  Throughput（吞吐）  ──┐                             │</span><br><span class="line">│  Latency（延迟）    ──┤                             │</span><br><span class="line">│  Memory（显存）     ──┼── 需要在业务目标下综合权衡      │</span><br><span class="line">│  Quality（输出质量）──┤                             │</span><br><span class="line">│  Cost（成本）       ──┘                             │</span><br><span class="line">└─────────────────────────────────────────────────────┘</span><br></pre></td></tr></table></figure>
+<p>典型的 trade-off 关系：</p>
+<table>
+<thead>
+<tr>
+<th>优化动作</th>
+<th>收益</th>
+<th>代价</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>增大 batch size</td>
+<td>吞吐↑、GPU 利用率↑</td>
+<td>单请求延迟↑、显存↑</td>
+</tr>
+<tr>
+<td>开启低精度（FP16）</td>
+<td>速度↑、显存↓</td>
+<td>数值稳定性需验证</td>
+</tr>
+<tr>
+<td>增大 KV cache 容量</td>
+<td>并发数↑、decode 速度↑</td>
+<td>显存↑</td>
+</tr>
+<tr>
+<td>严格 latency SLA</td>
+<td>用户体验↑</td>
+<td>吞吐↓（不能等太多请求凑批）</td>
+</tr>
+</tbody>
+</table>
+<p>所以真正的 inference 工程不是&quot;找一个最快的设置&quot;，而是在特定业务目标下找到最合适的方案。</p>
+<hr>
+<h2 id="3-llm-tui-li-de-liang-jie-duan-mo-xing" tabindex="-1" id="3-LLM-推理的两阶段模型">3. LLM 推理的两阶段模型</h2>
+<p>自回归大模型从 prompt 到完整回复的执行过程，通常可划分为<strong>两个阶段</strong>，其计算与访存特征不同：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">用户输入：&quot;请解释 KV Cache 是什么，并举例说明&quot;（假设 20 个 token）</span><br><span class="line"></span><br><span class="line">阶段 1：Prefill（1 次大计算）</span><br><span class="line">  → 把这 20 个 token 一次性喂进模型</span><br><span class="line">  → 计算所有 20 个 token 的 attention</span><br><span class="line">  → 建立好历史 Key/Value 缓存</span><br><span class="line"></span><br><span class="line">阶段 2：Decode（反复小计算）</span><br><span class="line">  → 生成 token 1：&quot;KV&quot;     ← 只计算 1 个新 token</span><br><span class="line">  → 生成 token 2：&quot;Cache&quot;  ← 只计算 1 个新 token</span><br><span class="line">  → 生成 token 3：&quot;是&quot;     ← 只计算 1 个新 token</span><br><span class="line">  → ... 重复直到生成完整回答（可能 200 个 token）</span><br></pre></td></tr></table></figure>
+<p>理解了这个，后面所有内容都能挂上去。</p>
+<hr>
+<h2 id="4-shi-yao-shi-prefill-wei-shi-yao-ta-geng-hao-you-hua" tabindex="-1" id="4-什么是-Prefill，为什么它更好优化">4. 什么是 Prefill，为什么它更好优化</h2>
+<h3 id="prefill-zuo-shi-yao" tabindex="-1" id="Prefill-做什么">Prefill 做什么</h3>
+<p>把整段已有输入 prompt 一次性喂进模型，计算出所有 token 的中间表示，并把历史 Key/Value 缓存建立好。</p>
+<h3 id="prefill-de-ji-suan-te-zheng" tabindex="-1" id="Prefill-的计算特征">Prefill 的计算特征</h3>
+<p>假设 prompt 长度为 <code>L</code> 个 token，Self-Attention 的计算量：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">Attention 计算量 ∝ L² × d_model</span><br><span class="line"></span><br><span class="line">L=512  时：512² = 262,144 次操作</span><br><span class="line">L=2048 时：2048² = 4,194,304 次操作（16 倍！）</span><br></pre></td></tr></table></figure>
+<p>Prefill 的特点：</p>
+<ul>
+<li><strong>大块矩阵计算</strong>（<code>L×L</code> 的 attention）</li>
+<li><strong>计算密集</strong>，GPU 容易吃满</li>
+<li><strong>吞吐敏感</strong>：一次大计算，受益于大 batch</li>
+<li><strong>相对好优化</strong>：大连续矩阵乘，低精度收益明显</li>
+</ul>
+<h3 id="prefill-xing-neng-ding-xing-shi-yi" tabindex="-1" id="Prefill-性能定性示意">Prefill 性能定性示意</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"><span class="keyword">import</span> time</span><br><span class="line"></span><br><span class="line"><span class="comment"># 模拟 prefill：一次性输入 L 个 token</span></span><br><span class="line"><span class="keyword">def</span> <span class="title function_">prefill_sim</span>(<span class="params">L, d=<span class="number">512</span>, batch=<span class="number">1</span></span>):</span><br><span class="line">    <span class="string">&quot;&quot;&quot;简化模拟：矩阵乘代表 QK attention 计算&quot;&quot;&quot;</span></span><br><span class="line">    Q = torch.randn(batch, L, d, device=<span class="string">&quot;cuda&quot;</span>)</span><br><span class="line">    K = torch.randn(batch, L, d, device=<span class="string">&quot;cuda&quot;</span>)</span><br><span class="line">    </span><br><span class="line">    torch.cuda.synchronize()</span><br><span class="line">    t0 = time.time()</span><br><span class="line">    </span><br><span class="line">    <span class="comment"># Q @ K^T 是 attention 的核心计算</span></span><br><span class="line">    attn = torch.bmm(Q, K.transpose(<span class="number">1</span>, <span class="number">2</span>)) / (d ** <span class="number">0.5</span>)</span><br><span class="line">    </span><br><span class="line">    torch.cuda.synchronize()</span><br><span class="line">    <span class="keyword">return</span> (time.time() - t0) * <span class="number">1000</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">if</span> torch.cuda.is_available():</span><br><span class="line">    <span class="keyword">for</span> L <span class="keyword">in</span> [<span class="number">128</span>, <span class="number">512</span>, <span class="number">1024</span>, <span class="number">2048</span>]:</span><br><span class="line">        t = prefill_sim(L)</span><br><span class="line">        <span class="built_in">print</span>(<span class="string">f&quot;L=<span class="subst">&#123;L:4d&#125;</span>: <span class="subst">&#123;t:<span class="number">.2</span>f&#125;</span> ms  (计算量 ∝ L² = <span class="subst">&#123;L**<span class="number">2</span>:,&#125;</span>)&quot;</span>)</span><br></pre></td></tr></table></figure>
+<p>输出（示意）：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">L= 128:  0.05 ms  (计算量 ∝ L² =    16,384)</span><br><span class="line">L= 512:  0.15 ms  (计算量 ∝ L² =   262,144)</span><br><span class="line">L=1024:  0.48 ms  (计算量 ∝ L² = 1,048,576)</span><br><span class="line">L=2048:  1.82 ms  (计算量 ∝ L² = 4,194,304)</span><br></pre></td></tr></table></figure>
+<p>prefill 阶段计算量随序列长度近似平方增长，故长 prompt 的 prefill 成本显著偏高。</p>
+<hr>
+<h2 id="5-shi-yao-shi-decode-wei-shi-yao-ta-geng-nan-you-hua" tabindex="-1" id="5-什么是-Decode，为什么它更难优化">5. 什么是 Decode，为什么它更难优化</h2>
+<h3 id="decode-zuo-shi-yao" tabindex="-1" id="Decode-做什么">Decode 做什么</h3>
+<p>每次只新增 <strong>1 个</strong> token，但需要重复 <code>output_length</code> 次：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># Decode 的逻辑（极简示意）</span></span><br><span class="line"><span class="keyword">def</span> <span class="title function_">decode_loop</span>(<span class="params">model, prompt_tokens, max_new_tokens=<span class="number">100</span></span>):</span><br><span class="line">    tokens = prompt_tokens.copy()</span><br><span class="line">    </span><br><span class="line">    <span class="keyword">for</span> step <span class="keyword">in</span> <span class="built_in">range</span>(max_new_tokens):</span><br><span class="line">        <span class="comment"># 每次只往前走一步：只计算最新 token 和历史的 attention</span></span><br><span class="line">        x = torch.tensor([tokens], device=<span class="string">&quot;cuda&quot;</span>)</span><br><span class="line">        </span><br><span class="line">        <span class="keyword">with</span> torch.inference_mode():</span><br><span class="line">            logits = model(x)              <span class="comment"># 实际上利用了 KV cache</span></span><br><span class="line">        </span><br><span class="line">        next_token = logits[<span class="number">0</span>, -<span class="number">1</span>].argmax().item()</span><br><span class="line">        tokens.append(next_token)</span><br><span class="line">        </span><br><span class="line">        <span class="keyword">if</span> next_token == EOS_TOKEN:</span><br><span class="line">            <span class="keyword">break</span></span><br><span class="line">    </span><br><span class="line">    <span class="keyword">return</span> tokens</span><br></pre></td></tr></table></figure>
+<h3 id="decode-de-ji-suan-te-zheng" tabindex="-1" id="Decode-的计算特征">Decode 的计算特征</h3>
+<p>在每一步 decode 中，新 token 只需要和历史 K/V 做 attention：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">新 token（1 个）的 attention 计算量 ∝ 1 × L_history × d_model</span><br><span class="line"></span><br><span class="line">L_history=512 时：1 × 512 次操作（远小于 prefill 的 512²!）</span><br></pre></td></tr></table></figure>
+<p>Decode 的特点：</p>
+<ul>
+<li><strong>每步计算量小</strong>（不是 <code>L²</code> 而是 <code>1×L</code> 量级）</li>
+<li><strong>步数多</strong>（生成 200 token 就要循环 200 次）</li>
+<li><strong>延迟敏感</strong>：每一步是一个等待轮次，用户能感受到逐 token 速度</li>
+<li><strong>难优化</strong>：每步矩阵太小，GPU 计算单元不容易吃满</li>
+</ul>
+<h3 id="prefill-vs-decode-dui-bi" tabindex="-1" id="Prefill-vs-Decode-对比">Prefill vs Decode 对比</h3>
+<table>
+<thead>
+<tr>
+<th>特征</th>
+<th>Prefill</th>
+<th>Decode</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>输入量</td>
+<td>整段 prompt（L token）</td>
+<td>每步只有 1 个新 token</td>
+</tr>
+<tr>
+<td>计算量/次</td>
+<td><code>L² × d</code>（大）</td>
+<td><code>1 × L_history × d</code>（小）</td>
+</tr>
+<tr>
+<td>执行次数</td>
+<td>1 次</td>
+<td>output_length 次（几十~几百次）</td>
+</tr>
+<tr>
+<td>GPU 利用率</td>
+<td>容易吃高</td>
+<td>难吃满（单步太小）</td>
+</tr>
+<tr>
+<td>优化重点</td>
+<td>吞吐、大块计算</td>
+<td>延迟、KV cache 效率</td>
+</tr>
+<tr>
+<td>是否适合大 batch</td>
+<td>是</td>
+<td>有限（受显存限制）</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="6-kv-cache-yong-xian-cun-huan-diao-zhong-fu-ji-suan" tabindex="-1" id="6-KV-Cache：用显存换掉重复计算">6. KV Cache：用显存换掉重复计算</h2>
+<p>这是 LLM inference 最核心的概念之一，必须理解透。</p>
+<h3 id="ru-guo-mei-you-kv-cache" tabindex="-1" id="如果没有-KV-Cache">如果没有 KV Cache</h3>
+<p>在 decode 阶段，每生成一个新 token，理论上需要重新计算所有历史 token 的 Key 和 Value：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">步骤 1：生成 token_1</span><br><span class="line">  → 计算 token_1 与 [prompt_all] 的 attention</span><br><span class="line">  → 完成</span><br><span class="line"></span><br><span class="line">步骤 2：生成 token_2</span><br><span class="line">  → 计算 token_2 与 [prompt_all + token_1] 的 attention</span><br><span class="line">  ↑</span><br><span class="line">  [prompt_all] 的 K/V 上一步不是算过了吗？白算了！</span><br><span class="line"></span><br><span class="line">步骤 3：生成 token_3</span><br><span class="line">  → 计算 token_3 与 [prompt_all + token_1 + token_2] 的 attention</span><br><span class="line">  ↑</span><br><span class="line">  [prompt_all + token_1] 的 K/V 上两步都算过了！每步都白算！</span><br></pre></td></tr></table></figure>
+<p>不用 KV Cache 的代价：随着 decode 步骤增加，重复计算越来越多，decoder 越来越慢。</p>
+<h3 id="you-liao-kv-cache" tabindex="-1" id="有了-KV-Cache">有了 KV Cache</h3>
+<p>在 Prefill 阶段计算完 prompt 的 K/V 后，<strong>把它们存进显存</strong>，之后 decode 每步只需要：</p>
+<ol>
+<li>计算新 token 的 Q、K、V</li>
+<li>把新 token 的 K/V <strong>追加</strong>到缓存里</li>
+<li>用新 token 的 Q 和<strong>全部历史缓存的 K/V</strong> 做 attention</li>
+</ol>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">Prefill：计算 prompt 的 K/V → 存入 KV Cache</span><br><span class="line"></span><br><span class="line">Decode 步骤 N：</span><br><span class="line">  新 token 的 Q → attend 到 KV Cache（历史所有 K/V）</span><br><span class="line">                           ↑</span><br><span class="line">                    直接读缓存，不重复算！</span><br><span class="line">  新 token 的 K/V → 追加到 KV Cache 末尾</span><br></pre></td></tr></table></figure>
+<h3 id="kv-cache-de-xian-cun-xiao-hao-you-liang-hua-gan-cai-neng-li-jie-xi-tong-yue-shu" tabindex="-1" id="KV-Cache-的显存消耗：有量化感才能理解系统约束">KV Cache 的显存消耗：有量化感才能理解系统约束</h3>
+<p>KV Cache 的大小是多维的：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line">KV Cache 大小 = 2           # K 和 V 各一份</span><br><span class="line">              × num_layers  # 每一层都有自己的 KV</span><br><span class="line">              × num_heads   # 多头 attention</span><br><span class="line">              × seq_len     # 历史序列长度</span><br><span class="line">              × head_dim    # 每个 head 的维度</span><br><span class="line">              × dtype 字节数 # float16 = 2 字节</span><br><span class="line"></span><br><span class="line">以 GPT-2（小模型）为例：</span><br><span class="line">  layers=12, heads=12, head_dim=64, float16</span><br><span class="line">  seq_len=1024, batch=1</span><br><span class="line">  </span><br><span class="line">  KV Cache = 2 × 12 × 12 × 1024 × 64 × 2 字节</span><br><span class="line">           = 2 × 12 × 12 × 1024 × 64 × 2</span><br><span class="line">           = 37,748,736 字节</span><br><span class="line">           ≈ 36 MB</span><br><span class="line"></span><br><span class="line">真实 LLM（如 LLaMA-7B）：</span><br><span class="line">  layers=32, heads=32, head_dim=128, float16</span><br><span class="line">  seq_len=4096, batch=1</span><br><span class="line">  </span><br><span class="line">  KV Cache = 2 × 32 × 32 × 4096 × 128 × 2</span><br><span class="line">           ≈ 2 GB！（仅 1 个请求）</span><br></pre></td></tr></table></figure>
+<p>KV 体量可按层数、头数、序列长度与 dtype 估算，例如：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">def</span> <span class="title function_">estimate_kv_cache_mb</span>(<span class="params"></span></span><br><span class="line"><span class="params">    num_layers, num_heads, head_dim, seq_len, batch_size,</span></span><br><span class="line"><span class="params">    dtype_bytes=<span class="number">2</span>   <span class="comment"># float16 = 2 bytes</span></span></span><br><span class="line"><span class="params"></span>):</span><br><span class="line">    <span class="string">&quot;&quot;&quot;估算 KV Cache 显存占用（MB）&quot;&quot;&quot;</span></span><br><span class="line">    size = (</span><br><span class="line">        <span class="number">2</span>            <span class="comment"># K and V</span></span><br><span class="line">        * num_layers</span><br><span class="line">        * num_heads</span><br><span class="line">        * seq_len</span><br><span class="line">        * head_dim</span><br><span class="line">        * batch_size</span><br><span class="line">        * dtype_bytes</span><br><span class="line">    )</span><br><span class="line">    <span class="keyword">return</span> size / <span class="number">1024</span>**<span class="number">2</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># GPT-2</span></span><br><span class="line"><span class="built_in">print</span>(<span class="string">f&quot;GPT-2 (seq=1024, batch=1):        <span class="subst">&#123;estimate_kv_cache_mb(<span class="number">12</span>, <span class="number">12</span>, <span class="number">64</span>, <span class="number">1024</span>, <span class="number">1</span>):<span class="number">.1</span>f&#125;</span> MB&quot;</span>)</span><br><span class="line"><span class="built_in">print</span>(<span class="string">f&quot;GPT-2 (seq=1024, batch=8):        <span class="subst">&#123;estimate_kv_cache_mb(<span class="number">12</span>, <span class="number">12</span>, <span class="number">64</span>, <span class="number">1024</span>, <span class="number">8</span>):<span class="number">.1</span>f&#125;</span> MB&quot;</span>)</span><br><span class="line"></span><br><span class="line"><span class="comment"># LLaMA 7B 估算</span></span><br><span class="line"><span class="built_in">print</span>(<span class="string">f&quot;LLaMA-7B (seq=4096, batch=1):     <span class="subst">&#123;estimate_kv_cache_mb(<span class="number">32</span>, <span class="number">32</span>, <span class="number">128</span>, <span class="number">4096</span>, <span class="number">1</span>):<span class="number">.0</span>f&#125;</span> MB&quot;</span>)</span><br><span class="line"><span class="built_in">print</span>(<span class="string">f&quot;LLaMA-7B (seq=4096, batch=8):     <span class="subst">&#123;estimate_kv_cache_mb(<span class="number">32</span>, <span class="number">32</span>, <span class="number">128</span>, <span class="number">4096</span>, <span class="number">8</span>):<span class="number">.0</span>f&#125;</span> MB&quot;</span>)</span><br><span class="line"><span class="built_in">print</span>(<span class="string">f&quot;LLaMA-7B (seq=4096, batch=32):    <span class="subst">&#123;estimate_kv_cache_mb(<span class="number">32</span>, <span class="number">32</span>, <span class="number">128</span>, <span class="number">4096</span>, <span class="number">32</span>):<span class="number">.0</span>f&#125;</span> MB&quot;</span>)</span><br></pre></td></tr></table></figure>
+<p>输出：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">GPT-2 (seq=1024, batch=1):        36.0 MB</span><br><span class="line">GPT-2 (seq=1024, batch=8):       288.0 MB</span><br><span class="line">LLaMA-7B (seq=4096, batch=1):   2048 MB  ← 仅 1 个请求就占 2GB！</span><br><span class="line">LLaMA-7B (seq=4096, batch=8):  16384 MB  ← 8 个并发请求占 16GB！</span><br><span class="line">LLaMA-7B (seq=4096, batch=32): 65536 MB  ← 32 个并发请求占 64GB！远超显存</span><br></pre></td></tr></table></figure>
+<p><strong>这个数字解释了一切</strong>：</p>
+<ul>
+<li>为什么大模型并发数受限（显存被 KV Cache 吃满）</li>
+<li>为什么上下文越长越贵（KV Cache 线性增长）</li>
+<li>为什么系统要做 KV Cache 管理（不能无限堆叠）</li>
+<li>为什么量化（INT8/INT4 KV）很重要（可以把 Cache 压到原来 1/2 ~ 1/4）</li>
+</ul>
+<hr>
+<h2 id="7-kv-cache-dai-lai-de-gong-cheng-wen-ti" tabindex="-1" id="7-KV-Cache-带来的工程问题">7. KV Cache 带来的工程问题</h2>
+<p>KV Cache 省了计算，但引入了一系列工程问题：</p>
+<h3 id="wen-ti-1-xian-cun-sui-pian-hua" tabindex="-1" id="问题-1：显存碎片化">问题 1：显存碎片化</h3>
+<p>如果每个请求的序列长度不同，KV Cache 的内存需求也不同。用固定块分配容易碎片化，导致实际能服务的请求比理论少。</p>
+<p><strong>解决方案</strong>：<strong>Paged Attention（vLLM 的核心思路）</strong>——把 KV Cache 分成固定大小的 Page（类似操作系统的内存页），按需分配，支持非连续存储。</p>
+<h3 id="wen-ti-2-duo-ge-qing-qiu-gong-xiang-prompt-de-zhong-fu-ji-suan" tabindex="-1" id="问题-2：多个请求共享-Prompt-的重复计算">问题 2：多个请求共享 Prompt 的重复计算</h3>
+<p>如果很多用户都问同一个系统 prompt（比如同一个角色扮演的开场），每次 prefill 都要重算这部分 KV，浪费。</p>
+<p><strong>解决方案</strong>：<strong>Prefix Caching</strong>——把相同 prefix 的 KV Cache 共享复用。</p>
+<h3 id="wen-ti-3-cache-hui-shou-yu-diao-du" tabindex="-1" id="问题-3：Cache-回收与调度">问题 3：Cache 回收与调度</h3>
+<p>一个请求完成后，它的 KV Cache 要释放；新请求来了要分配；显存不够时要决定拒绝还是等待。</p>
+<p>这已经变成了类似操作系统内存管理的问题。</p>
+<hr>
+<h2 id="8-batching-rang-gpu-bu-lang-fei-zai-quot-ling-san-qing-qiu-quot-shang" tabindex="-1" id="8-Batching：让-GPU-不浪费在-零散请求-上">8. Batching：让 GPU 不浪费在&quot;零散请求&quot;上</h2>
+<h3 id="wei-shi-yao-xu-yao-batching" tabindex="-1" id="为什么需要-Batching">为什么需要 Batching</h3>
+<p>GPU 是&quot;喜欢大块连续计算&quot;的硬件。如果每来一个请求就单独跑一次 forward，GPU 利用率可能只有个位数：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"><span class="keyword">import</span> torch.nn <span class="keyword">as</span> nn</span><br><span class="line"><span class="keyword">import</span> time</span><br><span class="line"></span><br><span class="line">device = <span class="string">&quot;cuda&quot;</span> <span class="keyword">if</span> torch.cuda.is_available() <span class="keyword">else</span> <span class="string">&quot;cpu&quot;</span></span><br><span class="line">model = nn.Linear(<span class="number">1024</span>, <span class="number">1024</span>).to(device).<span class="built_in">eval</span>()</span><br><span class="line"></span><br><span class="line"><span class="keyword">def</span> <span class="title function_">measure_throughput</span>(<span class="params">batch_size, n_runs=<span class="number">200</span></span>):</span><br><span class="line">    x = torch.randn(batch_size, <span class="number">1024</span>, device=device)</span><br><span class="line">    </span><br><span class="line">    <span class="keyword">with</span> torch.inference_mode():</span><br><span class="line">        <span class="keyword">for</span> _ <span class="keyword">in</span> <span class="built_in">range</span>(<span class="number">20</span>):   <span class="comment"># warmup</span></span><br><span class="line">            model(x)</span><br><span class="line">    </span><br><span class="line">    torch.cuda.synchronize()</span><br><span class="line">    t0 = time.time()</span><br><span class="line">    </span><br><span class="line">    <span class="keyword">with</span> torch.inference_mode():</span><br><span class="line">        <span class="keyword">for</span> _ <span class="keyword">in</span> <span class="built_in">range</span>(n_runs):</span><br><span class="line">            model(x)</span><br><span class="line">    </span><br><span class="line">    torch.cuda.synchronize()</span><br><span class="line">    elapsed = time.time() - t0</span><br><span class="line">    </span><br><span class="line">    latency_ms = elapsed / n_runs * <span class="number">1000</span></span><br><span class="line">    throughput = batch_size * n_runs / elapsed</span><br><span class="line">    <span class="keyword">return</span> latency_ms, throughput</span><br><span class="line"></span><br><span class="line"><span class="keyword">if</span> torch.cuda.is_available():</span><br><span class="line">    <span class="built_in">print</span>(<span class="string">f&quot;<span class="subst">&#123;<span class="string">&#x27;batch&#x27;</span>:&gt;<span class="number">6</span>&#125;</span>  <span class="subst">&#123;<span class="string">&#x27;latency&#x27;</span>:&gt;<span class="number">10</span>&#125;</span>  <span class="subst">&#123;<span class="string">&#x27;throughput&#x27;</span>:&gt;<span class="number">18</span>&#125;</span>&quot;</span>)</span><br><span class="line">    <span class="keyword">for</span> bs <span class="keyword">in</span> [<span class="number">1</span>, <span class="number">4</span>, <span class="number">16</span>, <span class="number">64</span>, <span class="number">256</span>]:</span><br><span class="line">        lat, tput = measure_throughput(bs)</span><br><span class="line">        <span class="built_in">print</span>(<span class="string">f&quot;<span class="subst">&#123;bs:&gt;<span class="number">6</span>&#125;</span>  <span class="subst">&#123;lat:&gt;<span class="number">8.2</span>f&#125;</span>ms  <span class="subst">&#123;tput:&gt;<span class="number">14.0</span>f&#125;</span> samples/s&quot;</span>)</span><br></pre></td></tr></table></figure>
+<p>典型输出（示意，实际值取决于 GPU 型号）：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">batch    latency         throughput</span><br><span class="line">    1      0.08ms            12,500 samples/s</span><br><span class="line">    4      0.09ms            44,400 samples/s</span><br><span class="line">   16      0.11ms           145,000 samples/s</span><br><span class="line">   64      0.25ms           256,000 samples/s</span><br><span class="line">  256      0.90ms           284,000 samples/s</span><br></pre></td></tr></table></figure>
+<p><strong>关键观察</strong>：</p>
+<ul>
+<li>batch 从 1 → 64：延迟只增加了 3 倍，但吞吐增加了 <strong>20 倍</strong></li>
+<li>batch 从 64 → 256：延迟增加 3.6 倍，吞吐只增加 1.1 倍（收益递减，GPU 已吃满）</li>
+</ul>
+<hr>
+<h2 id="9-static-batching-de-ju-xian" tabindex="-1" id="9-Static-Batching-的局限">9. Static Batching 的局限</h2>
+<p>最简单的 batching 策略是 <strong>Static Batching</strong>：等凑够 N 个请求，再一起跑。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">请求队列：[A, B, C, D, E, F, G, H]（batch=4）</span><br><span class="line"></span><br><span class="line">第 1 批：[A, B, C, D] → 一起 prefill + decode 直到全部完成</span><br><span class="line">第 2 批：[E, F, G, H] → 再一起运行</span><br></pre></td></tr></table></figure>
+<p><strong>问题</strong>：不同请求的生成长度不同。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">      time →</span><br><span class="line">批次 [A, B, C, D]:</span><br><span class="line">  A: ████████████░░░░░░   ← A 生成了 60 token 就完了，但在等 D</span><br><span class="line">  B: ████████░░░░░░░░░░   ← B 生成了 40 token 就完了，在等 D</span><br><span class="line">  C: ████████████████░░   ← C 生成了 80 token 就完了，在等 D</span><br><span class="line">  D: ████████████████████ ← D 生成了 100 token</span><br><span class="line">           ↑</span><br><span class="line">  A、B、C 完成后，GPU 有大量时间在空转等 D</span><br><span class="line">  这些 ░ 时间是纯浪费的 GPU 时间</span><br></pre></td></tr></table></figure>
+<hr>
+<h2 id="10-continuous-batching-dong-tai-guan-li-batch" tabindex="-1" id="10-Continuous-Batching：动态管理-Batch">10. Continuous Batching：动态管理 Batch</h2>
+<p><strong>Continuous Batching</strong>（也叫 in-flight batching）的思路：</p>
+<blockquote>
+<p>不把一批请求绑定到底，而是当某个请求完成时，立刻让新请求填进来。</p>
+</blockquote>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">     time →</span><br><span class="line">槽位 1：[A A A A A A A ][E E E E E E E E E E E]</span><br><span class="line">槽位 2：[B B B B    ][F F F F F F F F F ]</span><br><span class="line">槽位 3：[C C C C C C ][G G G G G G G ]</span><br><span class="line">槽位 4：[D D D D D D D D D D D D][H H H H]</span><br><span class="line"></span><br><span class="line">当 B 完成时（槽位 2），立刻把 F 插进来，而不是等 A/C/D 都完成</span><br></pre></td></tr></table></figure>
+<p>收益：GPU 利用率大幅提升，不再有大块的等待空洞。</p>
+<p>这也是 vLLM、TGI（Text Generation Inference）等现代 LLM 推理框架的核心特性。</p>
+<hr>
+<h2 id="11-padding-de-lang-fei-wei-shi-yao-chang-du-dui-qi-you-dai-jie" tabindex="-1" id="11-Padding-的浪费：为什么长度对齐有代价">11. Padding 的浪费：为什么长度对齐有代价</h2>
+<p>在一个 batch 里，不同请求的序列长度不同，但 GPU 需要整齐的矩阵计算。通常的解法是 <strong>padding</strong>：把短序列补 0 到最长序列的长度。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">batch 内的请求:</span><br><span class="line">  request A: [token1, token2, token3]                   长度 3</span><br><span class="line">  request B: [token1, token2, token3, token4, token5]   长度 5</span><br><span class="line">  request C: [token1, token2]                           长度 2</span><br><span class="line"></span><br><span class="line">Padding 后（对齐到长度 5）:</span><br><span class="line">  request A: [token1, token2, token3, PAD, PAD]   ← 2 个 PAD</span><br><span class="line">  request B: [token1, token2, token3, token4, token5]</span><br><span class="line">  request C: [token1, token2, PAD, PAD, PAD]      ← 3 个 PAD</span><br><span class="line">              ↑</span><br><span class="line">              这些 PAD 位置的计算是无效的，纯浪费</span><br></pre></td></tr></table></figure>
+<p>浪费比例 = (总 padding 数) / (总 token 数)</p>
+<p>如果请求长度差异很大，浪费可能非常严重。</p>
+<p><strong>解决思路</strong>：</p>
+<ul>
+<li><strong>排序和分组</strong>：把相近长度的请求尽量分到同一批</li>
+<li><strong>Bucket batching</strong>：把请求按长度分桶，每桶内 padding 浪费最小</li>
+<li><strong>Flash Attention / Variable-Length Attention</strong>：某些算子实现可以支持 packed（无 padding）格式</li>
+</ul>
+<hr>
+<h2 id="12-tui-li-xi-tong-de-qing-qiu-sheng-ming-zhou-qi" tabindex="-1" id="12-推理系统的请求生命周期">12. 推理系统的请求生命周期</h2>
+<p>把所有概念串起来：一个请求的完整生命周期：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br></pre></td><td class="code"><pre><span class="line">用户发送请求</span><br><span class="line">    ↓</span><br><span class="line">① 排队（Queue）</span><br><span class="line">  - 系统决定何时处理这个请求</span><br><span class="line">  - 可能等待凑批</span><br><span class="line">    ↓</span><br><span class="line">② 预处理（Preprocessing）</span><br><span class="line">  - Tokenization</span><br><span class="line">  - CPU 侧处理</span><br><span class="line">  - 数据搬到 GPU（CPU→GPU，见第 04 篇）</span><br><span class="line">    ↓</span><br><span class="line">③ Prefill</span><br><span class="line">  - 整段 prompt 一次性 forward</span><br><span class="line">  - 建立 KV Cache</span><br><span class="line">  - 计算量大，吞吐敏感</span><br><span class="line">    ↓</span><br><span class="line">④ Decode 循环（重复直到 EOS）</span><br><span class="line">  - 每步生成 1 个 token</span><br><span class="line">  - 利用 KV Cache，只算新 token 的 attention</span><br><span class="line">  - 延迟敏感</span><br><span class="line">    ↓</span><br><span class="line">⑤ 后处理（Postprocessing）</span><br><span class="line">  - Detokenization</span><br><span class="line">  - 结果返回给用户</span><br><span class="line">    ↓</span><br><span class="line">⑥ Cache 回收</span><br><span class="line">  - 释放这个请求占用的 KV Cache</span><br><span class="line">  - 供下一个请求使用</span><br></pre></td></tr></table></figure>
+<p>用户感受到的 latency = 排队时间 + 预处理时间 + prefill 时间 + decode 时间 + 后处理时间</p>
+<p><strong>结论</strong>：<code>benchmark</code> 得到的 <code>model(x)</code> 时间通常仅对应流水线中设备前向一段；端到端延迟还包含前后处理与调度等环节。</p>
+<hr>
+<h2 id="13-yong-dai-ma-li-jie-batch-size-dui-latency-he-throughput-de-ying-xiang" tabindex="-1" id="13-用代码理解-Batch-Size-对-Latency-和-Throughput-的影响">13. 用代码理解 Batch Size 对 Latency 和 Throughput 的影响</h2>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"><span class="keyword">import</span> torch.nn <span class="keyword">as</span> nn</span><br><span class="line"><span class="keyword">import</span> time</span><br><span class="line"></span><br><span class="line">device = <span class="string">&quot;cuda&quot;</span> <span class="keyword">if</span> torch.cuda.is_available() <span class="keyword">else</span> <span class="string">&quot;cpu&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 模拟一个简化的 LLM transformer block</span></span><br><span class="line"><span class="keyword">class</span> <span class="title class_">SimpleBlock</span>(nn.Module):</span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">__init__</span>(<span class="params">self, d_model=<span class="number">512</span>, n_heads=<span class="number">8</span></span>):</span><br><span class="line">        <span class="built_in">super</span>().__init__()</span><br><span class="line">        <span class="variable language_">self</span>.attn_qkv = nn.Linear(d_model, <span class="number">3</span> * d_model)</span><br><span class="line">        <span class="variable language_">self</span>.attn_out = nn.Linear(d_model, d_model)</span><br><span class="line">        <span class="variable language_">self</span>.ffn1 = nn.Linear(d_model, <span class="number">4</span> * d_model)</span><br><span class="line">        <span class="variable language_">self</span>.ffn2 = nn.Linear(<span class="number">4</span> * d_model, d_model)</span><br><span class="line">        <span class="variable language_">self</span>.norm1 = nn.LayerNorm(d_model)</span><br><span class="line">        <span class="variable language_">self</span>.norm2 = nn.LayerNorm(d_model)</span><br><span class="line"></span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">forward</span>(<span class="params">self, x</span>):</span><br><span class="line">        <span class="comment"># 简化 attention（不做真正的 masked attention，仅演示）</span></span><br><span class="line">        qkv = <span class="variable language_">self</span>.attn_qkv(x)</span><br><span class="line">        out = <span class="variable language_">self</span>.attn_out(qkv[:, :, :x.shape[-<span class="number">1</span>]])</span><br><span class="line">        x = <span class="variable language_">self</span>.norm1(x + out)</span><br><span class="line">        ffn = <span class="variable language_">self</span>.ffn2(torch.relu(<span class="variable language_">self</span>.ffn1(x)))</span><br><span class="line">        <span class="keyword">return</span> <span class="variable language_">self</span>.norm2(x + ffn)</span><br><span class="line"></span><br><span class="line">model = SimpleBlock().to(device).<span class="built_in">eval</span>()</span><br><span class="line"></span><br><span class="line"><span class="comment"># 模拟 decode 场景：batch=N，seq_len=1（每步只新增 1 token）</span></span><br><span class="line"><span class="comment"># 和 prefill 场景：batch=1，seq_len=L（一次性处理整段）</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">def</span> <span class="title function_">measure</span>(<span class="params">batch, seq_len, n_runs=<span class="number">100</span></span>):</span><br><span class="line">    x = torch.randn(batch, seq_len, <span class="number">512</span>, device=device)</span><br><span class="line">    <span class="keyword">with</span> torch.inference_mode():</span><br><span class="line">        <span class="keyword">for</span> _ <span class="keyword">in</span> <span class="built_in">range</span>(<span class="number">10</span>):</span><br><span class="line">            model(x)</span><br><span class="line">    torch.cuda.synchronize()</span><br><span class="line">    t0 = time.time()</span><br><span class="line">    <span class="keyword">with</span> torch.inference_mode():</span><br><span class="line">        <span class="keyword">for</span> _ <span class="keyword">in</span> <span class="built_in">range</span>(n_runs):</span><br><span class="line">            model(x)</span><br><span class="line">    torch.cuda.synchronize()</span><br><span class="line">    elapsed = (time.time() - t0) / n_runs * <span class="number">1000</span></span><br><span class="line">    token_throughput = batch * seq_len * n_runs / (time.time() - t0 + elapsed * n_runs / <span class="number">1000</span>)</span><br><span class="line">    <span class="keyword">return</span> elapsed, batch * seq_len * <span class="number">1000</span> / elapsed  <span class="comment"># latency, tokens/s</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">if</span> torch.cuda.is_available():</span><br><span class="line">    <span class="built_in">print</span>(<span class="string">&quot;=== Decode 场景（seq_len=1，模拟每步只有 1 个新 token）===&quot;</span>)</span><br><span class="line">    <span class="built_in">print</span>(<span class="string">f&quot;<span class="subst">&#123;<span class="string">&#x27;batch&#x27;</span>:&gt;<span class="number">6</span>&#125;</span>  <span class="subst">&#123;<span class="string">&#x27;latency&#x27;</span>:&gt;<span class="number">10</span>&#125;</span>  <span class="subst">&#123;<span class="string">&#x27;tokens/s&#x27;</span>:&gt;<span class="number">12</span>&#125;</span>&quot;</span>)</span><br><span class="line">    <span class="keyword">for</span> bs <span class="keyword">in</span> [<span class="number">1</span>, <span class="number">4</span>, <span class="number">16</span>, <span class="number">64</span>]:</span><br><span class="line">        lat, tput = measure(bs, seq_len=<span class="number">1</span>)</span><br><span class="line">        <span class="built_in">print</span>(<span class="string">f&quot;<span class="subst">&#123;bs:&gt;<span class="number">6</span>&#125;</span>  <span class="subst">&#123;lat:&gt;<span class="number">8.2</span>f&#125;</span>ms  <span class="subst">&#123;tput:&gt;<span class="number">10.0</span>f&#125;</span>&quot;</span>)</span><br><span class="line"></span><br><span class="line">    <span class="built_in">print</span>(<span class="string">&quot;\n=== Prefill 场景（batch=1，seq_len=L，一次性处理 prompt）===&quot;</span>)</span><br><span class="line">    <span class="built_in">print</span>(<span class="string">f&quot;<span class="subst">&#123;<span class="string">&#x27;seq_len&#x27;</span>:&gt;<span class="number">8</span>&#125;</span>  <span class="subst">&#123;<span class="string">&#x27;latency&#x27;</span>:&gt;<span class="number">10</span>&#125;</span>  <span class="subst">&#123;<span class="string">&#x27;tokens/s&#x27;</span>:&gt;<span class="number">12</span>&#125;</span>&quot;</span>)</span><br><span class="line">    <span class="keyword">for</span> L <span class="keyword">in</span> [<span class="number">64</span>, <span class="number">256</span>, <span class="number">1024</span>, <span class="number">2048</span>]:</span><br><span class="line">        lat, tput = measure(batch=<span class="number">1</span>, seq_len=L)</span><br><span class="line">        <span class="built_in">print</span>(<span class="string">f&quot;<span class="subst">&#123;L:&gt;<span class="number">8</span>&#125;</span>  <span class="subst">&#123;lat:&gt;<span class="number">8.2</span>f&#125;</span>ms  <span class="subst">&#123;tput:&gt;<span class="number">10.0</span>f&#125;</span>&quot;</span>)</span><br></pre></td></tr></table></figure>
+<hr>
+<h2 id="14-wei-shi-yao-zhen-shi-gang-wei-bu-shi-zhi-jie-pao-yuan-sheng-py-torch-eager" tabindex="-1" id="14-为什么真实岗位不是直接跑原生-PyTorch-Eager">14. 为什么真实岗位不是直接跑原生 PyTorch Eager</h2>
+<p>原生 eager 的优势是灵活好调试。但真实线上更关心：</p>
+<table>
+<thead>
+<tr>
+<th>需求</th>
+<th>PyTorch Eager</th>
+<th>专用推理后端</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>高并发 dynamic batching</td>
+<td>需要手动实现</td>
+<td>内置支持</td>
+</tr>
+<tr>
+<td>KV Cache 管理</td>
+<td>需要手动实现</td>
+<td>优化内置</td>
+</tr>
+<tr>
+<td>paged KV / prefix caching</td>
+<td>不支持</td>
+<td>vLLM 等支持</td>
+</tr>
+<tr>
+<td>极致算子性能（如 FlashAttention）</td>
+<td>可以调用</td>
+<td>深度集成</td>
+</tr>
+<tr>
+<td>多机多卡推理</td>
+<td>需要额外工程</td>
+<td>内置支持</td>
+</tr>
+<tr>
+<td>跨语言服务接口</td>
+<td>需要额外封装</td>
+<td>内置 HTTP 接口</td>
+</tr>
+</tbody>
+</table>
+<p>所以常见路径是：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">开发 / 训练（PyTorch eager）</span><br><span class="line">    ↓</span><br><span class="line">验证和性能分析（PyTorch profiler / benchmark）</span><br><span class="line">    ↓ 根据目标选择</span><br><span class="line">torch.compile()          ONNX Runtime / TensorRT     vLLM / TGI 等</span><br><span class="line">（PyTorch 内提速）         （传统 CNN 部署）              （LLM 服务化推理）</span><br></pre></td></tr></table></figure>
+<p>工程上宜了解各后端在图格式、动态 shape 与调度上的差异，例如：</p>
+<blockquote>
+<p><strong>PyTorch 是模型的&quot;源表达&quot;和&quot;验证入口&quot;，不一定是最终线上形态。学透 PyTorch 是理解所有后端的基础。</strong></p>
+</blockquote>
+<hr>
+<h2 id="15-tail-latency-wei-yan-chi-wei-shi-yao-ping-jun-zhi-bu-gou-kan" tabindex="-1" id="15-Tail-Latency（尾延迟）：为什么平均值不够看">15. Tail Latency（尾延迟）：为什么平均值不够看</h2>
+<p>服务化推理里，平均延迟不是全部。SLA 通常用 P99 描述：</p>
+<blockquote>
+<p>“99% 的请求在 100ms 内完成” → P99 latency ≤ 100ms</p>
+</blockquote>
+<p>如果有 1% 的请求因为排队太久、batch 太大、或者遇到长序列，延迟飙到 5 秒，即使平均 latency 很漂亮，这个系统也不合格。</p>
+<p><strong>推理系统里的 Tail Latency 来源</strong>：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 简单模拟等待时间对尾延迟的影响</span></span><br><span class="line"><span class="keyword">import</span> numpy <span class="keyword">as</span> np</span><br><span class="line"></span><br><span class="line">np.random.seed(<span class="number">42</span>)</span><br><span class="line">n_requests = <span class="number">1000</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 模拟两种调度策略</span></span><br><span class="line"><span class="comment"># 策略 1：等凑满 batch=16 再执行（等待时间最多 50ms）</span></span><br><span class="line"><span class="comment"># 策略 2：来了就跑（batch=1，无等待）</span></span><br><span class="line"></span><br><span class="line">compute_time = np.random.exponential(scale=<span class="number">20</span>, size=n_requests)  <span class="comment"># 均值 20ms</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 策略 1</span></span><br><span class="line">wait_time_1 = np.random.uniform(<span class="number">0</span>, <span class="number">50</span>, n_requests)</span><br><span class="line">total_1 = compute_time + wait_time_1</span><br><span class="line"></span><br><span class="line"><span class="comment"># 策略 2</span></span><br><span class="line">total_2 = compute_time  <span class="comment"># 无等待，但吞吐低</span></span><br><span class="line"></span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot;策略 1（batch=16，等待最多 50ms）:&quot;</span>)</span><br><span class="line"><span class="built_in">print</span>(<span class="string">f&quot;  平均: <span class="subst">&#123;total_1.mean():<span class="number">.1</span>f&#125;</span>ms  P95: <span class="subst">&#123;np.percentile(total_1, <span class="number">95</span>):<span class="number">.1</span>f&#125;</span>ms  P99: <span class="subst">&#123;np.percentile(total_1, <span class="number">99</span>):<span class="number">.1</span>f&#125;</span>ms&quot;</span>)</span><br><span class="line"></span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot;\n策略 2（batch=1，立即执行）:&quot;</span>)</span><br><span class="line"><span class="built_in">print</span>(<span class="string">f&quot;  平均: <span class="subst">&#123;total_2.mean():<span class="number">.1</span>f&#125;</span>ms  P95: <span class="subst">&#123;np.percentile(total_2, <span class="number">95</span>):<span class="number">.1</span>f&#125;</span>ms  P99: <span class="subst">&#123;np.percentile(total_2, <span class="number">99</span>):<span class="number">.1</span>f&#125;</span>ms&quot;</span>)</span><br></pre></td></tr></table></figure>
+<p>输出（示意）：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">策略 1（batch=16，等待最多 50ms）:</span><br><span class="line">  平均: 45.2ms  P95: 67.3ms  P99: 74.8ms</span><br><span class="line"></span><br><span class="line">策略 2（batch=1，立即执行）:</span><br><span class="line">  平均: 19.8ms  P95: 57.2ms  P99: 79.4ms</span><br></pre></td></tr></table></figure>
+<p>这个例子说明：吞吐和延迟的 trade-off 在不同百分位上表现不同，需要根据业务 SLA 选择策略。</p>
+<hr>
+<h2 id="16-cong-zhang-liang-yu-yi-dao-xi-tong-yue-shu" tabindex="-1" id="16-从张量语义到系统约束">16. 从张量语义到系统约束</h2>
+<p>以下将前文中的 shape、显存与调度概念与 LLM 服务中的典型瓶颈对应；数字仅为示意，实际占用随模型配置与实现变化。</p>
+<h3 id="kv-cache-yu-bing-fa-shang-xian" tabindex="-1" id="KV-Cache-与并发上限">KV Cache 与并发上限</h3>
+<p>KV Cache 为每个进行中的请求按层保存历史 Key/Value，体量可近似为 <code>2 × num_layers × num_heads × seq_len × head_dim × dtype_bytes</code>（再乘并发数）。在固定显存预算下，该线性项常先于算力成为并发瓶颈；PagedAttention 等方案通过分页与碎片管理提高显存利用率，属于在同一预算下提升有效并发的工程手段。</p>
+<h3 id="decode-xiang-dui-prefill-de-you-hua-nan-dian" tabindex="-1" id="Decode-相对-Prefill-的优化难点">Decode 相对 Prefill 的优化难点</h3>
+<p>Decode 每步仅扩展一个 token，单步 GEMM 规模小，硬件利用率常低于 Prefill 的大块矩阵乘；多步循环叠加调度与内核启动开销。批内各请求生成长度不一易造成空转，因此常与连续批处理、针对小批 attention 的算子优化等配合使用。</p>
+<hr>
+<h2 id="17-chang-jian-wen-ti-ji-zhu-yao-dian" tabindex="-1" id="17-常见问题（技术要点）">17. 常见问题（技术要点）</h2>
+<p><strong>Q：Prefill 和 Decode 的区别是什么？</strong><br>
+A：Prefill 是把整段 prompt 一次性送进模型计算，计算量大（<code>∝ L²</code>），是大块矩阵乘，GPU 容易吃满，偏吞吐型。Decode 是每步只新增 1 个 token 的生成循环，单步计算量小（<code>∝ 1×L</code>），需要反复执行 output_length 次，偏延迟敏感，更依赖 KV Cache 和调度效率。</p>
+<p><strong>Q：KV Cache 的本质是什么？它的代价是什么？</strong><br>
+A：把每一层历史 token 的 Key 和 Value 缓存在显存里，避免 decode 时重复计算历史 attention，本质是&quot;用显存换计算&quot;。代价是显存消耗与层数、头数、序列长度、并发数成正比，大模型下单请求 KV Cache 就能占几 GB，严重限制并发能力。</p>
+<p><strong>Q：KV Cache 大小怎么估算？</strong><br>
+A：<code>2 × num_layers × num_heads × seq_len × head_dim × dtype_bytes × batch_size</code>。以 LLaMA-7B（32层、32头、128 head_dim）、4096 token、FP16 为例：<code>2 × 32 × 32 × 4096 × 128 × 2 ≈ 2GB</code>，8 个并发就是 16GB。</p>
+<p><strong>Q：Static batching 和 Continuous batching 的区别？</strong><br>
+A：Static batching 把一批请求绑定在一起从头跑到尾，Decode 步数较少的请求完成后 GPU 空转等较慢的请求。Continuous batching 允许请求完成后立刻从队列里取新请求填充，GPU 利用率更高，是现代 LLM 推理框架的标配。</p>
+<p><strong>Q：为什么 GPU batch size 越大不总是越好？</strong><br>
+A：增大 batch 能提高吞吐和 GPU 利用率，但会增加等待凑批时间（延迟↑）、padding 浪费（长度不同的请求混批）、KV Cache 显存压力（并发数↑），在延迟 SLA 严格的场景里反而有害。</p>
+<p><strong>Q：为什么 PyTorch 基础对推理系统工程很重要？</strong><br>
+A：所有推理后端的模型都来自 PyTorch，行为对齐、性能复现、问题定位通常都从 PyTorch start。KV Cache 的存储布局、dtype 选择、batch 的 Tensor 组织、profiling 发现瓶颈——这些都要落回 Tensor 操作层面。学透 PyTorch 是理解所有后端的基础。</p>
+<hr>
+<h2 id="18-si-kao-ti" tabindex="-1" id="18-思考题">18. 思考题</h2>
+<h3 id="lian-xi-1-dong-shou-suan-kv-cache-xian-cun" tabindex="-1" id="练习-1：动手算-KV-Cache-显存">练习 1：动手算 KV Cache 显存</h3>
+<p>用本节的 <code>estimate_kv_cache_mb()</code> 函数，计算以下场景的 KV Cache 大小：</p>
+<ul>
+<li>GPT-2 medium（24层、16头、head_dim=64，seq=2048，batch=16）</li>
+<li>LLaMA-7B（32层、32头、head_dim=128，seq=4096，batch=8）</li>
+<li>LLaMA-13B（40层、40头、head_dim=128，seq=4096，batch=4）</li>
+</ul>
+<blockquote>
+<p>思考：假设 GPU 有 40GB 显存，模型自身占去一半，每个场景最多能同时服务多少个请求？</p>
+</blockquote>
+<h3 id="lian-xi-2-batch-size-vs-latency-throughput-shi-yan" tabindex="-1" id="练习-2：Batch-Size-vs-Latency-Throughput-实验">练习 2：Batch Size vs Latency/Throughput 实验</h3>
+<p>运行第 13 节的 <code>measure_throughput</code> 函数，测出不同 batch size 的 latency 和 throughput，画出趋势。</p>
+<blockquote>
+<p>思考：在哪个 batch 区间吞吐增长明显放缓？与 GPU 算力/带宽规格如何对应？</p>
+</blockquote>
+<h3 id="lian-xi-3-mo-ni-prefill-de-o-l-2-te-xing" tabindex="-1" id="练习-3：模拟-Prefill-的-O-L²-特性">练习 3：模拟 Prefill 的 O(L²) 特性</h3>
+<p>运行第 4 节的 <code>prefill_sim</code> 函数，验证 attention 计算时间随序列长度 L 的增长趋势。</p>
+<blockquote>
+<p>思考：如果 prefill 时间确实是 <code>∝ L²</code>，那么 L 从 512 增加到 2048（4 倍），时间应该增加几倍？实测结果符合吗？</p>
+</blockquote>
+<h3 id="lian-xi-4-xie-yi-ge-jian-dan-de-qing-qiu-diao-du-mo-ni" tabindex="-1" id="练习-4：写一个简单的请求调度模拟">练习 4：写一个简单的请求调度模拟</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> time</span><br><span class="line"><span class="keyword">import</span> random</span><br><span class="line"><span class="keyword">import</span> threading</span><br><span class="line"><span class="keyword">from</span> queue <span class="keyword">import</span> Queue</span><br><span class="line"></span><br><span class="line"><span class="comment"># 模拟一个极简的 static batch 调度器</span></span><br><span class="line"><span class="keyword">def</span> <span class="title function_">static_batch_scheduler</span>(<span class="params">request_queue, batch_size=<span class="number">4</span>, model_latency_ms=<span class="number">50</span></span>):</span><br><span class="line">    <span class="string">&quot;&quot;&quot;</span></span><br><span class="line"><span class="string">    batch_size：等凑满多少个请求才发出</span></span><br><span class="line"><span class="string">    model_latency_ms：假设每 batch 计算耗时固定</span></span><br><span class="line"><span class="string">    &quot;&quot;&quot;</span></span><br><span class="line">    results = []</span><br><span class="line">    batch = []</span><br><span class="line">    </span><br><span class="line">    <span class="keyword">while</span> <span class="literal">True</span>:</span><br><span class="line">        req = request_queue.get()</span><br><span class="line">        <span class="keyword">if</span> req <span class="keyword">is</span> <span class="literal">None</span>:</span><br><span class="line">            <span class="keyword">break</span></span><br><span class="line">        batch.append(req)</span><br><span class="line">        </span><br><span class="line">        <span class="keyword">if</span> <span class="built_in">len</span>(batch) &gt;= batch_size:</span><br><span class="line">            time.sleep(model_latency_ms / <span class="number">1000</span>)   <span class="comment"># 模拟计算</span></span><br><span class="line">            <span class="keyword">for</span> r <span class="keyword">in</span> batch:</span><br><span class="line">                end_time = time.time()</span><br><span class="line">                results.append(end_time - r[<span class="string">&quot;arrive_time&quot;</span>])</span><br><span class="line">            batch = []</span><br><span class="line">    </span><br><span class="line">    <span class="keyword">return</span> results</span><br><span class="line"></span><br><span class="line"><span class="comment"># 模拟请求到来</span></span><br><span class="line">q = Queue()</span><br><span class="line"><span class="keyword">for</span> i <span class="keyword">in</span> <span class="built_in">range</span>(<span class="number">20</span>):</span><br><span class="line">    time.sleep(random.uniform(<span class="number">0.005</span>, <span class="number">0.02</span>))   <span class="comment"># 随机到达</span></span><br><span class="line">    q.put(&#123;<span class="string">&quot;id&quot;</span>: i, <span class="string">&quot;arrive_time&quot;</span>: time.time()&#125;)</span><br><span class="line">q.put(<span class="literal">None</span>)   <span class="comment"># 结束信号</span></span><br></pre></td></tr></table></figure>
+<blockquote>
+<p>改造：实现一个&quot;超时就发&quot;的版本——如果等了 20ms 还没凑满 batch，就把当前的送出去。观察对 tail latency 的影响。</p>
+</blockquote>
+<h3 id="lian-xi-5-ba-kv-cache-gai-nian-he-tensor-cao-zuo-dui-ying-qi-lai" tabindex="-1" id="练习-5：把-KV-Cache-概念和-Tensor-操作对应起来">练习 5：把 KV Cache 概念和 Tensor 操作对应起来</h3>
+<p>用纯 PyTorch 写一个极简的 KV Cache append 操作：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"></span><br><span class="line"><span class="comment"># 模拟 KV Cache 的追加（decode 每步的操作）</span></span><br><span class="line"><span class="keyword">class</span> <span class="title class_">SimpleKVCache</span>:</span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">__init__</span>(<span class="params">self, max_seq_len, d_model</span>):</span><br><span class="line">        <span class="variable language_">self</span>.k_cache = torch.zeros(<span class="number">1</span>, max_seq_len, d_model)</span><br><span class="line">        <span class="variable language_">self</span>.v_cache = torch.zeros(<span class="number">1</span>, max_seq_len, d_model)</span><br><span class="line">        <span class="variable language_">self</span>.cur_len = <span class="number">0</span></span><br><span class="line"></span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">append</span>(<span class="params">self, new_k, new_v</span>):</span><br><span class="line">        <span class="string">&quot;&quot;&quot;追加新 token 的 K/V&quot;&quot;&quot;</span></span><br><span class="line">        <span class="comment"># new_k shape: (1, 1, d_model) - 当前新 token 的 K</span></span><br><span class="line">        pos = <span class="variable language_">self</span>.cur_len</span><br><span class="line">        <span class="variable language_">self</span>.k_cache[:, pos:pos+<span class="number">1</span>, :] = new_k</span><br><span class="line">        <span class="variable language_">self</span>.v_cache[:, pos:pos+<span class="number">1</span>, :] = new_v</span><br><span class="line">        <span class="variable language_">self</span>.cur_len += <span class="number">1</span></span><br><span class="line"></span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">get</span>(<span class="params">self</span>):</span><br><span class="line">        <span class="string">&quot;&quot;&quot;获取所有历史 K/V&quot;&quot;&quot;</span></span><br><span class="line">        <span class="keyword">return</span> <span class="variable language_">self</span>.k_cache[:, :<span class="variable language_">self</span>.cur_len, :], <span class="variable language_">self</span>.v_cache[:, :<span class="variable language_">self</span>.cur_len, :]</span><br><span class="line"></span><br><span class="line"><span class="comment"># 测试</span></span><br><span class="line">cache = SimpleKVCache(max_seq_len=<span class="number">512</span>, d_model=<span class="number">64</span>)</span><br><span class="line"><span class="keyword">for</span> step <span class="keyword">in</span> <span class="built_in">range</span>(<span class="number">5</span>):</span><br><span class="line">    new_k = torch.randn(<span class="number">1</span>, <span class="number">1</span>, <span class="number">64</span>)</span><br><span class="line">    new_v = torch.randn(<span class="number">1</span>, <span class="number">1</span>, <span class="number">64</span>)</span><br><span class="line">    cache.append(new_k, new_v)</span><br><span class="line">    k, v = cache.get()</span><br><span class="line">    <span class="built_in">print</span>(<span class="string">f&quot;Step <span class="subst">&#123;step+<span class="number">1</span>&#125;</span>: KV Cache shape = <span class="subst">&#123;k.shape&#125;</span>&quot;</span>)  <span class="comment"># (1, step+1, 64)</span></span><br></pre></td></tr></table></figure>
+<blockquote>
+<p>思考：真实系统里，KV Cache 会跨层（num_layers）、跨头（num_heads），shape 应该是什么？每步 append 后 shape 如何变化？</p>
+</blockquote>
+<hr>
+<h2 id="19-ben-jie-yao-dian-yu-zi-jian" tabindex="-1" id="19-本节要点与自检">19. 本节要点与自检</h2>
+<ul>
+<li>清晰解释 Prefill 和 Decode 的计算差异（计算量、执行次数、优化重点各不同）</li>
+<li>能估算 KV Cache 的显存大小，并解释它如何限制并发能力</li>
+<li>理解为什么 decode 比 prefill 难优化（矩阵太小，GPU 难吃满）</li>
+<li>知道 Static Batching 的空转问题和 Continuous Batching 的解决思路</li>
+<li>理解 Padding 浪费的来源，知道为什么变长序列 batching 更复杂</li>
+<li>能把 PyTorch 的 Tensor/shape/device/dtype 知识联系到推理系统问题上</li>
+<li>能用显存与 shape 估算将 KV Cache、并发与批调度串成可核对表述</li>
+</ul>
+<hr>
+<h2 id="20-xiao-jie" tabindex="-1" id="20-小结">20. 小结</h2>
+<blockquote>
+<p>系统设计讨论通常要求将单请求路径上的 shape、KV 显存、批调度与 Prefill/Decode 差异一并纳入，而非仅描述单次 <code>model(x)</code> 调用。</p>
+</blockquote>
+<hr>
+<h2 id="xi-lie-dao-hang" tabindex="-1" id="系列导航">系列导航</h2>
+<ul>
+<li>上一篇：<a href="/posts/d53a5f5b/">PyTorch推理工程：07 Profiling、Benchmark 与瓶颈定位</a></li>
+<li>下一篇：<a href="/posts/432e473/">PyTorch推理工程：09 最小可展示推理项目骨架</a></li>
+<li><a href="/posts/846fbbaf/">系列索引（00 导读）</a></li>
+</ul>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/fb17598c/">https://smarter.xin/posts/fb17598c/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/llm-inference/">大模型推理</a><a class="post-meta__tags" href="/tags/vllm/">vLLM</a><a class="post-meta__tags" href="/tags/llm/">LLM</a><a class="post-meta__tags" href="/tags/kv-cache/">KV Cache</a><a class="post-meta__tags" href="/tags/inference-optimization/">推理优化</a><a class="post-meta__tags" href="/tags/pytorch/">PyTorch</a></div><div class="post-share"><div class="social-share" data-image="/img/pytorch.avif" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/432e473/" title="PyTorch推理工程：09 最小可展示推理项目骨架"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">PyTorch推理工程：09 最小可展示推理项目骨架</div></div></div></a><a class="pagination-related  no-desc" href="/posts/d53a5f5b/" title="PyTorch推理工程：07 Profiling、Benchmark 与瓶颈定位"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">PyTorch推理工程：07 Profiling、Benchmark 与瓶颈定位</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/d3059af7/" title="AI Infra学习之旅-从模型执行到推理系统的桥接"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/attentionisallyouneed.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-27</div><div class="info-item-2">AI Infra学习之旅-从模型执行到推理系统的桥接</div></div></div></a><a class="pagination-related no-desc" href="/posts/fbab2bc4/" title="AI Infra学习之旅-PagedAttention详解"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-01-03</div><div class="info-item-2">AI Infra学习之旅-PagedAttention详解</div></div></div></a><a class="pagination-related no-desc" href="/posts/9729c03f/" title="CUDA-Practice：11 推理优化、融合与键值缓存——算子融合、PagedAttention 与连续批处理"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-12</div><div class="info-item-2">CUDA-Practice：11 推理优化、融合与键值缓存——算子融合、PagedAttention 与连续批处理</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">我就是要爬这座山<br>再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">142</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">264</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">25</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#py-torch-tui-li-gong-cheng-08-pi-chu-li-kv-cache-yu-serving-shi-jiao"><span class="toc-text">PyTorch 推理工程（08）：批处理、KV Cache 与 Serving 视角</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#1-ben-jie-ding-wei"><span class="toc-text">1. 本节定位</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-tui-li-xi-tong-you-hua-de-he-xin-mao-dun"><span class="toc-text">2. 推理系统优化的核心矛盾</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#3-llm-tui-li-de-liang-jie-duan-mo-xing"><span class="toc-text">3. LLM 推理的两阶段模型</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#4-shi-yao-shi-prefill-wei-shi-yao-ta-geng-hao-you-hua"><span class="toc-text">4. 什么是 Prefill，为什么它更好优化</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#prefill-zuo-shi-yao"><span class="toc-text">Prefill 做什么</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#prefill-de-ji-suan-te-zheng"><span class="toc-text">Prefill 的计算特征</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#prefill-xing-neng-ding-xing-shi-yi"><span class="toc-text">Prefill 性能定性示意</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#5-shi-yao-shi-decode-wei-shi-yao-ta-geng-nan-you-hua"><span class="toc-text">5. 什么是 Decode，为什么它更难优化</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#decode-zuo-shi-yao"><span class="toc-text">Decode 做什么</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#decode-de-ji-suan-te-zheng"><span class="toc-text">Decode 的计算特征</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#prefill-vs-decode-dui-bi"><span class="toc-text">Prefill vs Decode 对比</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#6-kv-cache-yong-xian-cun-huan-diao-zhong-fu-ji-suan"><span class="toc-text">6. KV Cache：用显存换掉重复计算</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#ru-guo-mei-you-kv-cache"><span class="toc-text">如果没有 KV Cache</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#you-liao-kv-cache"><span class="toc-text">有了 KV Cache</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#kv-cache-de-xian-cun-xiao-hao-you-liang-hua-gan-cai-neng-li-jie-xi-tong-yue-shu"><span class="toc-text">KV Cache 的显存消耗：有量化感才能理解系统约束</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#7-kv-cache-dai-lai-de-gong-cheng-wen-ti"><span class="toc-text">7. KV Cache 带来的工程问题</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#wen-ti-1-xian-cun-sui-pian-hua"><span class="toc-text">问题 1：显存碎片化</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#wen-ti-2-duo-ge-qing-qiu-gong-xiang-prompt-de-zhong-fu-ji-suan"><span class="toc-text">问题 2：多个请求共享 Prompt 的重复计算</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#wen-ti-3-cache-hui-shou-yu-diao-du"><span class="toc-text">问题 3：Cache 回收与调度</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#8-batching-rang-gpu-bu-lang-fei-zai-quot-ling-san-qing-qiu-quot-shang"><span class="toc-text">8. Batching：让 GPU 不浪费在&quot;零散请求&quot;上</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#wei-shi-yao-xu-yao-batching"><span class="toc-text">为什么需要 Batching</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#9-static-batching-de-ju-xian"><span class="toc-text">9. Static Batching 的局限</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#10-continuous-batching-dong-tai-guan-li-batch"><span class="toc-text">10. Continuous Batching：动态管理 Batch</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#11-padding-de-lang-fei-wei-shi-yao-chang-du-dui-qi-you-dai-jie"><span class="toc-text">11. Padding 的浪费：为什么长度对齐有代价</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#12-tui-li-xi-tong-de-qing-qiu-sheng-ming-zhou-qi"><span class="toc-text">12. 推理系统的请求生命周期</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#13-yong-dai-ma-li-jie-batch-size-dui-latency-he-throughput-de-ying-xiang"><span class="toc-text">13. 用代码理解 Batch Size 对 Latency 和 Throughput 的影响</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#14-wei-shi-yao-zhen-shi-gang-wei-bu-shi-zhi-jie-pao-yuan-sheng-py-torch-eager"><span class="toc-text">14. 为什么真实岗位不是直接跑原生 PyTorch Eager</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#15-tail-latency-wei-yan-chi-wei-shi-yao-ping-jun-zhi-bu-gou-kan"><span class="toc-text">15. Tail Latency（尾延迟）：为什么平均值不够看</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#16-cong-zhang-liang-yu-yi-dao-xi-tong-yue-shu"><span class="toc-text">16. 从张量语义到系统约束</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#kv-cache-yu-bing-fa-shang-xian"><span class="toc-text">KV Cache 与并发上限</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#decode-xiang-dui-prefill-de-you-hua-nan-dian"><span class="toc-text">Decode 相对 Prefill 的优化难点</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#17-chang-jian-wen-ti-ji-zhu-yao-dian"><span class="toc-text">17. 常见问题（技术要点）</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#18-si-kao-ti"><span class="toc-text">18. 思考题</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#lian-xi-1-dong-shou-suan-kv-cache-xian-cun"><span class="toc-text">练习 1：动手算 KV Cache 显存</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#lian-xi-2-batch-size-vs-latency-throughput-shi-yan"><span class="toc-text">练习 2：Batch Size vs Latency&#x2F;Throughput 实验</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#lian-xi-3-mo-ni-prefill-de-o-l-2-te-xing"><span class="toc-text">练习 3：模拟 Prefill 的 O(L²) 特性</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#lian-xi-4-xie-yi-ge-jian-dan-de-qing-qiu-diao-du-mo-ni"><span class="toc-text">练习 4：写一个简单的请求调度模拟</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#lian-xi-5-ba-kv-cache-gai-nian-he-tensor-cao-zuo-dui-ying-qi-lai"><span class="toc-text">练习 5：把 KV Cache 概念和 Tensor 操作对应起来</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#19-ben-jie-yao-dian-yu-zi-jian"><span class="toc-text">19. 本节要点与自检</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#20-xiao-jie"><span class="toc-text">20. 小结</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xi-lie-dao-hang"><span class="toc-text">系列导航</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/7ab343d0/" title="PyTorch推理工程：10 里程碑、简历转化与面试表达"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PyTorch推理工程：10 里程碑、简历转化与面试表达"/></a><div class="content"><a class="title" href="/posts/7ab343d0/" title="PyTorch推理工程：10 里程碑、简历转化与面试表达">PyTorch推理工程：10 里程碑、简历转化与面试表达</a><time datetime="2026-03-29T11:00:00.000Z" title="发表于 2026-03-29 19:00:00">2026-03-29</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/432e473/" title="PyTorch推理工程：09 最小可展示推理项目骨架"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PyTorch推理工程：09 最小可展示推理项目骨架"/></a><div class="content"><a class="title" href="/posts/432e473/" title="PyTorch推理工程：09 最小可展示推理项目骨架">PyTorch推理工程：09 最小可展示推理项目骨架</a><time datetime="2026-03-29T10:00:00.000Z" title="发表于 2026-03-29 18:00:00">2026-03-29</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/fb17598c/" title="PyTorch推理工程：08 批处理、KV Cache 与 Serving 视角"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PyTorch推理工程：08 批处理、KV Cache 与 Serving 视角"/></a><div class="content"><a class="title" href="/posts/fb17598c/" title="PyTorch推理工程：08 批处理、KV Cache 与 Serving 视角">PyTorch推理工程：08 批处理、KV Cache 与 Serving 视角</a><time datetime="2026-03-29T09:00:00.000Z" title="发表于 2026-03-29 17:00:00">2026-03-29</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/attentionisallyouneed.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">从 Self-Attention、位置编码到 Encoder-Decoder，系统梳理 Transformer 的核心结构、设计动机与理解路径</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/d6fa227a/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-16</span><a class="blog-slider__title" href="posts/d6fa227a/" alt="">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</a><div class="blog-slider__text">从访存优化到多卡通信，一篇看清 CUDA 实践系列的结构与学习路线</div><a class="blog-slider__button" href="posts/d6fa227a/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/43c4b52e/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/agent.webp" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-24</span><a class="blog-slider__title" href="posts/43c4b52e/" alt="">从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路</a><div class="blog-slider__text">使用飞书与本地 Agent 对话，远程也要让本地 Agent 干活，当一名狠狠的资本家</div><a class="blog-slider__button" href="posts/43c4b52e/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/92dc1028/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/CUDA_C.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-02-05</span><a class="blog-slider__title" href="posts/92dc1028/" alt="">CUDA C编程权威指南-导读</a><div class="blog-slider__text">从异构并行到多 GPU 实践，串起 CUDA C 权威指南的核心学习路线</div><a class="blog-slider__button" href="posts/92dc1028/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">从全书视角出发，一篇看清 PMPP 的章节结构、核心主题与学习主线</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/aac6e27d/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Computer_System.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/aac6e27d/" alt="">深入理解计算机系统知识点总结</a><div class="blog-slider__text">从程序员视角梳理 CSAPP 的知识脉络、系统抽象与性能理解</div><a class="blog-slider__button" href="posts/aac6e27d/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">围绕类型推导、移动语义与并发，提炼现代 C++ 的核心实践</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>

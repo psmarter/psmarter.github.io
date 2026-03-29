@@ -1,0 +1,788 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>PyTorch推理工程：05 混合精度、AMP 与吞吐、延迟 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="PyTorch 推理工程（05）：混合精度、AMP 与吞吐、延迟 1. 本节定位 在 device 与同步问题之外，推理侧常通过降低计算精度以换取显存与吞吐；涉及 FP32、FP16、BF16 的数值范围与尾数位宽差异、是否使用 autocast 而非整网 .half()，以及 batch、吞吐（如 samples&#x2F;s）与延迟（如 p50&#x2F;p99）的度量口径。本篇围绕上述选择与约束展开。  2.">
+<meta property="og:type" content="article">
+<meta property="og:title" content="PyTorch推理工程：05 混合精度、AMP 与吞吐、延迟">
+<meta property="og:url" content="https://smarter.xin/posts/bc5b9a38/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="PyTorch 推理工程（05）：混合精度、AMP 与吞吐、延迟 1. 本节定位 在 device 与同步问题之外，推理侧常通过降低计算精度以换取显存与吞吐；涉及 FP32、FP16、BF16 的数值范围与尾数位宽差异、是否使用 autocast 而非整网 .half()，以及 batch、吞吐（如 samples&#x2F;s）与延迟（如 p50&#x2F;p99）的度量口径。本篇围绕上述选择与约束展开。  2.">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/pytorch.avif">
+<meta property="article:published_time" content="2026-03-29T06:00:00.000Z">
+<meta property="article:modified_time" content="2026-03-29T11:38:27.486Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="深度学习">
+<meta property="article:tag" content="性能优化">
+<meta property="article:tag" content="混合精度">
+<meta property="article:tag" content="PyTorch">
+<meta property="article:tag" content="AMP">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/pytorch.avif"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "PyTorch推理工程：05 混合精度、AMP 与吞吐、延迟",
+  "url": "https://smarter.xin/posts/bc5b9a38/",
+  "image": "https://smarter.xin/img/pytorch.avif",
+  "datePublished": "2026-03-29T06:00:00.000Z",
+  "dateModified": "2026-03-29T11:38:27.486Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/bc5b9a38/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'PyTorch推理工程：05 混合精度、AMP 与吞吐、延迟',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">142</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">264</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">25</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/pytorch.avif);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">PyTorch推理工程：05 混合精度、AMP 与吞吐、延迟</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">PyTorch推理工程：05 混合精度、AMP 与吞吐、延迟</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-03-29T06:00:00.000Z" title="发表于 2026-03-29 14:00:00">2026-03-29</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-03-29T11:38:27.486Z" title="更新于 2026-03-29 19:38:27">2026-03-29</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/">AI Infra</a><i class="fas fa-angle-right post-meta-separator"></i><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/pytorch/">Pytorch</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">4.6k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>18分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="py-torch-tui-li-gong-cheng-05-hun-he-jing-du-amp-yu-tun-tu-yan-chi" tabindex="-1">PyTorch 推理工程（05）：混合精度、AMP 与吞吐、延迟</h1>
+<h2 id="1-ben-jie-ding-wei" tabindex="-1" id="1-本节定位">1. 本节定位</h2>
+<p>在 device 与同步问题之外，推理侧常通过降低计算精度以换取显存与吞吐；涉及 FP32、FP16、BF16 的数值范围与尾数位宽差异、是否使用 <code>autocast</code> 而非整网 <code>.half()</code>，以及 batch、吞吐（如 samples/s）与延迟（如 p50/p99）的度量口径。本篇围绕上述选择与约束展开。</p>
+<hr>
+<h2 id="2-yao-dian" tabindex="-1" id="2-要点">2. 要点</h2>
+<p>混合精度的核心思想不是：</p>
+<blockquote>
+<p><s>把所有计算都强行变成低精度。</s></p>
+</blockquote>
+<p>而是：</p>
+<blockquote>
+<p><strong>让更适合低精度的部分用低精度，让更需要数值稳定性的部分继续用更高精度。</strong></p>
+</blockquote>
+<p>这也是为什么叫 <strong>AMP（Automatic Mixed Precision）</strong>，而不是&quot;Automatic Half Precision&quot;。</p>
+<hr>
+<h2 id="3-ba-3-ge-zui-zhong-yao-de-dtype-che-di-fen-qing" tabindex="-1" id="3-把-3-个最重要的-dtype-彻底分清">3. 把 3 个最重要的 dtype 彻底分清</h2>
+<h3 id="xian-yong-yi-zhang-biao-kan-qing-chu-ta-men-de-shu-zhi-shu-xing" tabindex="-1" id="先用一张表看清楚它们的数值属性">先用一张表看清楚它们的数值属性</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"></span><br><span class="line"><span class="keyword">for</span> dt <span class="keyword">in</span> [torch.float32, torch.float16, torch.bfloat16]:</span><br><span class="line">    info = torch.finfo(dt)</span><br><span class="line">    <span class="built_in">print</span>(<span class="string">f&quot;<span class="subst">&#123;<span class="built_in">str</span>(dt):20s&#125;</span>  bits=<span class="subst">&#123;info.bits:2d&#125;</span>  max=<span class="subst">&#123;info.<span class="built_in">max</span>:<span class="number">.2</span>e&#125;</span>  min_pos=<span class="subst">&#123;info.tiny:<span class="number">.2</span>e&#125;</span>  eps=<span class="subst">&#123;info.eps:<span class="number">.2</span>e&#125;</span>&quot;</span>)</span><br></pre></td></tr></table></figure>
+<p>输出：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">torch.float32         bits=32  max=3.40e+38  min_pos=1.18e-38  eps=1.19e-07</span><br><span class="line">torch.float16         bits=16  max=6.55e+04  min_pos=6.10e-05  eps=9.77e-04</span><br><span class="line">torch.bfloat16        bits=16  max=3.39e+38  min_pos=1.18e-38  eps=7.81e-03</span><br></pre></td></tr></table></figure>
+<p>几个关键发现：</p>
+<table>
+<thead>
+<tr>
+<th>属性</th>
+<th>含义</th>
+<th>float32</th>
+<th>float16</th>
+<th>bfloat16</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>bits</code></td>
+<td>每个数占多少位</td>
+<td>32</td>
+<td>16</td>
+<td>16</td>
+</tr>
+<tr>
+<td><code>max</code></td>
+<td>能表示的最大正数</td>
+<td>3.4×10³⁸</td>
+<td><strong>6.55×10⁴</strong></td>
+<td>3.4×10³⁸</td>
+</tr>
+<tr>
+<td><code>eps</code></td>
+<td>1.0 附近能分辨的最小差距</td>
+<td>1.2×10⁻⁷</td>
+<td>9.8×10⁻⁴</td>
+<td>7.8×10⁻³</td>
+</tr>
+</tbody>
+</table>
+<p><strong>最关键的发现</strong>：</p>
+<ul>
+<li><code>float16</code> 的 <code>max</code> 只有 <code>65504</code>——一旦中间计算结果超过这个值，就会变成 <code>inf</code>（溢出）</li>
+<li><code>bfloat16</code> 的 <code>max</code> 和 <code>float32</code> 一样大——不容易溢出</li>
+<li><code>bfloat16</code> 的 <code>eps</code> 比 <code>float16</code> 大——小数点后的精度更粗</li>
+</ul>
+<h3 id="wei-shi-yao-float-16-rong-yi-shu-zhi-chu-wen-ti" tabindex="-1" id="为什么-float16-容易数值出问题">为什么 float16 容易数值出问题</h3>
+<p>最常见的例子就是 <code>softmax</code>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">softmax(x) = exp(x_i) / sum(exp(x_j))</span><br></pre></td></tr></table></figure>
+<p>如果 <code>x</code> 里有一个值是 300，那 <code>exp(300)</code> ≈ 10¹³⁰，远超 <code>float16</code> 的最大值 <code>65504</code>，直接变成 <code>inf</code>，softmax 输出全是 nan。</p>
+<p>用 <code>float32</code> 就没问题，因为 <code>float32</code> 的 max 是 <code>3.4×10³⁸</code>。</p>
+<h3 id="wei-shi-yao-bfloat-16-shi-geng-an-quan-de-di-jing-du-fang-an" tabindex="-1" id="为什么-bfloat16-是更安全的低精度方案">为什么 bfloat16 是更安全的低精度方案</h3>
+<p><code>float16</code> 和 <code>bfloat16</code> 都是 16 位，但内部 bit 分配不同：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">float32：   1 位符号 | 8 位指数 | 23 位尾数</span><br><span class="line">float16：   1 位符号 | 5 位指数 | 10 位尾数  ← 指数位少，范围小，容易溢出</span><br><span class="line">bfloat16：  1 位符号 | 8 位指数 | 7 位尾数   ← 和 float32 一样的指数位，范围大</span><br></pre></td></tr></table></figure>
+<p><code>bfloat16</code> 的指数位和 <code>float32</code> 完全相同，所以能表示的数值范围和 <code>float32</code> 一样，<strong>不容易溢出</strong>。代价是尾数位更少（7 位 vs 23 位），精度更粗。</p>
+<blockquote>
+<p>float16 与 bfloat16 的差异可归纳为指数位与尾数位分配不同，从而在可表示范围与尾数精度之间形成不同折中；表述时宜对比位宽与典型溢出/舍入行为，而非仅概括“更稳”。</p>
+</blockquote>
+<h3 id="san-ge-dtype-de-gong-cheng-xuan-ze-luo-ji" tabindex="-1" id="三个-dtype-的工程选择逻辑">三个 dtype 的工程选择逻辑</h3>
+<table>
+<thead>
+<tr>
+<th>dtype</th>
+<th>显存</th>
+<th>速度</th>
+<th>数值稳定性</th>
+<th>主要使用场景</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>float32</code></td>
+<td>4 字节/元素</td>
+<td>慢</td>
+<td>最强</td>
+<td>基线，数值敏感层</td>
+</tr>
+<tr>
+<td><code>float16</code></td>
+<td>2 字节/元素</td>
+<td>快（尤其 matmul）</td>
+<td>弱，容易溢出</td>
+<td>推理加速，需谨慎</td>
+</tr>
+<tr>
+<td><code>bfloat16</code></td>
+<td>2 字节/元素</td>
+<td>快</td>
+<td>较强，范围大</td>
+<td>LLM 推理/训练主流选择</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="4-di-jing-du-wei-shi-yao-chang-chang-geng-kuai" tabindex="-1" id="4-低精度为什么常常更快">4. 低精度为什么常常更快</h2>
+<p>从工程角度理解，低精度的加速来自三个层面：</p>
+<h3 id="ceng-mian-1-mei-ge-yuan-su-geng-xiao-xian-cun-he-dai-kuan-ya-li-jian-ban" tabindex="-1" id="层面-1：每个元素更小，显存和带宽压力减半">层面 1：每个元素更小，显存和带宽压力减半</h3>
+<p>一个 shape 为 <code>(B, T, D) = (32, 512, 4096)</code> 的 Tensor：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">float32: 32 × 512 × 4096 × 4 字节 = 268 MB</span><br><span class="line">float16: 32 × 512 × 4096 × 2 字节 = 134 MB  ← 省了一半</span><br></pre></td></tr></table></figure>
+<p>显存省了一半，意味着：</p>
+<ul>
+<li>同样显存下可以放 <strong>2 倍的 batch</strong></li>
+<li>模型参数和激活值占用更少</li>
+<li>数据在内存和 GPU 之间搬运更快（带宽压力更低）</li>
+</ul>
+<h3 id="ceng-mian-2-gpu-you-zhuan-men-de-di-jing-du-ji-suan-dan-yuan-tun-tu-geng-gao" tabindex="-1" id="层面-2：GPU-有专门的低精度计算单元，吞吐更高">层面 2：GPU 有专门的低精度计算单元，吞吐更高</h3>
+<p>现代 GPU（如 NVIDIA A100、H100）有专门的<strong>Tensor Core</strong>，对 <code>float16</code> 和 <code>bfloat16</code> 的矩阵乘法吞吐是 <code>float32</code> 的几倍：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">A100 理论峰值：</span><br><span class="line">  float32：  312 TFLOPS</span><br><span class="line">  float16：  312 TFLOPS（TF32）或 624 TFLOPS（FP16）  ← 更高</span><br><span class="line">  bfloat16： 312 TFLOPS（TF32）或 624 TFLOPS（BF16）</span><br></pre></td></tr></table></figure>
+<p>矩阵乘法（<code>matmul</code>、<code>linear</code>、<code>conv</code>）是深度学习里最密集的计算，低精度在这里的加速最明显。</p>
+<h3 id="ceng-mian-3-dan-quot-geng-kuai-quot-shi-you-tiao-jian-de" tabindex="-1" id="层面-3：但-更快-是有条件的">层面 3：但&quot;更快&quot;是有条件的</h3>
+<blockquote>
+<p><strong>&quot;常常更快&quot;≠ 总是更快。</strong></p>
+</blockquote>
+<p>如果瓶颈不在 matmul 上（比如在数据搬运、同步、Python 控制逻辑），那改精度不会有明显收益。</p>
+<hr>
+<h2 id="5-di-jing-du-de-shu-zhi-feng-xian" tabindex="-1" id="5-低精度的数值风险">5. 低精度的数值风险</h2>
+<p>不是所有 op 都适合低精度。风险主要来自：</p>
+<h3 id="feng-xian-1-shu-zhi-yi-chu-float-16-you-qi-yan-zhong" tabindex="-1" id="风险-1：数值溢出（float16-尤其严重）">风险 1：数值溢出（float16 尤其严重）</h3>
+<p>如第 3 节说的，float16 最大值只有 65504，稍大的中间值就会变成 <code>inf</code>。</p>
+<h3 id="feng-xian-2-jing-du-bu-zu-dao-zhi-ti-du-xiao-shi-geng-duo-shi-xun-lian-wen-ti-tui-li-ye-yao-zhu-yi" tabindex="-1" id="风险-2：精度不足导致梯度消失（更多是训练问题，推理也要注意）">风险 2：精度不足导致梯度消失（更多是训练问题，推理也要注意）</h3>
+<p>某些操作（如 <code>LayerNorm</code>、归约、<code>log_softmax</code>）在低精度下容易丢失小数值，输出偏移。</p>
+<h3 id="feng-xian-3-op-zhi-jian-de-jing-du-ji-lei-wu-chai" tabindex="-1" id="风险-3：op-之间的精度积累误差">风险 3：op 之间的精度积累误差</h3>
+<p>一个 op 的输出是下一个的输入，如果每一步都有微小精度损失，多层之后可能积累成明显偏差。</p>
+<h3 id="na-xie-op-gua-he-di-jing-du-na-xie-yao-bao-liu-gao-jing-du" tabindex="-1" id="哪些-op-适合低精度，哪些要保留高精度">哪些 op 适合低精度，哪些要保留高精度</h3>
+<p>根据 PyTorch 的 AMP 设计规则：</p>
+<table>
+<thead>
+<tr>
+<th>常用 float16</th>
+<th>常保留 float32</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>matmul</code>, <code>mm</code>, <code>bmm</code></td>
+<td><code>softmax</code>, <code>log_softmax</code></td>
+</tr>
+<tr>
+<td><code>linear</code></td>
+<td><code>layer_norm</code>, <code>group_norm</code></td>
+</tr>
+<tr>
+<td><code>conv1d/2d/3d</code></td>
+<td><code>cross_entropy</code></td>
+</tr>
+<tr>
+<td><code>batch_norm</code>（前向）</td>
+<td><code>sum</code>, <code>norm</code>（归约）</td>
+</tr>
+</tbody>
+</table>
+<p>这个设计逻辑非常合理：</p>
+<ul>
+<li><strong>重算力密集的 op</strong>（matmul/conv）→ 低精度，吃到 Tensor Core 加速</li>
+<li><strong>数值敏感的 op</strong>（softmax/norm/loss）→ 保留高精度，避免溢出和不稳定</li>
+</ul>
+<hr>
+<h2 id="6-amp-wei-shi-yao-shi-quot-zi-dong-hun-he-quot-bu-shi-quot-quan-bu-ban-jing-du-quot" tabindex="-1" id="6-AMP：为什么是-自动混合-，不是-全部半精度">6. AMP：为什么是&quot;自动混合&quot;，不是&quot;全部半精度&quot;</h2>
+<p>PyTorch 的解决方案叫 <strong>AMP（Automatic Mixed Precision）</strong>，核心工具是 <code>torch.autocast</code>。</p>
+<p>AMP 通过 <code>autocast</code> 按官方规则为各算子选择精度，无需在逐层上手工指定 dtype。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">调用形式仍为 `model(x)`：</span><br><span class="line">autocast 做的：Linear → float16</span><br><span class="line">               ReLU   → 不变（非浮点运算）</span><br><span class="line">               LayerNorm → float32  ← 保留！</span><br><span class="line">               Linear → float16</span><br><span class="line">               Softmax → float32  ← 保留！</span><br></pre></td></tr></table></figure>
+<p>即按算子类型在 FP16/BF16 与 FP32 之间切换，而非整网统一为 half。</p>
+<hr>
+<h2 id="7-code-torch-autocast-code-de-ji-ben-yong-fa" tabindex="-1" id="7-torch-autocast-的基本用法">7. <code>torch.autocast</code> 的基本用法</h2>
+<h3 id="tui-li-biao-zhun-xie-fa" tabindex="-1" id="推理标准写法">推理标准写法</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"><span class="keyword">import</span> torch.nn <span class="keyword">as</span> nn</span><br><span class="line"></span><br><span class="line">device = <span class="string">&quot;cuda&quot;</span> <span class="keyword">if</span> torch.cuda.is_available() <span class="keyword">else</span> <span class="string">&quot;cpu&quot;</span></span><br><span class="line"></span><br><span class="line">model = nn.Sequential(</span><br><span class="line">    nn.Linear(<span class="number">128</span>, <span class="number">256</span>),</span><br><span class="line">    nn.ReLU(),</span><br><span class="line">    nn.Linear(<span class="number">256</span>, <span class="number">10</span>)</span><br><span class="line">).to(device)</span><br><span class="line">model.<span class="built_in">eval</span>()</span><br><span class="line"></span><br><span class="line">x = torch.randn(<span class="number">32</span>, <span class="number">128</span>).to(device)</span><br><span class="line"></span><br><span class="line"><span class="keyword">with</span> torch.inference_mode():</span><br><span class="line">    <span class="keyword">with</span> torch.autocast(device_type=<span class="string">&quot;cuda&quot;</span>, dtype=torch.float16):</span><br><span class="line">        y = model(x)</span><br><span class="line"></span><br><span class="line"><span class="built_in">print</span>(y.dtype)    <span class="comment"># 通常是 torch.float16（最后一层 Linear 适合低精度）</span></span><br><span class="line"><span class="built_in">print</span>(y.shape)    <span class="comment"># torch.Size([32, 10])</span></span><br></pre></td></tr></table></figure>
+<h3 id="code-bfloat-16-code-ban-ben" tabindex="-1" id="bfloat16-版本"><code>bfloat16</code> 版本</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">with</span> torch.inference_mode():</span><br><span class="line">    <span class="keyword">with</span> torch.autocast(device_type=<span class="string">&quot;cuda&quot;</span>, dtype=torch.bfloat16):</span><br><span class="line">        y = model(x)</span><br></pre></td></tr></table></figure>
+<h3 id="dai-ma-ceng-ci-jie-gou" tabindex="-1" id="代码层次结构">代码层次结构</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">model.<span class="built_in">eval</span>()                           <span class="comment"># 第 1 层：模块行为模式（Dropout/BN 正确运行）</span></span><br><span class="line"><span class="keyword">with</span> torch.inference_mode():           <span class="comment"># 第 2 层：关闭 autograd（不构建计算图）</span></span><br><span class="line">    <span class="keyword">with</span> torch.autocast(...):          <span class="comment"># 第 3 层：自动选择精度</span></span><br><span class="line">        y = model(x)                   <span class="comment"># 实际推理</span></span><br></pre></td></tr></table></figure>
+<p>三层嵌套，每层负责不同的事情，缺一不可。</p>
+<hr>
+<h2 id="8-yong-dai-ma-zhi-jie-yan-zheng-autocast-zuo-liao-shi-yao" tabindex="-1" id="8-用代码直接验证-autocast-做了什么">8. 用代码直接验证 autocast 做了什么</h2>
+<p>想看清楚 autocast 在每一层选了什么精度，可以加一个 hook：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"><span class="keyword">import</span> torch.nn <span class="keyword">as</span> nn</span><br><span class="line"></span><br><span class="line">model = nn.Sequential(</span><br><span class="line">    nn.Linear(<span class="number">128</span>, <span class="number">256</span>),</span><br><span class="line">    nn.ReLU(),</span><br><span class="line">    nn.Linear(<span class="number">256</span>, <span class="number">10</span>)</span><br><span class="line">)</span><br><span class="line"></span><br><span class="line"><span class="comment"># 注册 hook，打印每层输入输出的 dtype</span></span><br><span class="line"><span class="keyword">def</span> <span class="title function_">dtype_hook</span>(<span class="params">module, <span class="built_in">input</span>, output</span>):</span><br><span class="line">    in_dtype  = <span class="built_in">input</span>[<span class="number">0</span>].dtype  <span class="keyword">if</span> <span class="built_in">isinstance</span>(<span class="built_in">input</span>, <span class="built_in">tuple</span>) <span class="keyword">and</span> <span class="built_in">len</span>(<span class="built_in">input</span>) &gt; <span class="number">0</span> <span class="keyword">else</span> <span class="string">&quot;N/A&quot;</span></span><br><span class="line">    out_dtype = output.dtype    <span class="keyword">if</span> <span class="built_in">hasattr</span>(output, <span class="string">&#x27;dtype&#x27;</span>) <span class="keyword">else</span> <span class="string">&quot;N/A&quot;</span></span><br><span class="line">    <span class="built_in">print</span>(<span class="string">f&quot;<span class="subst">&#123;<span class="built_in">type</span>(module).__name__:12s&#125;</span>  input=<span class="subst">&#123;in_dtype&#125;</span>  output=<span class="subst">&#123;out_dtype&#125;</span>&quot;</span>)</span><br><span class="line"></span><br><span class="line"><span class="keyword">for</span> layer <span class="keyword">in</span> model:</span><br><span class="line">    layer.register_forward_hook(dtype_hook)</span><br><span class="line"></span><br><span class="line">model.<span class="built_in">eval</span>()</span><br><span class="line">x = torch.randn(<span class="number">4</span>, <span class="number">128</span>)</span><br><span class="line"></span><br><span class="line"><span class="comment"># 先看 float32 下的情况</span></span><br><span class="line"><span class="built_in">print</span>(<span class="string">&quot;=== float32 ===&quot;</span>)</span><br><span class="line"><span class="keyword">with</span> torch.inference_mode():</span><br><span class="line">    y = model(x)</span><br><span class="line"></span><br><span class="line"><span class="comment"># 再看 autocast float16 下的情况（需要 CUDA）</span></span><br><span class="line"><span class="keyword">if</span> torch.cuda.is_available():</span><br><span class="line">    model = model.cuda()</span><br><span class="line">    x = x.cuda()</span><br><span class="line">    <span class="built_in">print</span>(<span class="string">&quot;\n=== autocast float16 ===&quot;</span>)</span><br><span class="line">    <span class="keyword">with</span> torch.inference_mode():</span><br><span class="line">        <span class="keyword">with</span> torch.autocast(device_type=<span class="string">&quot;cuda&quot;</span>, dtype=torch.float16):</span><br><span class="line">            y = model(x)</span><br></pre></td></tr></table></figure>
+<p>在 <code>autocast</code> 上下文中，典型 <code>Linear</code> 的参与张量常为 float16，体现自动混合精度的实际效果。</p>
+<hr>
+<h2 id="9-wei-shi-yao-guan-fang-bu-tui-jian-quot-yong-autocast-you-code-half-code-quot" tabindex="-1" id="9-为什么官方不推荐-用-autocast-又-half">9. 为什么官方不推荐&quot;用 autocast 又 <code>.half()</code>&quot;</h2>
+<p>官方明确说：使用 <code>autocast</code> 时，<strong>不要手动对模型或输入调用 <code>.half()</code> 或 <code>.bfloat16()</code></strong>。</p>
+<p>原因是：</p>
+<p><strong>autocast 的价值就是&quot;混合&quot;</strong>。它会让 softmax、LayerNorm 这些敏感 op 保留 float32。</p>
+<p>若事先对整模型调用 <code>.half()</code>，权重已全局降为 float16，<code>autocast</code> 对部分算子保留 FP32 的语义被削弱，数值敏感算子可能被强行置于低精度。</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 反例: 错误用法：先 half，再 autocast</span></span><br><span class="line">model = model.half()</span><br><span class="line"><span class="keyword">with</span> torch.autocast(device_type=<span class="string">&quot;cuda&quot;</span>, dtype=torch.float16):</span><br><span class="line">    y = model(x)   <span class="comment"># LayerNorm 的权重是 half，autocast 的保护失效了</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 示例: 正确用法：模型保持 float32，让 autocast 管精度</span></span><br><span class="line">model = model.to(device)   <span class="comment"># float32 权重</span></span><br><span class="line"><span class="keyword">with</span> torch.autocast(device_type=<span class="string">&quot;cuda&quot;</span>, dtype=torch.float16):</span><br><span class="line">    y = model(x)   <span class="comment"># autocast 按规则自动决定每层精度</span></span><br></pre></td></tr></table></figure>
+<hr>
+<h2 id="10-quan-mo-xing-code-half-code-shi-yao-shi-hou-hui-chu-xian" tabindex="-1" id="10-“全模型-half-”-什么时候会出现">10. “全模型 <code>.half()</code>” 什么时候会出现</h2>
+<p>除 <code>autocast</code> 外，工程中仍可见：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">model = model.half()</span><br><span class="line">x = x.half()</span><br></pre></td></tr></table></figure>
+<p>这种写法不是绝对错误，但它更像是一种：</p>
+<ul>
+<li>更手动、更激进的方案</li>
+<li>通常出现在&quot;我完全清楚这个模型每一层的数值特性&quot;的场景</li>
+<li>某些部署框架（TensorRT、ONNX Runtime）的导出前处理</li>
+</ul>
+<p>对于大多数常规推理优化任务：</p>
+<blockquote>
+<p><strong>优先掌握 autocast，比优先掌握&quot;全模型手动 half&quot;更合理、更安全。</strong></p>
+</blockquote>
+<hr>
+<h2 id="11-grad-scaler-tui-li-shi-yi-ban-bu-xu-yao" tabindex="-1" id="11-GradScaler：推理时一般不需要">11. GradScaler：推理时一般不需要</h2>
+<p><code>GradScaler</code> 的适用场景如下：</p>
+<ul>
+<li><code>GradScaler</code> 是解决 <strong>训练</strong> 中 float16 backward 梯度下溢的工具</li>
+<li>推理时没有 backward，<strong>不需要</strong> <code>GradScaler</code></li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>autocast</th>
+<th>GradScaler</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>推理</td>
+<td>需要</td>
+<td>不需要</td>
+</tr>
+<tr>
+<td>训练</td>
+<td>需要</td>
+<td>需要（float16 训练时）</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="12-tun-tu-throughput-he-yan-chi-latency-bi-xu-fen-qing" tabindex="-1" id="12-吞吐（Throughput）和延迟（Latency）：必须分清">12. 吞吐（Throughput）和延迟（Latency）：必须分清</h2>
+<p>吞吐与延迟是评价混合精度等改动的基本度量；二者定义不同，不可互换。</p>
+<h3 id="zhi-jue-ding-yi" tabindex="-1" id="直觉定义">直觉定义</h3>
+<p><strong>延迟（Latency）</strong>：一次请求从进来到出结果耗时多久。<br>
+<strong>吞吐（Throughput）</strong>：单位时间内能处理多少请求/token/样本。</p>
+<p>用餐厅类比：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">延迟 = 一道菜从点单到上桌的时间（单次响应时间）</span><br><span class="line">吞吐 = 餐厅每小时能服务多少桌客人（总处理能力）</span><br></pre></td></tr></table></figure>
+<h3 id="yong-dai-ma-jian-li-shu-zi-gan" tabindex="-1" id="用代码建立数字感">用代码建立数字感</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"><span class="keyword">import</span> torch.nn <span class="keyword">as</span> nn</span><br><span class="line"><span class="keyword">import</span> time</span><br><span class="line"></span><br><span class="line">model = nn.Linear(<span class="number">1024</span>, <span class="number">1024</span>).cuda().<span class="built_in">eval</span>()</span><br><span class="line"></span><br><span class="line"><span class="keyword">def</span> <span class="title function_">measure</span>(<span class="params">batch_size, n_runs=<span class="number">100</span></span>):</span><br><span class="line">    x = torch.randn(batch_size, <span class="number">1024</span>, device=<span class="string">&quot;cuda&quot;</span>)</span><br><span class="line"></span><br><span class="line">    <span class="comment"># warm-up</span></span><br><span class="line">    <span class="keyword">with</span> torch.inference_mode():</span><br><span class="line">        <span class="keyword">for</span> _ <span class="keyword">in</span> <span class="built_in">range</span>(<span class="number">10</span>):</span><br><span class="line">            _ = model(x)</span><br><span class="line"></span><br><span class="line">    torch.cuda.synchronize()</span><br><span class="line">    start = time.time()</span><br><span class="line"></span><br><span class="line">    <span class="keyword">with</span> torch.inference_mode():</span><br><span class="line">        <span class="keyword">for</span> _ <span class="keyword">in</span> <span class="built_in">range</span>(n_runs):</span><br><span class="line">            _ = model(x)</span><br><span class="line"></span><br><span class="line">    torch.cuda.synchronize()</span><br><span class="line">    end = time.time()</span><br><span class="line"></span><br><span class="line">    total_time = end - start</span><br><span class="line">    latency_ms = total_time / n_runs * <span class="number">1000</span>          <span class="comment"># 单次耗时（毫秒）</span></span><br><span class="line">    throughput  = batch_size * n_runs / total_time   <span class="comment"># 每秒处理样本数</span></span><br><span class="line"></span><br><span class="line">    <span class="built_in">print</span>(<span class="string">f&quot;batch=<span class="subst">&#123;batch_size:4d&#125;</span>  latency=<span class="subst">&#123;latency_ms:<span class="number">.2</span>f&#125;</span> ms  throughput=<span class="subst">&#123;throughput:<span class="number">.0</span>f&#125;</span> samples/s&quot;</span>)</span><br><span class="line"></span><br><span class="line">measure(<span class="number">1</span>)</span><br><span class="line">measure(<span class="number">8</span>)</span><br><span class="line">measure(<span class="number">64</span>)</span><br><span class="line">measure(<span class="number">512</span>)</span><br></pre></td></tr></table></figure>
+<p>在 A100 等设备上常观察到下列量级关系（示例）：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">batch=   1  latency=0.08 ms  throughput= 12,500 samples/s</span><br><span class="line">batch=   8  latency=0.09 ms  throughput= 88,000 samples/s</span><br><span class="line">batch=  64  latency=0.25 ms  throughput=256,000 samples/s</span><br><span class="line">batch= 512  latency=1.20 ms  throughput=426,000 samples/s</span><br></pre></td></tr></table></figure>
+<p><strong>关键现象</strong>：</p>
+<ul>
+<li>batch 从 1→512：延迟增加了 <code>15 倍</code>，但吞吐增加了 <code>34 倍</code></li>
+<li>对应「提高 batch 可抬吞吐、单请求延迟亦上升」的量化描述</li>
+</ul>
+<h3 id="you-hua-mu-biao-jue-ding-ce-lue" tabindex="-1" id="优化目标决定策略">优化目标决定策略</h3>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>主要指标</th>
+<th>策略</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>在线服务（用户等待结果）</td>
+<td>延迟</td>
+<td>小 batch，低延迟算子</td>
+</tr>
+<tr>
+<td>离线批处理（跑数据集）</td>
+<td>吞吐</td>
+<td>大 batch，混合精度</td>
+</tr>
+<tr>
+<td>推理服务 SLA</td>
+<td>延迟 P99</td>
+<td>需要同时考虑</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="13-hun-he-jing-du-he-batch-size-lian-he-you-hua-shi-jiao" tabindex="-1" id="13-混合精度和-batch-size：联合优化视角">13. 混合精度和 batch size：联合优化视角</h2>
+<p>低精度带来的一个直接好处是显存减半，这意味着：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">float32 下：显存 = 模型参数 × 4字节 + 激活值 × 4字节 + ...</span><br><span class="line">float16 下：显存 = 模型参数 × 2字节 + 激活值 × 2字节 + ...（约少一半）</span><br></pre></td></tr></table></figure>
+<p>同样 40GB 显存：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">float32 能跑 batch=32</span><br><span class="line">float16 能跑 batch=64（多了将近一倍）</span><br></pre></td></tr></table></figure>
+<p><strong>更大的 batch 对推理的意义</strong>：</p>
+<ul>
+<li>GPU 利用率更高（Tensor Core 利用率提升）</li>
+<li>整体吞吐上升</li>
+<li>单位成本降低</li>
+</ul>
+<p>但代价是：</p>
+<ul>
+<li>单请求等待拼 batch 的时间更长</li>
+<li>动态长度输入时 padding 浪费更多</li>
+</ul>
+<p>所以真实推理优化里，往往是这几个参数联合调：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">dtype（float32/float16/bfloat16）× batch_size × 硬件型号 → 找最优工作点</span><br></pre></td></tr></table></figure>
+<hr>
+<h2 id="14-quot-ban-jing-du-mei-jia-su-quot-shi-zen-yao-xi-tong-pai-cha" tabindex="-1" id="14-半精度没加速-时，怎么系统排查">14. &quot;半精度没加速&quot;时，怎么系统排查</h2>
+<p>这在实际工作中非常常见，是工程能力的体现。</p>
+<table>
+<thead>
+<tr>
+<th>现象</th>
+<th>可能原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>切了低精度，延迟几乎没变</td>
+<td>瓶颈在数据搬运、同步或 Python 控制，不在 matmul</td>
+</tr>
+<tr>
+<td>batch 很小时几乎没收益</td>
+<td>GPU 没吃满，launch overhead 占比过高</td>
+</tr>
+<tr>
+<td>某些层仍然是 float32</td>
+<td>正常！autocast 本来就是混合策略，数值敏感层会保留</td>
+</tr>
+<tr>
+<td>结果明显飘了</td>
+<td>某处触发了 float16 溢出，考虑改用 bfloat16</td>
+</tr>
+<tr>
+<td>bfloat16 比 float16 慢</td>
+<td>某些老 GPU 对 bfloat16 支持不好，Tensor Core 优化不完整</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="15-zuo-jing-du-dui-bi-shi-yan-de-zheng-que-fang-fa" tabindex="-1" id="15-做精度对比实验的正确方法">15. 做精度对比实验的正确方法</h2>
+<p>比较 FP32、FP16 <code>autocast</code>、BF16 <code>autocast</code> 时，建议至少包含：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"><span class="keyword">import</span> torch.nn <span class="keyword">as</span> nn</span><br><span class="line"><span class="keyword">import</span> time</span><br><span class="line"></span><br><span class="line"><span class="keyword">def</span> <span class="title function_">benchmark</span>(<span class="params">model, x, dtype_ctx=<span class="literal">None</span>, n_runs=<span class="number">200</span>, device=<span class="string">&quot;cuda&quot;</span></span>):</span><br><span class="line">    model.<span class="built_in">eval</span>()</span><br><span class="line"></span><br><span class="line">    <span class="comment"># warm-up</span></span><br><span class="line">    <span class="keyword">with</span> torch.inference_mode():</span><br><span class="line">        ctx = dtype_ctx <span class="keyword">if</span> dtype_ctx <span class="keyword">else</span> torch.inference_mode()</span><br><span class="line">        <span class="keyword">for</span> _ <span class="keyword">in</span> <span class="built_in">range</span>(<span class="number">20</span>):</span><br><span class="line">            <span class="keyword">if</span> dtype_ctx:</span><br><span class="line">                <span class="keyword">with</span> torch.inference_mode():</span><br><span class="line">                    <span class="keyword">with</span> dtype_ctx:</span><br><span class="line">                        _ = model(x)</span><br><span class="line">            <span class="keyword">else</span>:</span><br><span class="line">                <span class="keyword">with</span> torch.inference_mode():</span><br><span class="line">                    _ = model(x)</span><br><span class="line"></span><br><span class="line">    torch.cuda.synchronize()</span><br><span class="line">    start = time.time()</span><br><span class="line"></span><br><span class="line">    <span class="keyword">with</span> torch.inference_mode():</span><br><span class="line">        <span class="keyword">for</span> _ <span class="keyword">in</span> <span class="built_in">range</span>(n_runs):</span><br><span class="line">            <span class="keyword">if</span> dtype_ctx:</span><br><span class="line">                <span class="keyword">with</span> dtype_ctx:</span><br><span class="line">                    _ = model(x)</span><br><span class="line">            <span class="keyword">else</span>:</span><br><span class="line">                _ = model(x)</span><br><span class="line"></span><br><span class="line">    torch.cuda.synchronize()</span><br><span class="line">    elapsed = (time.time() - start) / n_runs * <span class="number">1000</span></span><br><span class="line"></span><br><span class="line">    mem_mb = torch.cuda.memory_allocated() / <span class="number">1024</span>**<span class="number">2</span></span><br><span class="line">    <span class="keyword">return</span> elapsed, mem_mb</span><br><span class="line"></span><br><span class="line"><span class="keyword">if</span> torch.cuda.is_available():</span><br><span class="line">    device = <span class="string">&quot;cuda&quot;</span></span><br><span class="line">    model = nn.Sequential(</span><br><span class="line">        nn.Linear(<span class="number">512</span>, <span class="number">2048</span>), nn.ReLU(),</span><br><span class="line">        nn.Linear(<span class="number">2048</span>, <span class="number">2048</span>), nn.ReLU(),</span><br><span class="line">        nn.Linear(<span class="number">2048</span>, <span class="number">512</span>)</span><br><span class="line">    ).to(device)</span><br><span class="line"></span><br><span class="line">    x_fp32 = torch.randn(<span class="number">64</span>, <span class="number">512</span>, device=device)</span><br><span class="line"></span><br><span class="line">    <span class="comment"># FP32 基线</span></span><br><span class="line">    lat, mem = benchmark(model, x_fp32)</span><br><span class="line">    <span class="built_in">print</span>(<span class="string">f&quot;FP32:        latency=<span class="subst">&#123;lat:<span class="number">.2</span>f&#125;</span> ms  memory=<span class="subst">&#123;mem:<span class="number">.0</span>f&#125;</span> MB&quot;</span>)</span><br><span class="line"></span><br><span class="line">    <span class="comment"># FP16 autocast</span></span><br><span class="line">    ctx16 = torch.autocast(device_type=<span class="string">&quot;cuda&quot;</span>, dtype=torch.float16)</span><br><span class="line">    lat, mem = benchmark(model, x_fp32, ctx16)</span><br><span class="line">    <span class="built_in">print</span>(<span class="string">f&quot;FP16 autocast: latency=<span class="subst">&#123;lat:<span class="number">.2</span>f&#125;</span> ms  memory=<span class="subst">&#123;mem:<span class="number">.0</span>f&#125;</span> MB&quot;</span>)</span><br><span class="line"></span><br><span class="line">    <span class="comment"># BF16 autocast</span></span><br><span class="line">    ctx_bf = torch.autocast(device_type=<span class="string">&quot;cuda&quot;</span>, dtype=torch.bfloat16)</span><br><span class="line">    lat, mem = benchmark(model, x_fp32, ctx_bf)</span><br><span class="line">    <span class="built_in">print</span>(<span class="string">f&quot;BF16 autocast: latency=<span class="subst">&#123;lat:<span class="number">.2</span>f&#125;</span> ms  memory=<span class="subst">&#123;mem:<span class="number">.0</span>f&#125;</span> MB&quot;</span>)</span><br></pre></td></tr></table></figure>
+<p><strong>实验必须有</strong>：</p>
+<ol>
+<li><strong>warm-up 轮次</strong>：首次运行有 kernel 编译和初始化延迟，不代表稳定性能</li>
+<li><strong><code>cuda.synchronize()</code></strong>：确保计时包含 GPU 实际完成时间</li>
+<li><strong>记录显存</strong>：不只看速度，也要看显存代价</li>
+<li><strong>保留 FP32 基线</strong>：否则难以量化相对加速比</li>
+</ol>
+<hr>
+<h2 id="16-yi-ge-zui-chang-jian-de-keng-zhi-kan-su-du-wang-liao-yan-zheng-shu-chu" tabindex="-1" id="16-一个最常见的坑：只看速度，忘了验证输出">16. 一个最常见的坑：只看速度，忘了验证输出</h2>
+<p>提速了，但输出对不对？</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"><span class="keyword">import</span> torch.nn <span class="keyword">as</span> nn</span><br><span class="line"></span><br><span class="line">model = nn.Sequential(nn.Linear(<span class="number">128</span>, <span class="number">256</span>), nn.ReLU(), nn.Linear(<span class="number">256</span>, <span class="number">10</span>)).cuda()</span><br><span class="line">model.<span class="built_in">eval</span>()</span><br><span class="line">x = torch.randn(<span class="number">1</span>, <span class="number">128</span>, device=<span class="string">&quot;cuda&quot;</span>)</span><br><span class="line"></span><br><span class="line"><span class="comment"># FP32 基线输出</span></span><br><span class="line"><span class="keyword">with</span> torch.inference_mode():</span><br><span class="line">    y_fp32 = model(x).<span class="built_in">float</span>()   <span class="comment"># 保证是 float32</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># FP16 autocast 输出</span></span><br><span class="line"><span class="keyword">with</span> torch.inference_mode():</span><br><span class="line">    <span class="keyword">with</span> torch.autocast(device_type=<span class="string">&quot;cuda&quot;</span>, dtype=torch.float16):</span><br><span class="line">        y_fp16 = model(x).<span class="built_in">float</span>()</span><br><span class="line"></span><br><span class="line"><span class="comment"># 计算差异</span></span><br><span class="line">max_err = (y_fp32 - y_fp16).<span class="built_in">abs</span>().<span class="built_in">max</span>().item()</span><br><span class="line">mean_err = (y_fp32 - y_fp16).<span class="built_in">abs</span>().mean().item()</span><br><span class="line"><span class="built_in">print</span>(<span class="string">f&quot;最大绝对误差: <span class="subst">&#123;max_err:<span class="number">.6</span>f&#125;</span>&quot;</span>)</span><br><span class="line"><span class="built_in">print</span>(<span class="string">f&quot;平均绝对误差: <span class="subst">&#123;mean_err:<span class="number">.6</span>f&#125;</span>&quot;</span>)</span><br></pre></td></tr></table></figure>
+<p>如果误差在小数点后 4 位以内，通常可以接受。如果出现 <code>inf</code> 或 <code>nan</code>，或者误差很大，就需要检查是否有数值溢出。</p>
+<hr>
+<h2 id="17-hun-he-jing-du-tui-li-de-biao-zhun-mo-ban-hui-zong" tabindex="-1" id="17-混合精度推理的标准模板（汇总）">17. 混合精度推理的标准模板（汇总）</h2>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"><span class="keyword">import</span> torch.nn <span class="keyword">as</span> nn</span><br><span class="line"></span><br><span class="line">device = <span class="string">&quot;cuda&quot;</span> <span class="keyword">if</span> torch.cuda.is_available() <span class="keyword">else</span> <span class="string">&quot;cpu&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 1. 模型保持 float32 权重（不要手动 half）</span></span><br><span class="line">model = model.to(device)</span><br><span class="line">model.<span class="built_in">eval</span>()</span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. 输入保持 float32（autocast 会处理）</span></span><br><span class="line">x = x.to(device)</span><br><span class="line"></span><br><span class="line"><span class="comment"># 3. 三层嵌套推理</span></span><br><span class="line"><span class="keyword">with</span> torch.inference_mode():                              <span class="comment"># 关闭 autograd</span></span><br><span class="line">    <span class="keyword">with</span> torch.autocast(device_type=<span class="string">&quot;cuda&quot;</span>,              <span class="comment"># 自动混合精度</span></span><br><span class="line">                        dtype=torch.float16):             <span class="comment"># 或 bfloat16</span></span><br><span class="line">        y = model(x)</span><br><span class="line"></span><br><span class="line"><span class="comment"># 4. 如果需要后处理，注意 dtype 可能是 float16，必要时转回 float32</span></span><br><span class="line">y = y.<span class="built_in">float</span>()</span><br></pre></td></tr></table></figure>
+<hr>
+<h2 id="18-mian-shi-chang-jian-wen-ti" tabindex="-1" id="18-面试常见问题">18. 面试常见问题</h2>
+<p><strong>Q：float16 和 bfloat16 的区别是什么？</strong><br>
+A：都是 16 位浮点，但 bit 分配不同。float16 有 5 位指数+10 位尾数，max ≈ 65504，容易溢出；bfloat16 有 8 位指数+7 位尾数，和 float32 指数位相同，max ≈ 3.4×10³⁸，不容易溢出，但小数精度更粗。</p>
+<p><strong>Q：为什么 PyTorch 推荐 AMP / autocast，而不是全模型 <code>.half()</code>？</strong><br>
+A：不是所有 op 都适合低精度，autocast 按照 op-specific 规则自动为 matmul 等重计算 op 使用低精度，为 softmax、LayerNorm 等数值敏感 op 保留 float32。手动全模型 half 会跳过这道保护。</p>
+<p><strong>Q：吞吐和延迟的区别是什么？</strong><br>
+A：延迟是单次请求的响应时间，吞吐是单位时间的总处理量。大 batch 通常提高吞吐，但可能增加单请求等待时间。在线服务关注延迟，离线批处理关注吞吐。</p>
+<p><strong>Q：推理里为什么一般不需要 GradScaler？</strong><br>
+A：GradScaler 解决的是 float16 训练时反向传播梯度下溢的问题，推理没有 backward，不需要。</p>
+<p><strong>Q：切了低精度但没有加速，原因是什么？</strong><br>
+A：低精度的收益主要在 matmul/conv 等重计算上。如果瓶颈在数据搬运、同步点、Python 控制逻辑或者 batch 太小，切精度不会有明显收益。</p>
+<hr>
+<h2 id="19-si-kao-ti" tabindex="-1" id="19-思考题">19. 思考题</h2>
+<h3 id="lian-xi-1-du-dong-dtype-shu-zhi-shu-xing" tabindex="-1" id="练习-1：读懂-dtype-数值属性">练习 1：读懂 dtype 数值属性</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"></span><br><span class="line"><span class="keyword">for</span> dt <span class="keyword">in</span> [torch.float32, torch.float16, torch.bfloat16]:</span><br><span class="line">    info = torch.finfo(dt)</span><br><span class="line">    <span class="built_in">print</span>(<span class="string">f&quot;<span class="subst">&#123;<span class="built_in">str</span>(dt):20s&#125;</span>  max=<span class="subst">&#123;info.<span class="built_in">max</span>:<span class="number">.2</span>e&#125;</span>  eps=<span class="subst">&#123;info.eps:<span class="number">.2</span>e&#125;</span>&quot;</span>)</span><br></pre></td></tr></table></figure>
+<blockquote>
+<p>思考：为什么 float16 的 max 只有 6.55×10⁴？softmax 里如果 logit 很大，会发生什么？</p>
+</blockquote>
+<h3 id="lian-xi-2-yan-zheng-yi-chu" tabindex="-1" id="练习-2：验证溢出">练习 2：验证溢出</h3>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"></span><br><span class="line">x = torch.tensor([<span class="number">100.0</span>], dtype=torch.float32)</span><br><span class="line"><span class="built_in">print</span>(torch.exp(x))   <span class="comment"># 正常</span></span><br><span class="line"></span><br><span class="line">x16 = torch.tensor([<span class="number">100.0</span>], dtype=torch.float16)</span><br><span class="line"><span class="built_in">print</span>(torch.exp(x16))   <span class="comment"># inf！</span></span><br><span class="line"></span><br><span class="line">x_bf = torch.tensor([<span class="number">100.0</span>], dtype=torch.bfloat16)</span><br><span class="line"><span class="built_in">print</span>(torch.exp(x_bf))   <span class="comment"># 正常，bfloat16 不溢出</span></span><br></pre></td></tr></table></figure>
+<blockquote>
+<p>softmax 等在 float16 下易数值不稳；<code>autocast</code> 常将其保留在 float32 以降低溢出与舍入风险。</p>
+</blockquote>
+<h3 id="lian-xi-3-xie-yi-ge-biao-zhun-amp-tui-li-jiao-ben" tabindex="-1" id="练习-3：写一个标准-AMP-推理脚本">练习 3：写一个标准 AMP 推理脚本</h3>
+<p>自己写一个包含 Linear + ReLU + Linear 的模型：</p>
+<ol>
+<li>保持 float32 权重</li>
+<li>用 <code>inference_mode</code> + <code>autocast(float16)</code> 做推理</li>
+<li>打印输出的 dtype 和 shape</li>
+<li>和不加 autocast 的 float32 输出做对比，计算最大误差</li>
+</ol>
+<h3 id="lian-xi-4-batch-size-vs-yan-chi-tun-tu-shi-yan" tabindex="-1" id="练习-4：batch-size-vs-延迟-吞吐实验">练习 4：batch size vs 延迟/吞吐实验</h3>
+<p>对同一个模型，测试 <code>batch_size = 1, 8, 64, 512</code> 时的：</p>
+<ul>
+<li>单次推理时间（毫秒）</li>
+<li>每秒处理样本数</li>
+</ul>
+<blockquote>
+<p>思考：哪个 batch size 让 GPU 利用率最高？哪个让单请求等待最短？</p>
+</blockquote>
+<h3 id="lian-xi-5-dui-bi-fp-32-fp-16-bf-16-de-su-du-he-jing-du" tabindex="-1" id="练习-5：对比-FP32-FP16-BF16-的速度和精度">练习 5：对比 FP32 / FP16 / BF16 的速度和精度</h3>
+<p>可用第 15 节示例在本机复现并记录：</p>
+<ul>
+<li>延迟（ms）</li>
+<li>最大输出误差</li>
+</ul>
+<blockquote>
+<p>思考：bfloat16 的误差比 float16 大还是小？为什么？（提示：尾数位不同）</p>
+</blockquote>
+<hr>
+<h2 id="20-ben-jie-yao-dian-yu-zi-jian" tabindex="-1" id="20-本节要点与自检">20. 本节要点与自检</h2>
+<ul>
+<li>能解释 float32、float16、bfloat16 的 bit 分配差异和对应的数值特性</li>
+<li>理解低精度为什么更快（显存、带宽、Tensor Core）</li>
+<li>知道哪些 op 适合低精度，哪些要保留高精度</li>
+<li>正确使用 <code>torch.autocast(...)</code> 做推理混合精度</li>
+<li>知道为什么不推荐&quot;用了 autocast 还手动全模型 half&quot;</li>
+<li>清晰区分吞吐和延迟，理解 batch size 对两者的影响</li>
+<li>做精度实验时能保留 FP32 基线并验证输出质量</li>
+</ul>
+<hr>
+<h2 id="21-xiao-jie" tabindex="-1" id="21-小结">21. 小结</h2>
+<blockquote>
+<p><strong>混合精度不是&quot;把模型全变小数位&quot;，而是&quot;让 matmul 这类重计算吃到低精度加速，让 softmax 这类数值敏感 op 保留稳定性，并在吞吐、延迟、显存和输出质量之间做工程权衡&quot;。</strong></p>
+</blockquote>
+<hr>
+<h2 id="xi-lie-dao-hang" tabindex="-1" id="系列导航">系列导航</h2>
+<ul>
+<li>上一篇：<a href="/posts/82dbd045/">PyTorch推理工程：04 CUDA、设备迁移、显存与同步</a></li>
+<li>下一篇：<a href="/posts/f1701a4d/">PyTorch推理工程：06 torch.compile、导出与 ONNX</a></li>
+<li><a href="/posts/846fbbaf/">系列索引（00 导读）</a></li>
+</ul>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/bc5b9a38/">https://smarter.xin/posts/bc5b9a38/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/deep-learning/">深度学习</a><a class="post-meta__tags" href="/tags/performance-optimization/">性能优化</a><a class="post-meta__tags" href="/tags/mixed-precision/">混合精度</a><a class="post-meta__tags" href="/tags/pytorch/">PyTorch</a><a class="post-meta__tags" href="/tags/amp/">AMP</a></div><div class="post-share"><div class="social-share" data-image="/img/pytorch.avif" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/f1701a4d/" title="PyTorch推理工程：06 torch.compile、导出与 ONNX"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">PyTorch推理工程：06 torch.compile、导出与 ONNX</div></div></div></a><a class="pagination-related  no-desc" href="/posts/82dbd045/" title="PyTorch推理工程：04 CUDA、设备迁移、显存与同步"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">PyTorch推理工程：04 CUDA、设备迁移、显存与同步</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/62ab73e1/" title="PyTorch推理工程：03 train、eval、no_grad 与 inference_mode"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-29</div><div class="info-item-2">PyTorch推理工程：03 train、eval、no_grad 与 inference_mode</div></div></div></a><a class="pagination-related no-desc" href="/posts/4cf4f348/" title="PyTorch推理工程：01 Tensor、dtype、device 与推理底层基础"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-29</div><div class="info-item-2">PyTorch推理工程：01 Tensor、dtype、device 与推理底层基础</div></div></div></a><a class="pagination-related no-desc" href="/posts/846fbbaf/" title="PyTorch推理工程：00 系列导读——从张量语义到可展示项目的学习路线"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-29</div><div class="info-item-2">PyTorch推理工程：00 系列导读——从张量语义到可展示项目的学习路线</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">我就是要爬这座山<br>再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">142</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">264</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">25</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#py-torch-tui-li-gong-cheng-05-hun-he-jing-du-amp-yu-tun-tu-yan-chi"><span class="toc-text">PyTorch 推理工程（05）：混合精度、AMP 与吞吐、延迟</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#1-ben-jie-ding-wei"><span class="toc-text">1. 本节定位</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-yao-dian"><span class="toc-text">2. 要点</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#3-ba-3-ge-zui-zhong-yao-de-dtype-che-di-fen-qing"><span class="toc-text">3. 把 3 个最重要的 dtype 彻底分清</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#xian-yong-yi-zhang-biao-kan-qing-chu-ta-men-de-shu-zhi-shu-xing"><span class="toc-text">先用一张表看清楚它们的数值属性</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#wei-shi-yao-float-16-rong-yi-shu-zhi-chu-wen-ti"><span class="toc-text">为什么 float16 容易数值出问题</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#wei-shi-yao-bfloat-16-shi-geng-an-quan-de-di-jing-du-fang-an"><span class="toc-text">为什么 bfloat16 是更安全的低精度方案</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#san-ge-dtype-de-gong-cheng-xuan-ze-luo-ji"><span class="toc-text">三个 dtype 的工程选择逻辑</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#4-di-jing-du-wei-shi-yao-chang-chang-geng-kuai"><span class="toc-text">4. 低精度为什么常常更快</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#ceng-mian-1-mei-ge-yuan-su-geng-xiao-xian-cun-he-dai-kuan-ya-li-jian-ban"><span class="toc-text">层面 1：每个元素更小，显存和带宽压力减半</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#ceng-mian-2-gpu-you-zhuan-men-de-di-jing-du-ji-suan-dan-yuan-tun-tu-geng-gao"><span class="toc-text">层面 2：GPU 有专门的低精度计算单元，吞吐更高</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#ceng-mian-3-dan-quot-geng-kuai-quot-shi-you-tiao-jian-de"><span class="toc-text">层面 3：但&quot;更快&quot;是有条件的</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#5-di-jing-du-de-shu-zhi-feng-xian"><span class="toc-text">5. 低精度的数值风险</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#feng-xian-1-shu-zhi-yi-chu-float-16-you-qi-yan-zhong"><span class="toc-text">风险 1：数值溢出（float16 尤其严重）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#feng-xian-2-jing-du-bu-zu-dao-zhi-ti-du-xiao-shi-geng-duo-shi-xun-lian-wen-ti-tui-li-ye-yao-zhu-yi"><span class="toc-text">风险 2：精度不足导致梯度消失（更多是训练问题，推理也要注意）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#feng-xian-3-op-zhi-jian-de-jing-du-ji-lei-wu-chai"><span class="toc-text">风险 3：op 之间的精度积累误差</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#na-xie-op-gua-he-di-jing-du-na-xie-yao-bao-liu-gao-jing-du"><span class="toc-text">哪些 op 适合低精度，哪些要保留高精度</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#6-amp-wei-shi-yao-shi-quot-zi-dong-hun-he-quot-bu-shi-quot-quan-bu-ban-jing-du-quot"><span class="toc-text">6. AMP：为什么是&quot;自动混合&quot;，不是&quot;全部半精度&quot;</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#7-code-torch-autocast-code-de-ji-ben-yong-fa"><span class="toc-text">7. torch.autocast 的基本用法</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#tui-li-biao-zhun-xie-fa"><span class="toc-text">推理标准写法</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#code-bfloat-16-code-ban-ben"><span class="toc-text">bfloat16 版本</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#dai-ma-ceng-ci-jie-gou"><span class="toc-text">代码层次结构</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#8-yong-dai-ma-zhi-jie-yan-zheng-autocast-zuo-liao-shi-yao"><span class="toc-text">8. 用代码直接验证 autocast 做了什么</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#9-wei-shi-yao-guan-fang-bu-tui-jian-quot-yong-autocast-you-code-half-code-quot"><span class="toc-text">9. 为什么官方不推荐&quot;用 autocast 又 .half()&quot;</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#10-quan-mo-xing-code-half-code-shi-yao-shi-hou-hui-chu-xian"><span class="toc-text">10. “全模型 .half()” 什么时候会出现</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#11-grad-scaler-tui-li-shi-yi-ban-bu-xu-yao"><span class="toc-text">11. GradScaler：推理时一般不需要</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#12-tun-tu-throughput-he-yan-chi-latency-bi-xu-fen-qing"><span class="toc-text">12. 吞吐（Throughput）和延迟（Latency）：必须分清</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#zhi-jue-ding-yi"><span class="toc-text">直觉定义</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#yong-dai-ma-jian-li-shu-zi-gan"><span class="toc-text">用代码建立数字感</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#you-hua-mu-biao-jue-ding-ce-lue"><span class="toc-text">优化目标决定策略</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#13-hun-he-jing-du-he-batch-size-lian-he-you-hua-shi-jiao"><span class="toc-text">13. 混合精度和 batch size：联合优化视角</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#14-quot-ban-jing-du-mei-jia-su-quot-shi-zen-yao-xi-tong-pai-cha"><span class="toc-text">14. &quot;半精度没加速&quot;时，怎么系统排查</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#15-zuo-jing-du-dui-bi-shi-yan-de-zheng-que-fang-fa"><span class="toc-text">15. 做精度对比实验的正确方法</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#16-yi-ge-zui-chang-jian-de-keng-zhi-kan-su-du-wang-liao-yan-zheng-shu-chu"><span class="toc-text">16. 一个最常见的坑：只看速度，忘了验证输出</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#17-hun-he-jing-du-tui-li-de-biao-zhun-mo-ban-hui-zong"><span class="toc-text">17. 混合精度推理的标准模板（汇总）</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#18-mian-shi-chang-jian-wen-ti"><span class="toc-text">18. 面试常见问题</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#19-si-kao-ti"><span class="toc-text">19. 思考题</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#lian-xi-1-du-dong-dtype-shu-zhi-shu-xing"><span class="toc-text">练习 1：读懂 dtype 数值属性</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#lian-xi-2-yan-zheng-yi-chu"><span class="toc-text">练习 2：验证溢出</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#lian-xi-3-xie-yi-ge-biao-zhun-amp-tui-li-jiao-ben"><span class="toc-text">练习 3：写一个标准 AMP 推理脚本</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#lian-xi-4-batch-size-vs-yan-chi-tun-tu-shi-yan"><span class="toc-text">练习 4：batch size vs 延迟&#x2F;吞吐实验</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#lian-xi-5-dui-bi-fp-32-fp-16-bf-16-de-su-du-he-jing-du"><span class="toc-text">练习 5：对比 FP32 &#x2F; FP16 &#x2F; BF16 的速度和精度</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#20-ben-jie-yao-dian-yu-zi-jian"><span class="toc-text">20. 本节要点与自检</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#21-xiao-jie"><span class="toc-text">21. 小结</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xi-lie-dao-hang"><span class="toc-text">系列导航</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/7ab343d0/" title="PyTorch推理工程：10 里程碑、简历转化与面试表达"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PyTorch推理工程：10 里程碑、简历转化与面试表达"/></a><div class="content"><a class="title" href="/posts/7ab343d0/" title="PyTorch推理工程：10 里程碑、简历转化与面试表达">PyTorch推理工程：10 里程碑、简历转化与面试表达</a><time datetime="2026-03-29T11:00:00.000Z" title="发表于 2026-03-29 19:00:00">2026-03-29</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/432e473/" title="PyTorch推理工程：09 最小可展示推理项目骨架"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PyTorch推理工程：09 最小可展示推理项目骨架"/></a><div class="content"><a class="title" href="/posts/432e473/" title="PyTorch推理工程：09 最小可展示推理项目骨架">PyTorch推理工程：09 最小可展示推理项目骨架</a><time datetime="2026-03-29T10:00:00.000Z" title="发表于 2026-03-29 18:00:00">2026-03-29</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/fb17598c/" title="PyTorch推理工程：08 批处理、KV Cache 与 Serving 视角"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="PyTorch推理工程：08 批处理、KV Cache 与 Serving 视角"/></a><div class="content"><a class="title" href="/posts/fb17598c/" title="PyTorch推理工程：08 批处理、KV Cache 与 Serving 视角">PyTorch推理工程：08 批处理、KV Cache 与 Serving 视角</a><time datetime="2026-03-29T09:00:00.000Z" title="发表于 2026-03-29 17:00:00">2026-03-29</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/attentionisallyouneed.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">从 Self-Attention、位置编码到 Encoder-Decoder，系统梳理 Transformer 的核心结构、设计动机与理解路径</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/d6fa227a/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-16</span><a class="blog-slider__title" href="posts/d6fa227a/" alt="">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</a><div class="blog-slider__text">从访存优化到多卡通信，一篇看清 CUDA 实践系列的结构与学习路线</div><a class="blog-slider__button" href="posts/d6fa227a/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/43c4b52e/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/agent.webp" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-24</span><a class="blog-slider__title" href="posts/43c4b52e/" alt="">从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路</a><div class="blog-slider__text">使用飞书与本地 Agent 对话，远程也要让本地 Agent 干活，当一名狠狠的资本家</div><a class="blog-slider__button" href="posts/43c4b52e/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/92dc1028/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/CUDA_C.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-02-05</span><a class="blog-slider__title" href="posts/92dc1028/" alt="">CUDA C编程权威指南-导读</a><div class="blog-slider__text">从异构并行到多 GPU 实践，串起 CUDA C 权威指南的核心学习路线</div><a class="blog-slider__button" href="posts/92dc1028/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">从全书视角出发，一篇看清 PMPP 的章节结构、核心主题与学习主线</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/aac6e27d/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Computer_System.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/aac6e27d/" alt="">深入理解计算机系统知识点总结</a><div class="blog-slider__text">从程序员视角梳理 CSAPP 的知识脉络、系统抽象与性能理解</div><a class="blog-slider__button" href="posts/aac6e27d/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">围绕类型推导、移动语义与并发，提炼现代 C++ 的核心实践</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>
