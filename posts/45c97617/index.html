@@ -1,0 +1,534 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>Triton：01 两个 Triton 的职责边界 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="问题背景 在推理工程和 AI Infra 语境里，Triton 这个名字同时指向两个完全不同的系统。  OpenAI Triton 是面向 GPU kernel 的编程语言与编译器。 NVIDIA Triton Inference Server 是面向模型部署与在线服务的推理服务框架。  如果不先区分这两个系统，后续讨论几乎一定会混淆。有人提到“用 Triton 做加速”，实际想表达的可能是自定义">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Triton：01 两个 Triton 的职责边界">
+<meta property="og:url" content="https://smarter.xin/posts/45c97617/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="问题背景 在推理工程和 AI Infra 语境里，Triton 这个名字同时指向两个完全不同的系统。  OpenAI Triton 是面向 GPU kernel 的编程语言与编译器。 NVIDIA Triton Inference Server 是面向模型部署与在线服务的推理服务框架。  如果不先区分这两个系统，后续讨论几乎一定会混淆。有人提到“用 Triton 做加速”，实际想表达的可能是自定义">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/triton.png">
+<meta property="article:published_time" content="2026-04-01T14:00:00.000Z">
+<meta property="article:modified_time" content="2026-04-01T08:46:26.199Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="AI Infrastructure">
+<meta property="article:tag" content="学习路线">
+<meta property="article:tag" content="Triton">
+<meta property="article:tag" content="OpenAI Triton">
+<meta property="article:tag" content="NVIDIA Triton">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/triton.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "Triton：01 两个 Triton 的职责边界",
+  "url": "https://smarter.xin/posts/45c97617/",
+  "image": "https://smarter.xin/img/triton.png",
+  "datePublished": "2026-04-01T14:00:00.000Z",
+  "dateModified": "2026-04-01T08:46:26.199Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/45c97617/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'Triton：01 两个 Triton 的职责边界',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">153</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">276</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">26</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/triton.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">Triton：01 两个 Triton 的职责边界</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">Triton：01 两个 Triton 的职责边界</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-04-01T14:00:00.000Z" title="发表于 2026-04-01 22:00:00">2026-04-01</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-04-01T08:46:26.199Z" title="更新于 2026-04-01 16:46:26">2026-04-01</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/">AI Infra</a><i class="fas fa-angle-right post-meta-separator"></i><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/triton/">Triton</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">2.8k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>8分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h2 id="wen-ti-bei-jing" tabindex="-1" id="问题背景">问题背景</h2>
+<p>在推理工程和 AI Infra 语境里，<code>Triton</code> 这个名字同时指向两个完全不同的系统。</p>
+<ul>
+<li><code>OpenAI Triton</code> 是面向 GPU kernel 的编程语言与编译器。</li>
+<li><code>NVIDIA Triton Inference Server</code> 是面向模型部署与在线服务的推理服务框架。</li>
+</ul>
+<p>如果不先区分这两个系统，后续讨论几乎一定会混淆。有人提到“用 Triton 做加速”，实际想表达的可能是自定义 kernel；也可能是在说服务端动态批处理、实例并发或模型仓库管理。两者都和推理性能有关，但关注对象、技术栈位置和工程产出完全不同。</p>
+<p>这篇文章只回答三个基础问题：</p>
+<ul>
+<li>两个 Triton 各自解决什么问题。</li>
+<li>它们分别位于推理链路的哪一层。</li>
+<li>在不同工程目标下，应该优先掌握哪一条学习主线。</li>
+</ul>
+<h2 id="xian-gei-chu-jie-lun" tabindex="-1" id="先给出结论">先给出结论</h2>
+<p>可以先记住一条简化判断：</p>
+<ul>
+<li>当问题是“一个算子为什么还不够快”时，优先想到 <code>OpenAI Triton</code>。</li>
+<li>当问题是“一个模型服务怎样更稳、更高吞吐、更易运维”时，优先想到 <code>NVIDIA Triton</code>。</li>
+<li>当问题同时涉及算子执行效率与服务端吞吐时，两者会出现在同一条链路上，但职责仍然不同。</li>
+</ul>
+<p>这组判断足以覆盖大部分实际场景。后续各节只是把这个结论展开并落到工程上下文里。</p>
+<h2 id="yi-ge-ming-cheng-dui-ying-liang-ge-xi-tong" tabindex="-1" id="一个名称，对应两个系统">一个名称，对应两个系统</h2>
+<h3 id="open-ai-triton-jie-jue-shi-yao-wen-ti" tabindex="-1" id="OpenAI-Triton-解决什么问题">OpenAI Triton 解决什么问题</h3>
+<p>OpenAI Triton 的核心定位，是为 GPU kernel 开发提供一套更高层的表达方式。它主要出现在以下场景中：</p>
+<ul>
+<li>为矩阵乘法、归一化、softmax、attention 路径中的热点算子编写自定义 kernel。</li>
+<li>控制 tile 切分、访存模式、向量化、算子融合等执行细节。</li>
+<li>在 PyTorch 自定义算子、研究型优化或特定硬件调优中替代部分手写 CUDA。</li>
+</ul>
+<p>它面向的问题可以概括为：</p>
+<blockquote>
+<p>在输入输出语义不变的前提下，怎样让某个算子在 GPU 上执行得更高效。</p>
+</blockquote>
+<p>因此，OpenAI Triton 讨论的是 kernel 级别的并行映射、寄存器与共享内存使用、编译期常量、launch grid、autotune 等问题。它更接近编译器和底层执行模型，而不是服务框架。</p>
+<h3 id="nvidia-triton-jie-jue-shi-yao-wen-ti" tabindex="-1" id="NVIDIA-Triton-解决什么问题">NVIDIA Triton 解决什么问题</h3>
+<p>NVIDIA Triton Inference Server 的核心定位，是把模型组织成标准化的在线推理服务。它主要出现在以下场景中：</p>
+<ul>
+<li>使用 ONNX Runtime、TensorRT、PyTorch 或 Python backend 部署模型。</li>
+<li>通过 model repository 管理模型版本、配置与加载方式。</li>
+<li>使用 dynamic batching、instance group、并发调度和压测工具优化服务吞吐与延迟。</li>
+</ul>
+<p>它面向的问题可以概括为：</p>
+<blockquote>
+<p>已有模型怎样被组织成一个可调用、可扩展、可观测、可调优的推理服务。</p>
+</blockquote>
+<p>因此，NVIDIA Triton 主要讨论的是模型后端、实例副本、调度策略、批处理、协议接口、健康检查和性能压测。它是服务层系统，而不是 kernel 开发工具。</p>
+<h2 id="ba-ta-men-fang-hui-tui-li-lian-lu" tabindex="-1" id="把它们放回推理链路">把它们放回推理链路</h2>
+<p>如果只看定义，这两个系统仍然容易停留在“知道它们不同”这一步。把它们放回完整推理链路，会更容易理解各自的位置。</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">模型训练完成</span><br><span class="line">  -&gt; 模型导出或转换</span><br><span class="line">     ONNX / TensorRT Engine / TorchScript / Python Backend</span><br><span class="line">  -&gt; 后端执行</span><br><span class="line">     kernel、算子实现、访存模式、并行映射</span><br><span class="line">     这里更接近 OpenAI Triton 关注的问题</span><br><span class="line">  -&gt; 服务封装与请求调度</span><br><span class="line">     模型加载、实例副本、动态批处理、HTTP/gRPC 接口</span><br><span class="line">     这里更接近 NVIDIA Triton 关注的问题</span><br><span class="line">  -&gt; 在线流量</span><br><span class="line">     并发请求、吞吐、尾延迟、监控、压测、回归验证</span><br></pre></td></tr></table></figure>
+<p>从这条链路可以看出，两者不是互相替代的关系，而是可能出现在同一条推理路径的不同层面。</p>
+<p>一个常见的工程场景是：</p>
+<ul>
+<li>模型服务由 NVIDIA Triton 承载。</li>
+<li>底层执行后端可能是 TensorRT、ONNX Runtime、PyTorch，或者更底层的自定义 kernel。</li>
+<li>如果某个热点算子需要单独优化，OpenAI Triton 才会进入视野。</li>
+</ul>
+<p>换句话说，NVIDIA Triton 更接近“把模型服务化”，OpenAI Triton 更接近“把算子做快”。</p>
+<h2 id="cong-gong-cheng-mu-biao-chu-fa-ying-gai-you-xian-zhang-wo-shi-yao" tabindex="-1" id="从工程目标出发，应该优先掌握什么">从工程目标出发，应该优先掌握什么</h2>
+<p>讨论“该学哪一个 Triton”时，如果先从岗位名称切入，结论往往太泛。更有效的方式是从工作目标出发。</p>
+<h3 id="mu-biao-yi-mo-xing-neng-gou-wen-ding-shang-xian-bing-cheng-zai-qing-qiu" tabindex="-1" id="目标一：模型能够稳定上线并承载请求">目标一：模型能够稳定上线并承载请求</h3>
+<p>如果当前目标是把模型变成一个可用服务，优先级通常是：</p>
+<ol>
+<li>模型格式与后端选择是否合适。</li>
+<li>model repository 和 <code>config.pbtxt</code> 是否正确。</li>
+<li>服务实例数、批处理和并发配置是否合理。</li>
+<li>是否具备压测、回归和性能观测能力。</li>
+</ol>
+<p>这类问题首先对应 <code>NVIDIA Triton</code>，而不是 OpenAI Triton。原因很直接：即使底层 kernel 有优化空间，如果服务调度和部署方式没有建立起来，系统仍然无法进入稳定生产状态。</p>
+<h3 id="mu-biao-er-re-dian-suan-zi-cheng-wei-xing-neng-ping-jing" tabindex="-1" id="目标二：热点算子成为性能瓶颈">目标二：热点算子成为性能瓶颈</h3>
+<p>如果当前目标是处理单个算子的性能瓶颈，例如：</p>
+<ul>
+<li>softmax 或 RMSNorm 明显受限于带宽；</li>
+<li>某个自定义算子在 PyTorch 中调度开销过大；</li>
+<li>需要对特定矩阵形状做专门优化；</li>
+</ul>
+<p>这类问题首先对应 <code>OpenAI Triton</code>。因为问题已经下沉到了算子执行层，服务框架本身无法替代 kernel 优化。</p>
+<h3 id="mu-biao-san-tong-shi-zuo-fu-wu-you-hua-yu-di-ceng-you-hua" tabindex="-1" id="目标三：同时做服务优化与底层优化">目标三：同时做服务优化与底层优化</h3>
+<p>更完整的推理工程往往会同时遇到这两类问题。例如，先在服务侧优化批处理与并发，再对注意力路径或归一化算子做深入分析。</p>
+<p>这时两条主线会自然汇合，但仍然要避免职责混淆：服务问题先在服务层收敛，算子问题再下探到 kernel 层。否则很容易出现“还没定位瓶颈，就先开始写自定义 kernel”的过度优化。</p>
+<h2 id="san-ge-zui-chang-jian-de-hun-yao-dian" tabindex="-1" id="三个最常见的混淆点">三个最常见的混淆点</h2>
+<h3 id="hun-yao-yi-ba-open-ai-triton-dang-zuo-tensor-rt-de-ti-dai-pin" tabindex="-1" id="混淆一：把-OpenAI-Triton-当作-TensorRT-的替代品">混淆一：把 OpenAI Triton 当作 TensorRT 的替代品</h3>
+<p>这种理解不准确。TensorRT 是推理优化和执行框架，面向的是模型图优化、精度转换、engine 构建和高性能执行。OpenAI Triton 则是 kernel 编程工具，关注的是单个算子或局部计算路径如何映射到 GPU。</p>
+<p>两者都可能提升推理性能，但层次不同，入口也不同。</p>
+<h3 id="hun-yao-er-ba-nvidia-triton-deng-tong-yu-tensor-rt" tabindex="-1" id="混淆二：把-NVIDIA-Triton-等同于-TensorRT">混淆二：把 NVIDIA Triton 等同于 TensorRT</h3>
+<p>这种理解同样不准确。NVIDIA Triton 是服务系统，可以托管多种后端；TensorRT 只是其中一种执行后端。部署在 NVIDIA Triton 上的模型，未必一定使用 TensorRT，也可能使用 ONNX Runtime、PyTorch 或 Python backend。</p>
+<p>因此，“模型跑在 Triton 上”只说明它被服务化管理了，不足以说明底层一定是 TensorRT engine。</p>
+<h3 id="hun-yao-san-ba-suo-you-xing-neng-wen-ti-du-gui-yin-dao-kernel" tabindex="-1" id="混淆三：把所有性能问题都归因到-kernel">混淆三：把所有性能问题都归因到 kernel</h3>
+<p>这也是最常见的误判。很多推理性能问题并不来自算子本身，而来自：</p>
+<ul>
+<li>批处理策略不合理。</li>
+<li>实例数和 GPU 利用率不匹配。</li>
+<li>模型后端选择不当。</li>
+<li>请求形状不稳定，导致服务侧调度效率差。</li>
+<li>压测方法不一致，结论不可比较。</li>
+</ul>
+<p>在没有明确定位瓶颈之前，直接进入 OpenAI Triton 开发往往不是最高优先级。工程上更稳妥的做法是先判断问题属于服务层、图优化层还是算子层。</p>
+<h2 id="zhe-pian-wen-zhang-tao-lun-shi-yao-bu-tao-lun-shi-yao" tabindex="-1" id="这篇文章讨论什么，不讨论什么">这篇文章讨论什么，不讨论什么</h2>
+<p>为了避免范围扩散，这里先明确边界。</p>
+<p>本文重点讨论：</p>
+<ul>
+<li>两个 Triton 的职责边界。</li>
+<li>它们在推理链路中的位置。</li>
+<li>不同工程目标下的优先学习顺序。</li>
+<li>常见概念误用与判断方法。</li>
+</ul>
+<p>本文不展开讨论：</p>
+<ul>
+<li>CUDA 线程块、warp、共享内存等底层细节。</li>
+<li>Triton kernel 的具体语法与第一个示例。</li>
+<li>Triton Server 的完整部署步骤与压测命令。</li>
+<li>vLLM、TensorRT-LLM、Ray Serve 等替代或互补方案。</li>
+</ul>
+<p>把边界限定清楚，后续系列结构才会稳定。</p>
+<h2 id="yi-ge-ke-fu-yong-de-pan-duan-kuang-jia" tabindex="-1" id="一个可复用的判断框架">一个可复用的判断框架</h2>
+<p>如果后续在文档、面试或项目沟通中再次遇到 <code>Triton</code> 这个词，可以先用下面这组问题判断语境。</p>
+<h3 id="xian-wen-you-hua-dui-xiang-shi-shi-yao" tabindex="-1" id="先问：优化对象是什么">先问：优化对象是什么</h3>
+<ul>
+<li>如果优化对象是单个算子、局部 kernel 或访存模式，基本指向 OpenAI Triton。</li>
+<li>如果优化对象是在线服务、并发请求、批处理和模型管理，基本指向 NVIDIA Triton。</li>
+</ul>
+<h3 id="zai-wen-shu-chu-wu-shi-shi-yao" tabindex="-1" id="再问：输出物是什么">再问：输出物是什么</h3>
+<ul>
+<li>如果最终产出是更高效的 kernel 或算子实现，通常是 OpenAI Triton 语境。</li>
+<li>如果最终产出是模型仓库、服务配置、部署实例和压测结果，通常是 NVIDIA Triton 语境。</li>
+</ul>
+<h3 id="zui-hou-wen-zhi-biao-kan-shi-yao" tabindex="-1" id="最后问：指标看什么">最后问：指标看什么</h3>
+<ul>
+<li>如果主要指标是 kernel latency、有效带宽、算子吞吐，通常更偏 OpenAI Triton。</li>
+<li>如果主要指标是 requests per second、p95/p99 latency、GPU 利用率、实例并发效果，通常更偏 NVIDIA Triton。</li>
+</ul>
+<p>这组问题并不复杂，但在实际协作里非常有效。它能把讨论从“名词是否熟悉”拉回到“问题究竟发生在哪一层”。</p>
+<h2 id="ben-xi-lie-de-yue-du-fang-shi" tabindex="-1" id="本系列的阅读方式">本系列的阅读方式</h2>
+<p>基于上面的边界划分，后续系列会分成两条主线，再在工程落地阶段汇合。</p>
+<h3 id="zhu-xian-yi-open-ai-triton" tabindex="-1" id="主线一：OpenAI-Triton">主线一：OpenAI Triton</h3>
+<ul>
+<li>基础编程模型：program、grid、tile、mask。</li>
+<li>性能分析方法：memory-bound、fusion、autotune。</li>
+<li>与 PyTorch 的集成方式。</li>
+<li>面向推理场景的高频算子选择。</li>
+</ul>
+<p>这条主线的目标不是替代 CUDA 全部能力，而是建立对 GPU kernel 优化的可操作认知。</p>
+<h3 id="zhu-xian-er-nvidia-triton" tabindex="-1" id="主线二：NVIDIA-Triton">主线二：NVIDIA Triton</h3>
+<ul>
+<li>model repository 与配置文件结构。</li>
+<li>动态批处理和实例副本。</li>
+<li>压测、指标读取和调参闭环。</li>
+<li>从单模型部署走向可展示项目。</li>
+</ul>
+<p>这条主线的目标是把模型服务化，并形成一套可复用的推理工程实践。</p>
+<h2 id="jie-lun" tabindex="-1" id="结论">结论</h2>
+<p><code>Triton</code> 这个名字之所以容易造成混淆，是因为它恰好同时出现在推理链路里两个很重要的位置。</p>
+<ul>
+<li><code>OpenAI Triton</code> 解决的是算子和 kernel 的执行效率问题。</li>
+<li><code>NVIDIA Triton Inference Server</code> 解决的是模型服务化、调度和运行管理问题。</li>
+<li>前者偏执行层和编译层，后者偏服务层和部署层。</li>
+</ul>
+<p>如果只需要记住一句话，可以记成：</p>
+<blockquote>
+<p>OpenAI Triton 关注“算得快不快”，NVIDIA Triton 关注“服务跑得稳不稳、吞吐高不高”。</p>
+</blockquote>
+<p>后续进入具体实现时，只要始终坚持按层定位问题，很多技术选择都会自然变得清晰。</p>
+<h2 id="can-kao-zi-liao" tabindex="-1" id="参考资料">参考资料</h2>
+<ul>
+<li>OpenAI Triton 官方教程：<a target="_blank" rel="noopener" href="https://triton-lang.org/main/getting-started/tutorials/">https://triton-lang.org/main/getting-started/tutorials/</a></li>
+<li>OpenAI Triton GitHub：<a target="_blank" rel="noopener" href="https://github.com/triton-lang/triton">https://github.com/triton-lang/triton</a></li>
+<li>PyTorch 中使用用户自定义 Triton Kernel：<a target="_blank" rel="noopener" href="https://docs.pytorch.org/tutorials/recipes/torch_compile_user_defined_triton_kernel_tutorial.html">https://docs.pytorch.org/tutorials/recipes/torch_compile_user_defined_triton_kernel_tutorial.html</a></li>
+<li>NVIDIA Triton Inference Server 文档：<a target="_blank" rel="noopener" href="https://docs.nvidia.com/deeplearning/triton-inference-server/user-guide/docs/index.html">https://docs.nvidia.com/deeplearning/triton-inference-server/user-guide/docs/index.html</a></li>
+</ul>
+<h2 id="xi-lie-dao-hang" tabindex="-1" id="系列导航">系列导航</h2>
+<ul>
+<li>导读：<a href="/posts/3162877d/">Triton：导读 从算子开发到模型服务</a></li>
+<li>上一篇：<a href="/posts/7b1b5390/">Triton：00 环境准备与最小验证</a></li>
+<li>下一篇：<a href="/posts/7c880a57/">Triton：02 OpenAI Triton 基础编程模型</a></li>
+</ul>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/45c97617/">https://smarter.xin/posts/45c97617/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/ai-infrastructure/">AI Infrastructure</a><a class="post-meta__tags" href="/tags/learning-path/">学习路线</a><a class="post-meta__tags" href="/tags/triton/">Triton</a><a class="post-meta__tags" href="/tags/openai-triton/">OpenAI Triton</a><a class="post-meta__tags" href="/tags/nvidia-triton/">NVIDIA Triton</a></div><div class="post-share"><div class="social-share" data-image="/img/triton.png" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/7b1b5390/" title="Triton：00 环境准备与最小验证"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/triton.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">Triton：00 环境准备与最小验证</div></div></div></a><a class="pagination-related  no-desc" href="/posts/7c880a57/" title="Triton：02 OpenAI Triton 基础编程模型"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/triton.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">Triton：02 OpenAI Triton 基础编程模型</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/3162877d/" title="Triton：导读 从算子开发到模型服务"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/triton.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-04-01</div><div class="info-item-2">Triton：导读 从算子开发到模型服务</div></div></div></a><a class="pagination-related no-desc" href="/posts/7b1b5390/" title="Triton：00 环境准备与最小验证"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/triton.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-04-01</div><div class="info-item-2">Triton：00 环境准备与最小验证</div></div></div></a><a class="pagination-related no-desc" href="/posts/736a99ef/" title="Triton：09 项目落地与后续路线"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/triton.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-04-01</div><div class="info-item-2">Triton：09 项目落地与后续路线</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">我就是要爬这座山<br>再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">153</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">276</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">26</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#wen-ti-bei-jing"><span class="toc-text">问题背景</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xian-gei-chu-jie-lun"><span class="toc-text">先给出结论</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#yi-ge-ming-cheng-dui-ying-liang-ge-xi-tong"><span class="toc-text">一个名称，对应两个系统</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#open-ai-triton-jie-jue-shi-yao-wen-ti"><span class="toc-text">OpenAI Triton 解决什么问题</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#nvidia-triton-jie-jue-shi-yao-wen-ti"><span class="toc-text">NVIDIA Triton 解决什么问题</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#ba-ta-men-fang-hui-tui-li-lian-lu"><span class="toc-text">把它们放回推理链路</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#cong-gong-cheng-mu-biao-chu-fa-ying-gai-you-xian-zhang-wo-shi-yao"><span class="toc-text">从工程目标出发，应该优先掌握什么</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#mu-biao-yi-mo-xing-neng-gou-wen-ding-shang-xian-bing-cheng-zai-qing-qiu"><span class="toc-text">目标一：模型能够稳定上线并承载请求</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#mu-biao-er-re-dian-suan-zi-cheng-wei-xing-neng-ping-jing"><span class="toc-text">目标二：热点算子成为性能瓶颈</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#mu-biao-san-tong-shi-zuo-fu-wu-you-hua-yu-di-ceng-you-hua"><span class="toc-text">目标三：同时做服务优化与底层优化</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#san-ge-zui-chang-jian-de-hun-yao-dian"><span class="toc-text">三个最常见的混淆点</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#hun-yao-yi-ba-open-ai-triton-dang-zuo-tensor-rt-de-ti-dai-pin"><span class="toc-text">混淆一：把 OpenAI Triton 当作 TensorRT 的替代品</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#hun-yao-er-ba-nvidia-triton-deng-tong-yu-tensor-rt"><span class="toc-text">混淆二：把 NVIDIA Triton 等同于 TensorRT</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#hun-yao-san-ba-suo-you-xing-neng-wen-ti-du-gui-yin-dao-kernel"><span class="toc-text">混淆三：把所有性能问题都归因到 kernel</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#zhe-pian-wen-zhang-tao-lun-shi-yao-bu-tao-lun-shi-yao"><span class="toc-text">这篇文章讨论什么，不讨论什么</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#yi-ge-ke-fu-yong-de-pan-duan-kuang-jia"><span class="toc-text">一个可复用的判断框架</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#xian-wen-you-hua-dui-xiang-shi-shi-yao"><span class="toc-text">先问：优化对象是什么</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#zai-wen-shu-chu-wu-shi-shi-yao"><span class="toc-text">再问：输出物是什么</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#zui-hou-wen-zhi-biao-kan-shi-yao"><span class="toc-text">最后问：指标看什么</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#ben-xi-lie-de-yue-du-fang-shi"><span class="toc-text">本系列的阅读方式</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#zhu-xian-yi-open-ai-triton"><span class="toc-text">主线一：OpenAI Triton</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#zhu-xian-er-nvidia-triton"><span class="toc-text">主线二：NVIDIA Triton</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#jie-lun"><span class="toc-text">结论</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#can-kao-zi-liao"><span class="toc-text">参考资料</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xi-lie-dao-hang"><span class="toc-text">系列导航</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/3162877d/" title="Triton：导读 从算子开发到模型服务"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/triton.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Triton：导读 从算子开发到模型服务"/></a><div class="content"><a class="title" href="/posts/3162877d/" title="Triton：导读 从算子开发到模型服务">Triton：导读 从算子开发到模型服务</a><time datetime="2026-04-01T15:00:00.000Z" title="发表于 2026-04-01 23:00:00">2026-04-01</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/7b1b5390/" title="Triton：00 环境准备与最小验证"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/triton.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Triton：00 环境准备与最小验证"/></a><div class="content"><a class="title" href="/posts/7b1b5390/" title="Triton：00 环境准备与最小验证">Triton：00 环境准备与最小验证</a><time datetime="2026-04-01T14:30:00.000Z" title="发表于 2026-04-01 22:30:00">2026-04-01</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/45c97617/" title="Triton：01 两个 Triton 的职责边界"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/triton.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Triton：01 两个 Triton 的职责边界"/></a><div class="content"><a class="title" href="/posts/45c97617/" title="Triton：01 两个 Triton 的职责边界">Triton：01 两个 Triton 的职责边界</a><time datetime="2026-04-01T14:00:00.000Z" title="发表于 2026-04-01 22:00:00">2026-04-01</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/attentionisallyouneed.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">从 Self-Attention、位置编码到 Encoder-Decoder，系统梳理 Transformer 的核心结构、设计动机与理解路径</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/d6fa227a/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-16</span><a class="blog-slider__title" href="posts/d6fa227a/" alt="">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</a><div class="blog-slider__text">从访存优化到多卡通信，一篇看清 CUDA 实践系列的结构与学习路线</div><a class="blog-slider__button" href="posts/d6fa227a/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/43c4b52e/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/agent.webp" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-24</span><a class="blog-slider__title" href="posts/43c4b52e/" alt="">从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路</a><div class="blog-slider__text">使用飞书与本地 Agent 对话，远程也要让本地 Agent 干活，当一名狠狠的资本家</div><a class="blog-slider__button" href="posts/43c4b52e/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/92dc1028/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/CUDA_C.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-02-05</span><a class="blog-slider__title" href="posts/92dc1028/" alt="">CUDA C编程权威指南-导读</a><div class="blog-slider__text">从异构并行到多 GPU 实践，串起 CUDA C 权威指南的核心学习路线</div><a class="blog-slider__button" href="posts/92dc1028/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">从全书视角出发，一篇看清 PMPP 的章节结构、核心主题与学习主线</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/aac6e27d/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Computer_System.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/aac6e27d/" alt="">深入理解计算机系统知识点总结</a><div class="blog-slider__text">从程序员视角梳理 CSAPP 的知识脉络、系统抽象与性能理解</div><a class="blog-slider__button" href="posts/aac6e27d/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">围绕类型推导、移动语义与并发，提炼现代 C++ 的核心实践</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>

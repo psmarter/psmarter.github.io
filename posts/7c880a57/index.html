@@ -1,0 +1,517 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>Triton：02 OpenAI Triton 基础编程模型 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="这篇文章解决什么问题 完成环境准备之后，下一步不是马上去写复杂算子，而是先建立对 OpenAI Triton 的最小认知框架。 很多人第一次看 Triton 代码时，最容易出现两个误解：  误以为 Triton kernel 和普通 Python 函数只是“语法长得不一样”。 误以为只要把 for 循环改成 tl.arange，就算理解了并行执行。  这两种理解都不够。Triton 代码真正需要先">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Triton：02 OpenAI Triton 基础编程模型">
+<meta property="og:url" content="https://smarter.xin/posts/7c880a57/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="这篇文章解决什么问题 完成环境准备之后，下一步不是马上去写复杂算子，而是先建立对 OpenAI Triton 的最小认知框架。 很多人第一次看 Triton 代码时，最容易出现两个误解：  误以为 Triton kernel 和普通 Python 函数只是“语法长得不一样”。 误以为只要把 for 循环改成 tl.arange，就算理解了并行执行。  这两种理解都不够。Triton 代码真正需要先">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/triton.png">
+<meta property="article:published_time" content="2026-04-01T13:30:00.000Z">
+<meta property="article:modified_time" content="2026-04-01T08:46:26.199Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="CUDA">
+<meta property="article:tag" content="GPU编程">
+<meta property="article:tag" content="Triton">
+<meta property="article:tag" content="OpenAI Triton">
+<meta property="article:tag" content="Kernel 开发">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/triton.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "Triton：02 OpenAI Triton 基础编程模型",
+  "url": "https://smarter.xin/posts/7c880a57/",
+  "image": "https://smarter.xin/img/triton.png",
+  "datePublished": "2026-04-01T13:30:00.000Z",
+  "dateModified": "2026-04-01T08:46:26.199Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/7c880a57/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'Triton：02 OpenAI Triton 基础编程模型',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">153</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">276</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">26</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/triton.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">Triton：02 OpenAI Triton 基础编程模型</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">Triton：02 OpenAI Triton 基础编程模型</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-04-01T13:30:00.000Z" title="发表于 2026-04-01 21:30:00">2026-04-01</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-04-01T08:46:26.199Z" title="更新于 2026-04-01 16:46:26">2026-04-01</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/">AI Infra</a><i class="fas fa-angle-right post-meta-separator"></i><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/triton/">Triton</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">2.9k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>9分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h2 id="zhe-pian-wen-zhang-jie-jue-shi-yao-wen-ti" tabindex="-1" id="这篇文章解决什么问题">这篇文章解决什么问题</h2>
+<p>完成环境准备之后，下一步不是马上去写复杂算子，而是先建立对 OpenAI Triton 的最小认知框架。</p>
+<p>很多人第一次看 Triton 代码时，最容易出现两个误解：</p>
+<ul>
+<li>误以为 Triton kernel 和普通 Python 函数只是“语法长得不一样”。</li>
+<li>误以为只要把 <code>for</code> 循环改成 <code>tl.arange</code>，就算理解了并行执行。</li>
+</ul>
+<p>这两种理解都不够。Triton 代码真正需要先想清楚的，不是某一行语法，而是下面四个问题：</p>
+<ul>
+<li>一个 kernel 会被拆成多少个执行单元。</li>
+<li>每个执行单元负责哪一块数据。</li>
+<li>这块数据如何映射到显存地址。</li>
+<li>边界位置如何避免越界访问。</li>
+</ul>
+<p>本文会围绕 <code>program</code>、<code>grid</code>、<code>tile</code>、<code>mask</code> 这四个概念展开，并用一个向量加法 kernel 把它们串起来。目标不是覆盖全部 Triton 语法，而是让后续看到任意一个 Triton kernel 时，知道应该先从哪里读起。</p>
+<h2 id="bu-yao-ba-triton-kernel-dang-cheng-chuan-xing-han-shu" tabindex="-1" id="不要把-Triton-kernel-当成串行函数">不要把 Triton kernel 当成串行函数</h2>
+<p>先给出一个更接近事实的理解：</p>
+<blockquote>
+<p>Triton kernel 不是“在 GPU 上执行一次的函数”，而是一份会被复制成很多个并行执行单元的模板。</p>
+</blockquote>
+<p>这句话里最关键的词是“很多个并行执行单元”。在 Triton 里，这个执行单元通常叫 <code>program</code>。每个 <code>program</code> 处理输入中的一块数据，所有 <code>program</code> 共同完成整个张量的计算。</p>
+<p>如果把一个长度为 <code>N</code> 的一维向量切成若干块，执行过程可以抽象成下面这样：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">输入数据: [ 0..1023 | 1024..2047 | 2048..3071 | ... ]</span><br><span class="line">            pid=0      pid=1         pid=2</span><br><span class="line"></span><br><span class="line">每个 pid 对应一个独立 program</span><br><span class="line">每个 program 处理一段连续数据</span><br><span class="line">所有 program 并行执行</span><br></pre></td></tr></table></figure>
+<p>这就是理解 Triton kernel 的起点。只要这个视角没有建立起来，后面看到 <code>program_id</code>、<code>arange</code>、<code>mask</code> 时就很容易停留在语法层面。</p>
+<h2 id="si-ge-he-xin-gai-nian" tabindex="-1" id="四个核心概念">四个核心概念</h2>
+<h3 id="1-kernel" tabindex="-1" id="1-kernel">1. kernel</h3>
+<p><code>@triton.jit</code> 修饰的函数就是 Triton kernel。它描述的是“每个 program 应该怎样处理自己负责的数据块”。</p>
+<p>kernel 里写的是局部计算逻辑，不是整个输入的全局遍历逻辑。全局遍历的展开，是通过多个 <code>program</code> 并行完成的。</p>
+<h3 id="2-program" tabindex="-1" id="2-program">2. program</h3>
+<p><code>program</code> 可以理解为一次独立的并行工作单元。它会通过 <code>tl.program_id(axis=...)</code> 获得自己的编号，然后根据这个编号计算自己该处理哪一段数据。</p>
+<p>如果只处理一维向量，通常只关心 <code>axis=0</code>。如果处理矩阵或更复杂的 tile 布局，就可能同时使用多个维度。</p>
+<h3 id="3-grid" tabindex="-1" id="3-grid">3. grid</h3>
+<p><code>grid</code> 决定一共要启动多少个 <code>program</code>。这个信息不是写死在 kernel 函数体里的，而是由 host 侧在启动 kernel 时提供。</p>
+<p>因此，kernel 负责描述“单个 program 怎么做”，grid 负责描述“总共要启动多少个 program”。</p>
+<h3 id="4-tile" tabindex="-1" id="4-tile">4. tile</h3>
+<p><code>tile</code> 是单个 <code>program</code> 负责处理的数据块。对于最简单的一维向量加法，它可以是一段长度为 <code>BLOCK_SIZE</code> 的连续元素。</p>
+<p>在更复杂的场景里，tile 也可以是矩阵中的一个子块。例如 matmul 场景中，一个 <code>program</code> 可能负责输出矩阵中的一个二维块。</p>
+<h3 id="5-mask" tabindex="-1" id="5-mask">5. mask</h3>
+<p><code>mask</code> 解决的是边界问题。因为输入长度通常不是 <code>BLOCK_SIZE</code> 的整数倍，最后一个 <code>program</code> 很可能只处理半满的一块数据。</p>
+<p>如果没有 <code>mask</code>，最后这块就会读写到非法地址。对 Triton 而言，mask 不是附加细节，而是最基础的安全机制之一。</p>
+<h2 id="xian-ji-zhu-yi-tiao-du-dai-ma-shun-xu" tabindex="-1" id="先记住一条读代码顺序">先记住一条读代码顺序</h2>
+<p>看到一个新的 Triton kernel，优先按下面顺序读，而不是从上到下机械阅读：</p>
+<ol>
+<li>先看 <code>program_id</code> 是怎么取的。</li>
+<li>再看 offsets 是怎么从 <code>pid</code> 推出来的。</li>
+<li>再看 <code>load</code> / <code>store</code> 的地址表达式。</li>
+<li>最后再看 <code>mask</code> 保护了哪些边界。</li>
+</ol>
+<p>这个顺序比背语法表更有用。因为大多数 Triton kernel 的本质，都是“某个 <code>program</code> 如何根据自己的编号定位一块数据，然后在这块数据上完成局部计算”。</p>
+<h2 id="di-yi-ge-wan-zheng-li-zi-xiang-liang-jia-fa" tabindex="-1" id="第一个完整例子：向量加法">第一个完整例子：向量加法</h2>
+<p>向量加法不是最有代表性的高性能算子，但它非常适合作为第一个例子，因为它几乎不包含额外数学复杂度，读者可以把注意力集中在执行模型本身。</p>
+<p>下面是一份最小可运行代码：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> torch</span><br><span class="line"><span class="keyword">import</span> triton</span><br><span class="line"><span class="keyword">import</span> triton.language <span class="keyword">as</span> tl</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="meta">@triton.jit</span></span><br><span class="line"><span class="keyword">def</span> <span class="title function_">add_kernel</span>(<span class="params"></span></span><br><span class="line"><span class="params">    x_ptr,</span></span><br><span class="line"><span class="params">    y_ptr,</span></span><br><span class="line"><span class="params">    out_ptr,</span></span><br><span class="line"><span class="params">    n_elements,</span></span><br><span class="line"><span class="params">    BLOCK_SIZE: tl.constexpr,</span></span><br><span class="line"><span class="params"></span>):</span><br><span class="line">    pid = tl.program_id(axis=<span class="number">0</span>)</span><br><span class="line">    block_start = pid * BLOCK_SIZE</span><br><span class="line">    offsets = block_start + tl.arange(<span class="number">0</span>, BLOCK_SIZE)</span><br><span class="line">    mask = offsets &lt; n_elements</span><br><span class="line"></span><br><span class="line">    x = tl.load(x_ptr + offsets, mask=mask)</span><br><span class="line">    y = tl.load(y_ptr + offsets, mask=mask)</span><br><span class="line">    tl.store(out_ptr + offsets, x + y, mask=mask)</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="keyword">def</span> <span class="title function_">triton_add</span>(<span class="params">x: torch.Tensor, y: torch.Tensor</span>) -&gt; torch.Tensor:</span><br><span class="line">    out = torch.empty_like(x)</span><br><span class="line">    n = x.numel()</span><br><span class="line">    grid = <span class="keyword">lambda</span> meta: (triton.cdiv(n, meta[<span class="string">&quot;BLOCK_SIZE&quot;</span>]),)</span><br><span class="line">    add_kernel[grid](x, y, out, n, BLOCK_SIZE=<span class="number">1024</span>)</span><br><span class="line">    <span class="keyword">return</span> out</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"><span class="keyword">if</span> __name__ == <span class="string">&quot;__main__&quot;</span>:</span><br><span class="line">    n = <span class="number">1</span> &lt;&lt; <span class="number">20</span></span><br><span class="line">    x = torch.rand(n, device=<span class="string">&quot;cuda&quot;</span>, dtype=torch.float32)</span><br><span class="line">    y = torch.rand(n, device=<span class="string">&quot;cuda&quot;</span>, dtype=torch.float32)</span><br><span class="line"></span><br><span class="line">    out = triton_add(x, y)</span><br><span class="line">    <span class="keyword">assert</span> torch.allclose(out, x + y, atol=<span class="number">1e-5</span>)</span><br><span class="line">    <span class="built_in">print</span>(<span class="string">&quot;vector add passed&quot;</span>)</span><br></pre></td></tr></table></figure>
+<p>这段代码的价值不在于“完成了加法”，而在于它把 Triton 最核心的四个概念完整串起来了。</p>
+<h2 id="zhu-xing-li-jie-zhe-ge-kernel" tabindex="-1" id="逐行理解这个-kernel">逐行理解这个 kernel</h2>
+<h3 id="code-pid-tl-program-id-axis-0-code" tabindex="-1" id="pid-tl-program-id-axis-0"><code>pid = tl.program_id(axis=0)</code></h3>
+<p>这一行拿到当前 <code>program</code> 在第 0 维 grid 中的编号。可以把它理解为“我是哪一个执行单元”。</p>
+<p>如果 grid 是一维的，那么 <code>pid</code> 通常就是 <code>0, 1, 2, 3, ...</code> 这样递增。</p>
+<h3 id="code-block-start-pid-block-size-code" tabindex="-1" id="block-start-pid-BLOCK-SIZE"><code>block_start = pid * BLOCK_SIZE</code></h3>
+<p>有了 <code>pid</code> 之后，就可以把“我是第几个 program”转换成“我负责的数据从哪里开始”。</p>
+<p>如果 <code>BLOCK_SIZE=1024</code>：</p>
+<ul>
+<li><code>pid=0</code> 时，负责 <code>[0, 1023]</code></li>
+<li><code>pid=1</code> 时，负责 <code>[1024, 2047]</code></li>
+<li><code>pid=2</code> 时，负责 <code>[2048, 3071]</code></li>
+</ul>
+<p>这一步本质上就是把执行编号映射为数据分块起点。</p>
+<h3 id="code-offsets-block-start-tl-arange-0-block-size-code" tabindex="-1" id="offsets-block-start-tl-arange-0-BLOCK-SIZE"><code>offsets = block_start + tl.arange(0, BLOCK_SIZE)</code></h3>
+<p>这一步生成当前 tile 内所有元素的全局下标。</p>
+<p>如果当前 <code>block_start=2048</code>，那么 <code>offsets</code> 就会是：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[2048, 2049, 2050, ..., 3071]</span><br></pre></td></tr></table></figure>
+<p>因此，<code>offsets</code> 才是真正把局部 tile 和全局显存地址联系起来的核心变量。</p>
+<h3 id="code-mask-offsets-lt-n-elements-code" tabindex="-1" id="mask-offsets-n-elements"><code>mask = offsets &lt; n_elements</code></h3>
+<p>这一步负责处理最后一个 tile 的边界。</p>
+<p>假设总长度是 <code>2500</code>，而 <code>BLOCK_SIZE=1024</code>，那么一共需要 3 个 <code>program</code>：</p>
+<ul>
+<li>第一个处理 <code>0..1023</code></li>
+<li>第二个处理 <code>1024..2047</code></li>
+<li>第三个理论上会处理 <code>2048..3071</code></li>
+</ul>
+<p>但真实有效范围只有 <code>2048..2499</code>。如果没有 mask，后面超出的部分就会越界。mask 的作用就是告诉 Triton：只有条件为真的那些位置才允许参与读写。</p>
+<h3 id="code-tl-load-code-yu-code-tl-store-code" tabindex="-1" id="tl-load-与-tl-store"><code>tl.load(...)</code> 与 <code>tl.store(...)</code></h3>
+<p><code>tl.load(x_ptr + offsets, mask=mask)</code> 可以理解为“从一组地址批量读取一块数据”。<code>tl.store(...)</code> 则是对应的批量写回。</p>
+<p>这里需要注意，Triton 的思考方式不是“取单个元素”，而是“围绕一组 offsets 成批处理一块 tile”。这也是它和普通 Python 数组访问差异最大的地方之一。</p>
+<h2 id="host-ce-wei-shi-yao-huan-yao-xie-yi-ge-wrapper" tabindex="-1" id="host-侧为什么还要写一个-wrapper">host 侧为什么还要写一个 wrapper</h2>
+<p>很多初学者会只盯着 kernel 函数体看，忽略 host 侧的包装函数。但在 Triton 中，host 侧和 kernel 侧是分工明确的。</p>
+<p>在上面的例子里，host 侧承担三件事：</p>
+<ul>
+<li>分配输出张量。</li>
+<li>读取输入规模，例如 <code>n = x.numel()</code>。</li>
+<li>根据输入规模和 <code>BLOCK_SIZE</code> 推导 grid。</li>
+</ul>
+<p>这一点很重要。kernel 只负责单个 <code>program</code> 的局部逻辑，而“需要多少个 <code>program</code>”这个问题属于 host 侧。</p>
+<h2 id="code-grid-code-dao-di-zai-zuo-shi-yao" tabindex="-1" id="grid-到底在做什么"><code>grid</code> 到底在做什么</h2>
+<p>这一行是整个例子里最值得停下来理解的一句：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">grid = <span class="keyword">lambda</span> meta: (triton.cdiv(n, meta[<span class="string">&quot;BLOCK_SIZE&quot;</span>]),)</span><br></pre></td></tr></table></figure>
+<p>它的意思是：</p>
+<ul>
+<li>如果每个 <code>program</code> 处理 <code>BLOCK_SIZE</code> 个元素，</li>
+<li>那么总共需要 <code>ceil(n / BLOCK_SIZE)</code> 个 <code>program</code>。</li>
+</ul>
+<p>例如：</p>
+<ul>
+<li><code>n=1024</code>，只需要 <code>1</code> 个 program</li>
+<li><code>n=1025</code>，需要 <code>2</code> 个 program</li>
+<li><code>n=4096</code>，需要 <code>4</code> 个 program</li>
+</ul>
+<p><code>triton.cdiv</code> 的作用就是向上整除。它经常出现在一维分块和二维 tiling 场景里，是非常常见的工具函数。</p>
+<h2 id="code-block-size-code-wei-shi-yao-xie-cheng-code-tl-constexpr-code" tabindex="-1" id="BLOCK-SIZE-为什么写成-tl-constexpr"><code>BLOCK_SIZE</code> 为什么写成 <code>tl.constexpr</code></h2>
+<p><code>BLOCK_SIZE</code> 不是普通运行时参数，而是编译期常量。把它声明为 <code>tl.constexpr</code>，意味着 Triton 在生成 kernel 时会把它作为静态信息来处理。</p>
+<p>这样做有两个直接结果：</p>
+<ul>
+<li>编译器可以围绕这个固定块大小做优化。</li>
+<li>host 侧可以根据不同 <code>BLOCK_SIZE</code> 选择不同 grid 或不同 launch 方式。</li>
+</ul>
+<p>在后续更复杂的 kernel 中，<code>BLOCK_SIZE</code>、<code>BLOCK_M</code>、<code>BLOCK_N</code>、<code>BLOCK_K</code> 这类参数都会直接影响 kernel 形态，因此它们通常会以 <code>tl.constexpr</code> 的形式出现。</p>
+<h2 id="du-triton-kernel-shi-de-san-ge-gu-ding-wen-ti" tabindex="-1" id="读-Triton-kernel-时的三个固定问题">读 Triton kernel 时的三个固定问题</h2>
+<p>看到任何一个陌生 Triton kernel，可以先问自己三个问题：</p>
+<h3 id="dang-qian-code-program-code-shi-shui" tabindex="-1" id="当前-program-是谁">当前 <code>program</code> 是谁</h3>
+<p>也就是先看 <code>tl.program_id(...)</code>。如果连这一点都没有弄清楚，后面的 offsets 很容易看成无意义的索引运算。</p>
+<h3 id="dang-qian-code-program-code-fu-ze-na-kuai-shu-ju" tabindex="-1" id="当前-program-负责哪块数据">当前 <code>program</code> 负责哪块数据</h3>
+<p>也就是看 <code>pid</code> 如何映射为 <code>block_start</code> 或二维 tile 坐标。这一步决定了 kernel 的分块策略。</p>
+<h3 id="zhe-kuai-shu-ju-zen-yang-ying-she-dao-zhen-shi-di-zhi" tabindex="-1" id="这块数据怎样映射到真实地址">这块数据怎样映射到真实地址</h3>
+<p>也就是看 offsets 如何与指针相加，以及 mask 在保护什么边界。这里往往直接决定了访存模式是否合理。</p>
+<p>这三个问题并不只适用于向量加法。后面看 softmax、RMSNorm、matmul、attention 路径时，依然是同一套读法。</p>
+<h2 id="zhe-yi-jie-gu-yi-mei-you-jiang-shi-yao" tabindex="-1" id="这一节故意没有讲什么">这一节故意没有讲什么</h2>
+<p>为了把第一层认知压实，这一节刻意没有展开以下内容：</p>
+<ul>
+<li>共享内存和寄存器占用的深入分析。</li>
+<li>多维 grid 的更复杂映射。</li>
+<li>autotune 与不同 block 配置的选择。</li>
+<li>更接近真实推理热点的 softmax、norm 或 matmul。</li>
+</ul>
+<p>这些内容都会在后续文章继续展开。如果在这一节就同时引入性能分析和复杂算子，反而容易把最核心的执行模型冲淡。</p>
+<h2 id="chang-jian-wu-qu" tabindex="-1" id="常见误区">常见误区</h2>
+<h3 id="wu-qu-yi-ba-code-program-code-zhi-jie-deng-tong-yu-cuda-li-de-mou-ge-gu-ding-ceng-ji" tabindex="-1" id="误区一：把-program-直接等同于-CUDA-里的某个固定层级">误区一：把 <code>program</code> 直接等同于 CUDA 里的某个固定层级</h3>
+<p>OpenAI Triton 借鉴了 GPU 编程模型，但它的抽象目标不是让用户逐项复刻 CUDA 的线程层级，而是让用户围绕 tile 和数据块表达 kernel。学习时如果一直试图做一一映射，通常会比直接理解 Triton 自身抽象更吃力。</p>
+<h3 id="wu-qu-er-zhi-bei-api-bu-kan-di-zhi-ying-she" tabindex="-1" id="误区二：只背-API，不看地址映射">误区二：只背 API，不看地址映射</h3>
+<p>如果一个例子只记住了 <code>tl.load</code>、<code>tl.store</code>、<code>tl.arange</code> 这些名字，而没有真正看懂 <code>offsets</code> 是怎么来的，那么对 kernel 的理解仍然停留在表面。</p>
+<h3 id="wu-qu-san-ba-bian-jie-bao-hu-dang-cheng-fu-jia-xi-jie" tabindex="-1" id="误区三：把边界保护当成附加细节">误区三：把边界保护当成附加细节</h3>
+<p>在 Triton 里，mask 不是可选装饰。只要输入规模和 tile 大小之间存在不整除关系，mask 就是基本组成部分。</p>
+<h2 id="jie-lun" tabindex="-1" id="结论">结论</h2>
+<p>OpenAI Triton 的入门关键，不是先背完所有语法，而是建立一套稳定的读取顺序：</p>
+<ul>
+<li>先看 <code>program</code> 如何编号。</li>
+<li>再看 tile 如何切分。</li>
+<li>再看 offsets 如何映射到地址。</li>
+<li>最后看 mask 如何保护边界。</li>
+</ul>
+<p>只要这条主线建立起来，后面看到更复杂的 kernel，就不再只是“看见了一堆语法”，而是能把它还原成一套明确的数据分块与执行逻辑。</p>
+<p>下一篇会继续往前走，把这一层执行模型放进性能分析框架里，讨论为什么很多 Triton kernel 的瓶颈不是算不动，而是搬不动。</p>
+<h2 id="xi-lie-dao-hang" tabindex="-1" id="系列导航">系列导航</h2>
+<ul>
+<li>导读：<a href="/posts/3162877d/">Triton：导读 从算子开发到模型服务</a></li>
+<li>上一篇：<a href="/posts/45c97617/">Triton：01 两个 Triton 的职责边界</a></li>
+<li>下一篇：<a href="/posts/be3f287e/">Triton：03 OpenAI Triton 性能思维</a></li>
+</ul>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/7c880a57/">https://smarter.xin/posts/7c880a57/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/cuda/">CUDA</a><a class="post-meta__tags" href="/tags/gpu-programming/">GPU编程</a><a class="post-meta__tags" href="/tags/triton/">Triton</a><a class="post-meta__tags" href="/tags/openai-triton/">OpenAI Triton</a><a class="post-meta__tags" href="/tags/kernel-development/">Kernel 开发</a></div><div class="post-share"><div class="social-share" data-image="/img/triton.png" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/45c97617/" title="Triton：01 两个 Triton 的职责边界"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/triton.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">Triton：01 两个 Triton 的职责边界</div></div></div></a><a class="pagination-related  no-desc" href="/posts/be3f287e/" title="Triton：03 OpenAI Triton 性能思维"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/triton.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">Triton：03 OpenAI Triton 性能思维</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/7b1b5390/" title="Triton：00 环境准备与最小验证"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/triton.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-04-01</div><div class="info-item-2">Triton：00 环境准备与最小验证</div></div></div></a><a class="pagination-related no-desc" href="/posts/eb522a31/" title="Triton：04 Matmul、Autotune 与 PyTorch 集成"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/triton.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-04-01</div><div class="info-item-2">Triton：04 Matmul、Autotune 与 PyTorch 集成</div></div></div></a><a class="pagination-related no-desc" href="/posts/d6fa227a/" title="CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-16</div><div class="info-item-2">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">我就是要爬这座山<br>再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">153</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">276</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">26</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-2"><a class="toc-link" href="#zhe-pian-wen-zhang-jie-jue-shi-yao-wen-ti"><span class="toc-text">这篇文章解决什么问题</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#bu-yao-ba-triton-kernel-dang-cheng-chuan-xing-han-shu"><span class="toc-text">不要把 Triton kernel 当成串行函数</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#si-ge-he-xin-gai-nian"><span class="toc-text">四个核心概念</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-kernel"><span class="toc-text">1. kernel</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-program"><span class="toc-text">2. program</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-grid"><span class="toc-text">3. grid</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-tile"><span class="toc-text">4. tile</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-mask"><span class="toc-text">5. mask</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xian-ji-zhu-yi-tiao-du-dai-ma-shun-xu"><span class="toc-text">先记住一条读代码顺序</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#di-yi-ge-wan-zheng-li-zi-xiang-liang-jia-fa"><span class="toc-text">第一个完整例子：向量加法</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#zhu-xing-li-jie-zhe-ge-kernel"><span class="toc-text">逐行理解这个 kernel</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#code-pid-tl-program-id-axis-0-code"><span class="toc-text">pid &#x3D; tl.program_id(axis&#x3D;0)</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#code-block-start-pid-block-size-code"><span class="toc-text">block_start &#x3D; pid * BLOCK_SIZE</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#code-offsets-block-start-tl-arange-0-block-size-code"><span class="toc-text">offsets &#x3D; block_start + tl.arange(0, BLOCK_SIZE)</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#code-mask-offsets-lt-n-elements-code"><span class="toc-text">mask &#x3D; offsets &lt; n_elements</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#code-tl-load-code-yu-code-tl-store-code"><span class="toc-text">tl.load(...) 与 tl.store(...)</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#host-ce-wei-shi-yao-huan-yao-xie-yi-ge-wrapper"><span class="toc-text">host 侧为什么还要写一个 wrapper</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#code-grid-code-dao-di-zai-zuo-shi-yao"><span class="toc-text">grid 到底在做什么</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#code-block-size-code-wei-shi-yao-xie-cheng-code-tl-constexpr-code"><span class="toc-text">BLOCK_SIZE 为什么写成 tl.constexpr</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#du-triton-kernel-shi-de-san-ge-gu-ding-wen-ti"><span class="toc-text">读 Triton kernel 时的三个固定问题</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#dang-qian-code-program-code-shi-shui"><span class="toc-text">当前 program 是谁</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#dang-qian-code-program-code-fu-ze-na-kuai-shu-ju"><span class="toc-text">当前 program 负责哪块数据</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#zhe-kuai-shu-ju-zen-yang-ying-she-dao-zhen-shi-di-zhi"><span class="toc-text">这块数据怎样映射到真实地址</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#zhe-yi-jie-gu-yi-mei-you-jiang-shi-yao"><span class="toc-text">这一节故意没有讲什么</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#chang-jian-wu-qu"><span class="toc-text">常见误区</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#wu-qu-yi-ba-code-program-code-zhi-jie-deng-tong-yu-cuda-li-de-mou-ge-gu-ding-ceng-ji"><span class="toc-text">误区一：把 program 直接等同于 CUDA 里的某个固定层级</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#wu-qu-er-zhi-bei-api-bu-kan-di-zhi-ying-she"><span class="toc-text">误区二：只背 API，不看地址映射</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#wu-qu-san-ba-bian-jie-bao-hu-dang-cheng-fu-jia-xi-jie"><span class="toc-text">误区三：把边界保护当成附加细节</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#jie-lun"><span class="toc-text">结论</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xi-lie-dao-hang"><span class="toc-text">系列导航</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/3162877d/" title="Triton：导读 从算子开发到模型服务"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/triton.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Triton：导读 从算子开发到模型服务"/></a><div class="content"><a class="title" href="/posts/3162877d/" title="Triton：导读 从算子开发到模型服务">Triton：导读 从算子开发到模型服务</a><time datetime="2026-04-01T15:00:00.000Z" title="发表于 2026-04-01 23:00:00">2026-04-01</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/7b1b5390/" title="Triton：00 环境准备与最小验证"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/triton.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Triton：00 环境准备与最小验证"/></a><div class="content"><a class="title" href="/posts/7b1b5390/" title="Triton：00 环境准备与最小验证">Triton：00 环境准备与最小验证</a><time datetime="2026-04-01T14:30:00.000Z" title="发表于 2026-04-01 22:30:00">2026-04-01</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/45c97617/" title="Triton：01 两个 Triton 的职责边界"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/triton.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Triton：01 两个 Triton 的职责边界"/></a><div class="content"><a class="title" href="/posts/45c97617/" title="Triton：01 两个 Triton 的职责边界">Triton：01 两个 Triton 的职责边界</a><time datetime="2026-04-01T14:00:00.000Z" title="发表于 2026-04-01 22:00:00">2026-04-01</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/attentionisallyouneed.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">从 Self-Attention、位置编码到 Encoder-Decoder，系统梳理 Transformer 的核心结构、设计动机与理解路径</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/d6fa227a/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-16</span><a class="blog-slider__title" href="posts/d6fa227a/" alt="">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</a><div class="blog-slider__text">从访存优化到多卡通信，一篇看清 CUDA 实践系列的结构与学习路线</div><a class="blog-slider__button" href="posts/d6fa227a/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/43c4b52e/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/agent.webp" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-24</span><a class="blog-slider__title" href="posts/43c4b52e/" alt="">从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路</a><div class="blog-slider__text">使用飞书与本地 Agent 对话，远程也要让本地 Agent 干活，当一名狠狠的资本家</div><a class="blog-slider__button" href="posts/43c4b52e/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/92dc1028/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/CUDA_C.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-02-05</span><a class="blog-slider__title" href="posts/92dc1028/" alt="">CUDA C编程权威指南-导读</a><div class="blog-slider__text">从异构并行到多 GPU 实践，串起 CUDA C 权威指南的核心学习路线</div><a class="blog-slider__button" href="posts/92dc1028/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">从全书视角出发，一篇看清 PMPP 的章节结构、核心主题与学习主线</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/aac6e27d/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Computer_System.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/aac6e27d/" alt="">深入理解计算机系统知识点总结</a><div class="blog-slider__text">从程序员视角梳理 CSAPP 的知识脉络、系统抽象与性能理解</div><a class="blog-slider__button" href="posts/aac6e27d/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">围绕类型推导、移动语义与并发，提炼现代 C++ 的核心实践</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>
