@@ -1,0 +1,527 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>vLLM系统拆解-00-导读：从架构、调度到面试表达的学习路线 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="vLLM系统拆解-00-导读：从架构、调度到面试表达的学习路线 阅读本文后应能  看清这个系列到底在回答哪些问题：架构、调度、KV Cache、执行链、调优、分布式、框架对比和面试表达。 按自己的目标选择阅读顺序，而不是把 19 篇文章当成只能线性推进的一条路线。 明确它和站内 Transformer、vLLM 入门实践、推理全景文章的边界，减少重复阅读。  这个系列解决什么问题 一句话概括：先建">
+<meta property="og:type" content="article">
+<meta property="og:title" content="vLLM系统拆解-00-导读：从架构、调度到面试表达的学习路线">
+<meta property="og:url" content="https://smarter.xin/posts/f77e5973/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="vLLM系统拆解-00-导读：从架构、调度到面试表达的学习路线 阅读本文后应能  看清这个系列到底在回答哪些问题：架构、调度、KV Cache、执行链、调优、分布式、框架对比和面试表达。 按自己的目标选择阅读顺序，而不是把 19 篇文章当成只能线性推进的一条路线。 明确它和站内 Transformer、vLLM 入门实践、推理全景文章的边界，减少重复阅读。  这个系列解决什么问题 一句话概括：先建">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/vllm.png">
+<meta property="article:published_time" content="2026-04-02T00:00:00.000Z">
+<meta property="article:modified_time" content="2026-04-03T11:44:50.290Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="AI Infrastructure">
+<meta property="article:tag" content="vLLM">
+<meta property="article:tag" content="大模型推理">
+<meta property="article:tag" content="学习路线">
+<meta property="article:tag" content="推理系统">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/vllm.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "vLLM系统拆解-00-导读：从架构、调度到面试表达的学习路线",
+  "url": "https://smarter.xin/posts/f77e5973/",
+  "image": "https://smarter.xin/img/vllm.png",
+  "datePublished": "2026-04-02T00:00:00.000Z",
+  "dateModified": "2026-04-03T11:44:50.290Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/f77e5973/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'vLLM系统拆解-00-导读：从架构、调度到面试表达的学习路线',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">173</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">305</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">27</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/vllm.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">vLLM系统拆解-00-导读：从架构、调度到面试表达的学习路线</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">vLLM系统拆解-00-导读：从架构、调度到面试表达的学习路线</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-04-02T00:00:00.000Z" title="发表于 2026-04-02 08:00:00">2026-04-02</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-04-03T11:44:50.290Z" title="更新于 2026-04-03 19:44:50">2026-04-03</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/">AI Infra</a><i class="fas fa-angle-right post-meta-separator"></i><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/vllm/">vLLM</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">1.4k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>4分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="v-llm-xi-tong-chai-jie-00-dao-du-cong-jia-gou-diao-du-dao-mian-shi-biao-da-de-xue-xi-lu-xian" tabindex="-1">vLLM系统拆解-00-导读：从架构、调度到面试表达的学习路线</h1>
+<h2 id="yue-du-ben-wen-hou-ying-neng" tabindex="-1" id="阅读本文后应能">阅读本文后应能</h2>
+<ul>
+<li>看清这个系列到底在回答哪些问题：架构、调度、KV Cache、执行链、调优、分布式、框架对比和面试表达。</li>
+<li>按自己的目标选择阅读顺序，而不是把 19 篇文章当成只能线性推进的一条路线。</li>
+<li>明确它和站内 Transformer、vLLM 入门实践、推理全景文章的边界，减少重复阅读。</li>
+</ul>
+<h2 id="zhe-ge-xi-lie-jie-jue-shi-yao-wen-ti" tabindex="-1" id="这个系列解决什么问题">这个系列解决什么问题</h2>
+<p>一句话概括：<strong>先建立 LLM Serving 的物理图景，再把 vLLM 拆成“请求怎么进来、状态怎么推进、KV 怎么存、GPU 怎么跑、系统怎么调、架构怎么扩”六条主线。</strong></p>
+<p>这套文章不是 API 手册，也不是源码逐文件导读，而是围绕真实 AI Infra 问题组织：为什么在线推理需要 Scheduler、为什么 KV Cache 会变成核心资源、为什么 Prefix Caching 和 PagedAttention 必须放在同一张图里看、为什么部署调优最终落到 TTFT、ITL、显存预算和 workload 分布上。</p>
+<h2 id="yu-zhan-nei-qi-ta-wen-zhang-de-guan-xi" tabindex="-1" id="与站内其他文章的关系">与站内其他文章的关系</h2>
+<table>
+<thead>
+<tr>
+<th>文章</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="/posts/4854dc00/">AI Infra学习之旅-Transformer知识地图</a></td>
+<td>先补 Attention、KV Cache、Prefill/Decode 这些概念从模型层是怎么来的。</td>
+</tr>
+<tr>
+<td><a href="/posts/9d0ab4a7/">现代大模型推理的核心技术全景</a></td>
+<td>从更高一层看现代推理系统要解决的共性问题。</td>
+</tr>
+<tr>
+<td><a href="/posts/b21cbc80/">AI-Infra学习之旅-第一个vLLM程序</a></td>
+<td>如果还没跑过 vLLM，可以先用这篇建立最小使用体验。</td>
+</tr>
+<tr>
+<td><a href="/posts/fbab2bc4/">AI-Infra学习之旅-PagedAttention解析</a></td>
+<td>想先抓住 vLLM 最著名的单点机制，可以先读这篇，再回到本系列主线。</td>
+</tr>
+</tbody>
+</table>
+<h2 id="xi-lie-jie-gou" tabindex="-1" id="系列结构">系列结构</h2>
+<ul>
+<li><code>01</code> 到 <code>03</code>：建立系统入口和基本图景，先看为什么在线推理不是单次 <code>forward</code>，以及 vLLM 为什么天然需要分层入口。</li>
+<li><code>04</code> 到 <code>07</code>：进入系统主干，分别拆 Scheduler、KV Cache / PagedAttention、Prefix Caching 和 Worker 执行链。</li>
+<li><code>08</code> 到 <code>10</code>：把视角切到优化与扩展，讨论调参、高级加速和分布式并行。</li>
+<li><code>11</code> 到 <code>19</code>：把前面的理解压缩成面试表达、源码地图、框架对比、线上调优和通用系统设计能力。</li>
+</ul>
+<h2 id="lu-xian-tu" tabindex="-1" id="路线图">路线图</h2>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">00 导读</span><br><span class="line">  → 01 架构设计 → 02 Prefill / Decode / KV Cache → 03 入口分层</span><br><span class="line">  → 04 Scheduler → 05 KV Cache / PagedAttention → 06 Prefix Caching → 07 Worker 执行链</span><br><span class="line">  → 08 性能优化 → 09 高级加速 → 10 分布式部署</span><br><span class="line">  → 11 面试题精讲 → 12 源码地图 → 13 框架对比 → 14 部署调优</span><br><span class="line">  → 15 三层协同 → 16 瓶颈定位 → 17 面试深挖 → 18 通用系统设计 → 19 复盘手册</span><br></pre></td></tr></table></figure>
+<h2 id="pian-mu-suo-yin" tabindex="-1" id="篇目索引">篇目索引</h2>
+<table>
+<thead>
+<tr>
+<th style="text-align:center">编号</th>
+<th style="text-align:left">文章</th>
+<th style="text-align:left">主题</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:center">01</td>
+<td style="text-align:left"><a href="/posts/c8797d0d/">架构设计：为什么推理引擎不能是一个进程</a></td>
+<td style="text-align:left">多进程分层、API Server / Engine Core / Worker 职责边界</td>
+</tr>
+<tr>
+<td style="text-align:center">02</td>
+<td style="text-align:left"><a href="/posts/e62b6df0/">Prefill、Decode与KV Cache：理解vLLM之前的推理基础</a></td>
+<td style="text-align:left">自回归推理物理图景、TTFT / ITL 与缓存基础</td>
+</tr>
+<tr>
+<td style="text-align:center">03</td>
+<td style="text-align:left"><a href="/posts/dbff781f/">入口分层：LLM、LLMEngine、AsyncLLMEngine与vllm serve</a></td>
+<td style="text-align:left">离线入口、在线入口和调用链分层</td>
+</tr>
+<tr>
+<td style="text-align:center">04</td>
+<td style="text-align:left"><a href="/posts/1202d62c/">Scheduler：为什么调度单位是token budget</a></td>
+<td style="text-align:left">Continuous batching、chunked prefill、preemption</td>
+</tr>
+<tr>
+<td style="text-align:center">05</td>
+<td style="text-align:left"><a href="/posts/e67da5b6/">KV Cache与PagedAttention：核心不是Attention公式，而是存放方式</a></td>
+<td style="text-align:left">Block 化缓存、页式管理和调度协同</td>
+</tr>
+<tr>
+<td style="text-align:center">06</td>
+<td style="text-align:left"><a href="/posts/be098d92/">Prefix Caching：跨请求KV复用如何做到精确、高效且安全</a></td>
+<td style="text-align:left">前缀复用、block hash、多租户边界</td>
+</tr>
+<tr>
+<td style="text-align:center">07</td>
+<td style="text-align:left"><a href="/posts/f61cc956/">Worker执行链：调度决策如何变成GPU上的一步计算</a></td>
+<td style="text-align:left">Executor、Worker、Model Runner、Sampler</td>
+</tr>
+<tr>
+<td style="text-align:center">08</td>
+<td style="text-align:left"><a href="/posts/b0da0eba/">性能优化：参数背后的系统级权衡</a></td>
+<td style="text-align:left">token 预算、显存预算、吞吐与延迟权衡</td>
+</tr>
+<tr>
+<td style="text-align:center">09</td>
+<td style="text-align:left"><a href="/posts/a1df357b/">高级加速：Speculative Decoding、CUDA Graph与量化</a></td>
+<td style="text-align:left">高阶优化针对的瓶颈和适用边界</td>
+</tr>
+<tr>
+<td style="text-align:center">10</td>
+<td style="text-align:left"><a href="/posts/9ce7b444/">分布式部署：TP、PP、DP、EP各解决什么问题</a></td>
+<td style="text-align:left">模型切分、流量扩展和通信代价</td>
+</tr>
+<tr>
+<td style="text-align:center">11</td>
+<td style="text-align:left"><a href="/posts/c3e99548/">面试题精讲：从概念到系统设计如何讲清楚为什么</a></td>
+<td style="text-align:left">高频问题的回答骨架</td>
+</tr>
+<tr>
+<td style="text-align:center">12</td>
+<td style="text-align:left"><a href="/posts/354d88e4/">源码地图：每个核心能力落在哪一层</a></td>
+<td style="text-align:left">模块职责、路径速查、源码定位</td>
+</tr>
+<tr>
+<td style="text-align:center">13</td>
+<td style="text-align:left"><a href="/posts/84b005d4/">推理框架对比：vLLM、TGI、TensorRT-LLM与SGLang</a></td>
+<td style="text-align:left">选型维度、系统风格和适用场景</td>
+</tr>
+<tr>
+<td style="text-align:center">14</td>
+<td style="text-align:left"><a href="/posts/bc6be055/">部署调优：从资源预算到线上问题诊断</a></td>
+<td style="text-align:left">参数、OOM、CPU/GPU 瓶颈与线上排障</td>
+</tr>
+<tr>
+<td style="text-align:center">15</td>
+<td style="text-align:left"><a href="/posts/cf18dd3a/">调度、KV Cache与Prefix Caching：为什么必须三层协同</a></td>
+<td style="text-align:left">统一请求生命周期视角</td>
+</tr>
+<tr>
+<td style="text-align:center">16</td>
+<td style="text-align:left"><a href="/posts/e7a2278e/">性能瓶颈定位：从现象到根因的分层诊断方法</a></td>
+<td style="text-align:left">症状归因、指标和调优次序</td>
+</tr>
+<tr>
+<td style="text-align:center">17</td>
+<td style="text-align:left"><a href="/posts/32c30b06/">面试深挖：面试官继续追问为什么时怎么回答</a></td>
+<td style="text-align:left">追问展开、trade-off 和反模式</td>
+</tr>
+<tr>
+<td style="text-align:center">18</td>
+<td style="text-align:left"><a href="/posts/6f0af891/">通用LLM推理系统设计：从vLLM出发建立框架</a></td>
+<td style="text-align:left">从具体实现上升到共性设计原则</td>
+</tr>
+<tr>
+<td style="text-align:center">19</td>
+<td style="text-align:left"><a href="/posts/cc221b1e/">AI Infra与推理岗面试手册：vLLM学到什么程度才算够用</a></td>
+<td style="text-align:left">系列收束、能力分层和复习建议</td>
+</tr>
+</tbody>
+</table>
+<h2 id="yue-du-shun-xu-jian-yi" tabindex="-1" id="阅读顺序建议">阅读顺序建议</h2>
+<ul>
+<li><strong>想先把系统主干看懂</strong>：按 <code>01 → 02 → 04 → 05 → 06 → 07</code>。</li>
+<li><strong>想优先准备上线和调优</strong>：先读 <code>02 → 04 → 05 → 08 → 10 → 14 → 16</code>。</li>
+<li><strong>想把内容转成面试表达</strong>：重点读 <code>11 → 12 → 13 → 17 → 18 → 19</code>。</li>
+<li><strong>时间有限</strong>：至少读 <code>02</code>、<code>04</code>、<code>05</code>、<code>10</code>、<code>14</code>、<code>18</code>，这六篇能把系统主干、扩展和抽象框架串起来。</li>
+</ul>
+<h2 id="qi-shi-pian" tabindex="-1" id="起始篇">起始篇</h2>
+<p>正文从 <a href="/posts/c8797d0d/">vLLM系统拆解-01-架构设计：为什么推理引擎不能是一个进程</a> 开始。</p>
+<hr>
+<h2 id="xi-lie-dao-hang" tabindex="-1" id="系列导航">系列导航</h2>
+<ul>
+<li>下一篇：<a href="/posts/c8797d0d/">vLLM系统拆解-01-架构设计：为什么推理引擎不能是一个进程</a></li>
+</ul>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/f77e5973/">https://smarter.xin/posts/f77e5973/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/ai-infrastructure/">AI Infrastructure</a><a class="post-meta__tags" href="/tags/vllm/">vLLM</a><a class="post-meta__tags" href="/tags/llm-inference/">大模型推理</a><a class="post-meta__tags" href="/tags/learning-path/">学习路线</a><a class="post-meta__tags" href="/tags/inference-system/">推理系统</a></div><div class="post-share"><div class="social-share" data-image="/img/vllm.png" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/c8797d0d/" title="vLLM系统拆解-01-架构设计：为什么推理引擎不能是一个进程"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/vllm.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">vLLM系统拆解-01-架构设计：为什么推理引擎不能是一个进程</div></div></div></a><a class="pagination-related  no-desc" href="/posts/3162877d/" title="Triton：导读 从算子开发到模型服务"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/triton.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">Triton：导读 从算子开发到模型服务</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/6f0af891/" title="vLLM系统拆解-18-通用LLM推理系统设计：从vLLM出发建立框架"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/vllm.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-04-02</div><div class="info-item-2">vLLM系统拆解-18-通用LLM推理系统设计：从vLLM出发建立框架</div></div></div></a><a class="pagination-related no-desc" href="/posts/b21cbc80/" title="AI Infra学习之旅-第一个vLLM程序"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2025-12-31</div><div class="info-item-2">AI Infra学习之旅-第一个vLLM程序</div></div></div></a><a class="pagination-related no-desc" href="/posts/c3e99548/" title="vLLM系统拆解-11-面试题精讲：从概念到系统设计如何讲清楚为什么"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/vllm.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-04-02</div><div class="info-item-2">vLLM系统拆解-11-面试题精讲：从概念到系统设计如何讲清楚为什么</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">我就是要爬这座山<br>再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">173</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">305</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">27</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#v-llm-xi-tong-chai-jie-00-dao-du-cong-jia-gou-diao-du-dao-mian-shi-biao-da-de-xue-xi-lu-xian"><span class="toc-text">vLLM系统拆解-00-导读：从架构、调度到面试表达的学习路线</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#yue-du-ben-wen-hou-ying-neng"><span class="toc-text">阅读本文后应能</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#zhe-ge-xi-lie-jie-jue-shi-yao-wen-ti"><span class="toc-text">这个系列解决什么问题</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#yu-zhan-nei-qi-ta-wen-zhang-de-guan-xi"><span class="toc-text">与站内其他文章的关系</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xi-lie-jie-gou"><span class="toc-text">系列结构</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#lu-xian-tu"><span class="toc-text">路线图</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#pian-mu-suo-yin"><span class="toc-text">篇目索引</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#yue-du-shun-xu-jian-yi"><span class="toc-text">阅读顺序建议</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#qi-shi-pian"><span class="toc-text">起始篇</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xi-lie-dao-hang"><span class="toc-text">系列导航</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/cc221b1e/" title="vLLM系统拆解-19-AI Infra与推理岗面试手册：vLLM学到什么程度才算够用"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/vllm.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="vLLM系统拆解-19-AI Infra与推理岗面试手册：vLLM学到什么程度才算够用"/></a><div class="content"><a class="title" href="/posts/cc221b1e/" title="vLLM系统拆解-19-AI Infra与推理岗面试手册：vLLM学到什么程度才算够用">vLLM系统拆解-19-AI Infra与推理岗面试手册：vLLM学到什么程度才算够用</a><time datetime="2026-04-02T09:30:00.000Z" title="发表于 2026-04-02 17:30:00">2026-04-02</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/6f0af891/" title="vLLM系统拆解-18-通用LLM推理系统设计：从vLLM出发建立框架"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/vllm.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="vLLM系统拆解-18-通用LLM推理系统设计：从vLLM出发建立框架"/></a><div class="content"><a class="title" href="/posts/6f0af891/" title="vLLM系统拆解-18-通用LLM推理系统设计：从vLLM出发建立框架">vLLM系统拆解-18-通用LLM推理系统设计：从vLLM出发建立框架</a><time datetime="2026-04-02T09:00:00.000Z" title="发表于 2026-04-02 17:00:00">2026-04-02</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/32c30b06/" title="vLLM系统拆解-17-面试深挖：面试官继续追问为什么时怎么回答"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/vllm.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="vLLM系统拆解-17-面试深挖：面试官继续追问为什么时怎么回答"/></a><div class="content"><a class="title" href="/posts/32c30b06/" title="vLLM系统拆解-17-面试深挖：面试官继续追问为什么时怎么回答">vLLM系统拆解-17-面试深挖：面试官继续追问为什么时怎么回答</a><time datetime="2026-04-02T08:30:00.000Z" title="发表于 2026-04-02 16:30:00">2026-04-02</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/attentionisallyouneed.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">从 Self-Attention、位置编码到 Encoder-Decoder，系统梳理 Transformer 的核心结构、设计动机与理解路径</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/d6fa227a/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-16</span><a class="blog-slider__title" href="posts/d6fa227a/" alt="">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</a><div class="blog-slider__text">从访存优化到多卡通信，一篇看清 CUDA 实践系列的结构与学习路线</div><a class="blog-slider__button" href="posts/d6fa227a/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/43c4b52e/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/agent.webp" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-24</span><a class="blog-slider__title" href="posts/43c4b52e/" alt="">从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路</a><div class="blog-slider__text">使用飞书与本地 Agent 对话，远程也要让本地 Agent 干活，当一名狠狠的资本家</div><a class="blog-slider__button" href="posts/43c4b52e/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/92dc1028/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/CUDA_C.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-02-05</span><a class="blog-slider__title" href="posts/92dc1028/" alt="">CUDA C编程权威指南-导读</a><div class="blog-slider__text">从异构并行到多 GPU 实践，串起 CUDA C 权威指南的核心学习路线</div><a class="blog-slider__button" href="posts/92dc1028/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">从全书视角出发，一篇看清 PMPP 的章节结构、核心主题与学习主线</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/aac6e27d/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Computer_System.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/aac6e27d/" alt="">深入理解计算机系统知识点总结</a><div class="blog-slider__text">从程序员视角梳理 CSAPP 的知识脉络、系统抽象与性能理解</div><a class="blog-slider__button" href="posts/aac6e27d/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">围绕类型推导、移动语义与并发，提炼现代 C++ 的核心实践</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>

@@ -1,0 +1,588 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>vLLM系统拆解-07-Worker执行链：调度决策如何变成GPU上的一步计算 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="vLLM系统拆解-07-Worker执行链：调度决策如何变成GPU上的一步计算 前几篇讲的都是 Scheduler 侧的事：哪些请求本轮进入 batch，token budget 怎么分配，prefix cache 怎么命中。但到这里，Scheduler 只是完成了&quot;决策&quot;——GPU 还没有真正动起来。 把&quot;这一轮调度谁&quot;翻译成&quot;GPU 实际执行一">
+<meta property="og:type" content="article">
+<meta property="og:title" content="vLLM系统拆解-07-Worker执行链：调度决策如何变成GPU上的一步计算">
+<meta property="og:url" content="https://smarter.xin/posts/f61cc956/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="vLLM系统拆解-07-Worker执行链：调度决策如何变成GPU上的一步计算 前几篇讲的都是 Scheduler 侧的事：哪些请求本轮进入 batch，token budget 怎么分配，prefix cache 怎么命中。但到这里，Scheduler 只是完成了&quot;决策&quot;——GPU 还没有真正动起来。 把&quot;这一轮调度谁&quot;翻译成&quot;GPU 实际执行一">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/vllm.png">
+<meta property="article:published_time" content="2026-04-02T03:30:00.000Z">
+<meta property="article:modified_time" content="2026-04-03T11:44:50.291Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="vLLM">
+<meta property="article:tag" content="模型服务">
+<meta property="article:tag" content="调用链">
+<meta property="article:tag" content="Worker">
+<meta property="article:tag" content="推理执行链">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/vllm.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "vLLM系统拆解-07-Worker执行链：调度决策如何变成GPU上的一步计算",
+  "url": "https://smarter.xin/posts/f61cc956/",
+  "image": "https://smarter.xin/img/vllm.png",
+  "datePublished": "2026-04-02T03:30:00.000Z",
+  "dateModified": "2026-04-03T11:44:50.291Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/f61cc956/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'vLLM系统拆解-07-Worker执行链：调度决策如何变成GPU上的一步计算',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">173</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">305</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">27</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/vllm.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">vLLM系统拆解-07-Worker执行链：调度决策如何变成GPU上的一步计算</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">vLLM系统拆解-07-Worker执行链：调度决策如何变成GPU上的一步计算</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-04-02T03:30:00.000Z" title="发表于 2026-04-02 11:30:00">2026-04-02</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-04-03T11:44:50.291Z" title="更新于 2026-04-03 19:44:50">2026-04-03</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/">AI Infra</a><i class="fas fa-angle-right post-meta-separator"></i><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/vllm/">vLLM</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">4k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>13分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="v-llm-xi-tong-chai-jie-07-worker-zhi-xing-lian-diao-du-jue-ce-ru-he-bian-cheng-gpu-shang-de-yi-bu-ji-suan" tabindex="-1">vLLM系统拆解-07-Worker执行链：调度决策如何变成GPU上的一步计算</h1>
+<p>前几篇讲的都是 Scheduler 侧的事：哪些请求本轮进入 batch，token budget 怎么分配，prefix cache 怎么命中。但到这里，Scheduler 只是完成了&quot;决策&quot;——GPU 还没有真正动起来。</p>
+<p>把&quot;这一轮调度谁&quot;翻译成&quot;GPU 实际执行一步 forward&quot;的，是 Worker 执行链。这篇文章沿着这条链从头走一遍：为什么要有单独的 Worker 进程，Worker / Model Runner / Model / Sampler 四层各自解决什么问题，以及那些常被忽视但实际很重要的工程细节——input tensor 准备、persistent batch、Sampler 的完整执行步骤。</p>
+<hr>
+<h2 id="si-ceng-fen-gong-xian-jian-li-zheng-ti-shi-tu" tabindex="-1" id="四层分工：先建立整体视图">四层分工：先建立整体视图</h2>
+<p>在深入每一层之前，先把层次关系建立清楚。</p>
+<pre><code class="highlight mermaid">flowchart TD
+    A[&quot;Engine Core\n调度协调，维护全局请求状态&quot;] --&gt; B[&quot;Worker\n单 GPU 进程，设备归属与显存管理&quot;]
+    B --&gt; C[&quot;Model Runner\n执行编排：状态更新 + 输入准备 + 调用协调&quot;]
+    C --&gt; D[&quot;Model\ntorch.nn.Module，执行网络计算，输出 logits&quot;]
+    C --&gt; E[&quot;Sampler\n解码决策：从 logits 到最终 token 选择&quot;]
+    E --&gt; F[&quot;写回请求状态\n未结束→进入下一轮 decode\n已结束→释放资源&quot;]
+    F --&gt; A</code></pre>
+<p>官方架构文档对 Worker 的定位非常直接：每个 GPU 对应一个 Worker 进程，Worker 负责加载模型权重、执行 forward、管理 GPU 内存。但这四层的划分背后有明确的设计原因，不只是简单的代码分组。</p>
+<hr>
+<h2 id="wei-shi-yao-xu-yao-dan-du-de-worker-jin-cheng" tabindex="-1" id="为什么需要单独的-Worker-进程">为什么需要单独的 Worker 进程</h2>
+<p>这个设计选择直接决定了 vLLM 在多 GPU 和分布式场景下的可扩展性。</p>
+<p><strong>设备归属清晰。</strong> 哪张卡由谁管、这张卡上的显存由谁分配、这张卡加载了什么权重、当前 batch 是什么——这些都归一个 Worker 管。如果多个上层组件同时直接操作 GPU，责任边界会混乱，显存生命周期难以追踪，多卡通信逻辑会散落在各处。</p>
+<p><strong>更适合分布式扩展。</strong> 当引入 Tensor Parallelism（TP）、Pipeline Parallelism（PP）、Data Parallelism（DP）后，不同 rank 有不同的张量分片和计算职责。把&quot;每个设备的执行与状态&quot;收口到 Worker，可以让 Engine Core 只关心<strong>调度与协调</strong>，不必亲自管每张卡的细节。这是多 GPU 系统能够保持可维护性的基础。</p>
+<p><strong>分离 CPU 控制路径与 GPU 执行路径。</strong> 高并发推理里，一个常见瓶颈是 CPU 端做了太多杂事而 GPU 被饿住。API server 处理请求、Engine Core 处理调度、Worker 处理模型执行——这三路分开后，不同性质的瓶颈更容易被隔离，也更容易各自优化。</p>
+<hr>
+<h2 id="model-runner-cai-shi-zhi-xing-lian-de-he-xin-bu-shi-model-ben-shen" tabindex="-1" id="Model-Runner-才是执行链的核心，不是-Model-本身">Model Runner 才是执行链的核心，不是 Model 本身</h2>
+<p>这个判断对很多人来说是反直觉的。</p>
+<p>模型本体（torch.nn.Module）只做一件事：给定输入张量，算出输出张量。它不知道外面在跑多少并发请求，不知道哪些是 prefill 哪些是 decode，不知道 KV cache 怎么索引，不知道当前 batch 是怎么组成的。</p>
+<p>但一个推理系统真正要处理的远比这复杂：</p>
+<ul>
+<li>这一轮 batch 里有哪些请求，各自当前在哪一步</li>
+<li>哪些是 prefill，哪些是 decode</li>
+<li>本轮输入 token 怎么组织成张量</li>
+<li>attention backend 要什么格式的 metadata</li>
+<li>KV cache 的 block table / slot mapping 如何表达</li>
+<li>是否可以复用 persistent state，是否启用 cudagraph</li>
+<li>Sampler 需要哪些 request-level metadata</li>
+</ul>
+<p>这些都不是 torch.nn.Module 该处理的。<strong>Model Runner 就是连接&quot;调度世界&quot;和&quot;模型世界&quot;的翻译层</strong>——Scheduler 输出的是&quot;这一轮该处理哪些请求&quot;，Model 需要的是&quot;适合 kernel / backend / module 的张量输入&quot;，Model Runner 负责把前者翻译成后者。</p>
+<h3 id="model-runner-bi-xu-bao-chi-tong-yong-he-zui-xiao-hua" tabindex="-1" id="Model-Runner-必须保持通用和最小化">Model Runner 必须保持通用和最小化</h3>
+<p>官方 API 文档对 Model Runner 有一个明确要求：这个文件是所有模型共享的，它既服务文本模型也服务多模态模型，既服务 generative 也服务 embedding。因此这里<strong>只放所有模型都通用的逻辑</strong>，模型特定行为应放到各自的模型文件里。</p>
+<p>这个约束有清晰的工程价值：</p>
+<table>
+<thead>
+<tr>
+<th>如果 Model Runner 保持稳定</th>
+<th>如果 Model Runner 被模型差异污染</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>新增模型只需补充模型文件</td>
+<td>每次加模型都要改执行主干</td>
+</tr>
+<tr>
+<td>persistent batch、cudagraph 等优化可以稳定落点</td>
+<td>框架级优化难以实施</td>
+</tr>
+<tr>
+<td>主执行路径行为可预测</td>
+<td>系统随时间趋向失控</td>
+</tr>
+</tbody>
+</table>
+<p>这是一种很典型的 infra 克制：不是&quot;功能能不能加&quot;，而是&quot;加完后主路径会不会变成垃圾场&quot;。</p>
+<hr>
+<h2 id="zhi-xing-lian-de-wan-zheng-liu-cheng" tabindex="-1" id="执行链的完整流程">执行链的完整流程</h2>
+<p>下面这条链是这篇文章的核心，逐步讲清楚每一步的实质。</p>
+<pre><code class="highlight mermaid">sequenceDiagram
+    participant EC as Engine Core
+    participant W as Worker
+    participant MR as Model Runner
+    participant M as Model
+    participant S as Sampler
+
+    EC-&gt;&gt;W: 本轮调度结果\n（谁执行/谁继续/谁结束）
+    W-&gt;&gt;MR: 执行本轮 batch
+    MR-&gt;&gt;MR: 更新 active requests 状态\n同步 persistent state
+    MR-&gt;&gt;MR: 准备输入张量\n（input_ids / positions / attention metadata\nKV 索引 / block table / sampler metadata）
+    MR-&gt;&gt;M: model.forward(prepared inputs)
+    M--&gt;&gt;MR: logits
+    MR-&gt;&gt;S: logits + request metadata
+    S--&gt;&gt;MR: SamplerOutput（next tokens + logprobs）
+    MR-&gt;&gt;MR: 写回请求状态\n判断 EOS / max_tokens\n更新 KV cache 引用
+    MR--&gt;&gt;EC: 本轮结果\n已结束请求通知释放资源</code></pre>
+<h3 id="di-yi-bu-jie-shou-scheduler-de-zhi-xing-ji-hua" tabindex="-1" id="第一步：接收-Scheduler-的执行计划">第一步：接收 Scheduler 的执行计划</h3>
+<p>Scheduler 做完本轮选择后，把&quot;本轮执行计划&quot;交给 Worker，而不是自己去跑模型。</p>
+<p>这是<strong>控制面（control plane）与执行面（execution plane）的分离</strong>。Engine Core 负责决定哪些请求执行、它们的 KV block 如何分配、哪些请求结束或被抢占；Worker 只负责按照这份计划执行。</p>
+<p>如果让 Worker 自己也做调度判断，每个 Worker 都需要更多全局视角，多卡系统会更复杂。vLLM 的设计是：调度统一收口到 Engine Core，执行统一落到 Worker，让全局决策点更集中，系统行为更可预测。</p>
+<h3 id="di-er-bu-model-runner-geng-xin-zhi-xing-zhuang-tai" tabindex="-1" id="第二步：Model-Runner-更新执行状态">第二步：Model Runner 更新执行状态</h3>
+<p>Model Runner 接到本轮调度结果后，第一件事不是立刻 forward，而是<strong>更新执行状态</strong>。</p>
+<p>推理不是一次性静态 batch，而是持续变化的动态 batch：有些请求刚加入，有些刚结束，有些在继续 decode，有些被 preempt 后又恢复。所以 Model Runner 要先回答：</p>
+<ul>
+<li>当前 active requests 是谁，在本轮 batch 里的顺序是什么</li>
+<li>persistent state 里对应哪一行需要更新</li>
+<li>sampler metadata 是否需要同步</li>
+</ul>
+<p>这一步的作用是把 Scheduler 的离散调度事件，转换成模型执行所需的连续运行状态。</p>
+<h3 id="di-san-bu-zhun-bei-shu-ru-zhang-liang-zui-rong-yi-bei-di-gu-de-yi-bu" tabindex="-1" id="第三步：准备输入张量——最容易被低估的一步">第三步：准备输入张量——最容易被低估的一步</h3>
+<p>很多人会以为&quot;输入不就是 token ids 吗，直接喂给 model 不就行了&quot;。实际上这是执行链里一大块工程工作。真正要准备的包括：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">input_ids               - 本轮实际输入的 token id</span><br><span class="line">positions/position_ids  - 每个 token 在序列中的位置</span><br><span class="line">attention metadata      - attention backend 所需的格式信息</span><br><span class="line">KV cache 索引           - 当前请求的 KV 存储位置</span><br><span class="line">block table             - 逻辑 block → 物理 block 的映射</span><br><span class="line">slot mapping            - 具体的 block slot 分配</span><br><span class="line">请求长度信息            - 各请求当前的 prefill/decode 状态</span><br><span class="line">sampler metadata        - 各请求的采样参数（temperature、top-k 等）</span><br><span class="line">多模态特征（如有）      - 图像/音频等输入的特征表示</span><br><span class="line">backend 特定布局        - 不同 attention backend 的 layout 要求</span><br></pre></td></tr></table></figure>
+<p>这些内容大多不属于&quot;模型数学定义&quot;，而属于&quot;执行系统如何把动态请求集合包装成一次可计算的 forward&quot;。很多性能问题根本不出在 matmul 上，而出在：每步重建大量 CPU 端状态、频繁的张量重排、大量 host-to-device 小拷贝、batch 变化破坏执行稳定性。</p>
+<p>这也是 Model Runner 的核心价值之一：让&quot;输入准备&quot;更统一、更少冗余、更接近后端需求。</p>
+<h3 id="di-si-bu-model-forward" tabindex="-1" id="第四步：model-forward">第四步：model.forward</h3>
+<p>输入准备完成后，才真正进入模型计算。Model 就是标准的 torch.nn.Module：Embedding → Transformer blocks（Attention + MLP + Norm）→ 输出 logits。</p>
+<p>Model 不应该承担系统逻辑，原因是<strong>模型是高变的</strong>：不同模型家族的 attention 结构、RoPE 处理、KV layout 细节、多模态支持、任务目标都不同。如果把系统逻辑塞进 model，执行框架就会因模型差异而碎片化。vLLM 的分工是：Model Runner 负责&quot;怎样喂&quot;，Model 负责&quot;怎么算&quot;。</p>
+<h3 id="prefill-yu-decode-zai-worker-ce-de-chai-yi" tabindex="-1" id="Prefill-与-Decode-在-Worker-侧的差异">Prefill 与 Decode 在 Worker 侧的差异</h3>
+<p>这两种模式对 Worker 的要求差异很大：</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Prefill</th>
+<th>Decode</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>输入规模</td>
+<td>整段 prompt，可能很多 token</td>
+<td>通常每请求 1 个新 token</td>
+</tr>
+<tr>
+<td>计算特性</td>
+<td>更偏 compute-bound（大矩阵乘法）</td>
+<td>更偏 memory-bound（频繁读 KV Cache）</td>
+</tr>
+<tr>
+<td>KV Cache 操作</td>
+<td>写入整段历史的 K/V</td>
+<td>读取长历史 + 写入当前步的 K/V</td>
+</tr>
+<tr>
+<td>forward 输出</td>
+<td>最后位置的 logits，用于采样第一个生成 token</td>
+<td>当前位置的 logits，用于采样下一个 token</td>
+</tr>
+</tbody>
+</table>
+<p>Model Runner 的重要职责之一就是把这两种模式的差异吸收进统一执行框架中——对 Scheduler 来说是&quot;混合 batch&quot;，对 Model 来说是&quot;一次 forward&quot;，中间的转换在 Model Runner 里完成。</p>
+<h3 id="di-wu-bu-sampler-bu-shi-mo-wei-sui-shou-xie-ji-xing-softmax" tabindex="-1" id="第五步：Sampler——不是末尾随手写几行-softmax">第五步：Sampler——不是末尾随手写几行 softmax</h3>
+<p>model.forward 输出 logits，只是&quot;下一 token 的分布依据&quot;，不是最终决策。从 logits 到实际 token 选择，是 Sampler 的工作。</p>
+<p>根据 vLLM API 文档，Sampler 处理一次 next token 的完整步骤是：</p>
+<ol>
+<li>如果用户请求 logprobs，先按模式准备要返回的 logprobs 信息</li>
+<li>把 logits 转成 float32</li>
+<li>应用 allowed token ids 白名单</li>
+<li>应用 bad words exclusion</li>
+<li>应用会影响 greedy 结果的 logit processors（最小生成长度、logit bias 等）</li>
+<li>应用 penalties：repetition / frequency / presence penalty</li>
+<li>进入实际采样：
+<ul>
+<li>greedy 模式：直接取 argmax</li>
+<li>非 greedy：先做 temperature scaling → 应用 argmax-invariant processors（如默认的 min_p）→ top-k / top-p → 从概率分布中采样</li>
+</ul>
+</li>
+<li>如有需要，收集 top logprobs 和 sampled token 的 logprobs</li>
+<li>返回 <code>SamplerOutput</code></li>
+</ol>
+<p>Sampler 实际承担了三个层面的职责：<strong>策略控制</strong>（怎么选 token）、<strong>约束控制</strong>（哪些 token 可选、哪些词禁止）、<strong>输出组织</strong>（当用户要求 logprobs 等附加信息时整理结果）。</p>
+<p>把 Sampler 从 Model 里拆出来的核心理由是：采样是解码策略，不是模型数学。“预测”（模型输出 logits）和&quot;决策&quot;（选哪个 token）是两个层次的问题，混在一起会让模型实现承担不该承担的逻辑。</p>
+<h3 id="di-liu-bu-xie-hui-qing-qiu-zhuang-tai" tabindex="-1" id="第六步：写回请求状态">第六步：写回请求状态</h3>
+<p>采样完成后执行链还没结束，还要：</p>
+<ul>
+<li>把 sampled token 追加到对应请求的生成结果</li>
+<li>更新请求长度</li>
+<li>判断是否命中 EOS / stop 条件，或达到 <code>max_tokens</code></li>
+<li>更新 sampler / request 的相关状态</li>
+<li>已结束的请求：通知上层释放其 KV blocks，从 active set 移除</li>
+<li>未结束的请求：保留在 active set，下一轮 decode 时只输入新 token，但仍需读完整历史 KV Cache</li>
+</ul>
+<p>这一步的本质是：<strong>把&quot;本轮 forward 的结果&quot;转换成&quot;下一轮调度所需的请求状态&quot;</strong>。这和 KV Cache 生命周期、Scheduler 状态机是强相关的——请求结束意味着 block 释放，请求继续意味着 KV 引用仍然有效。</p>
+<h3 id="di-qi-bu-shu-chu-hui-chuan-gei-shang-ceng" tabindex="-1" id="第七步：输出回传给上层">第七步：输出回传给上层</h3>
+<p>Worker 不直接提供 HTTP 服务。本轮执行结果会先回到 Engine Core，再由 API 层做输出组织和流式返回。</p>
+<p>这一步也体现职责分离：Worker 只关心模型执行和设备状态，API 层关心用户可见的输出格式和流式协议（包括 HTTP 连接管理、request bookkeeping、OpenAI-compatible 格式）。如果混在一起，设备进程会承担太多非计算逻辑，性能隔离会变差。</p>
+<hr>
+<h2 id="persistent-batch-cpu-kai-xiao-ye-shi-tui-li-ping-jing" tabindex="-1" id="Persistent-Batch：CPU-开销也是推理瓶颈">Persistent Batch：CPU 开销也是推理瓶颈</h2>
+<p>连续 decode 的相邻两步，batch 通常变化不大：上一步 batch 里有 N 个请求，下一步往往还是那 N 个，只有少数结束、少数加入，大多数请求只是&quot;继续生成下一个 token&quot;。</p>
+<p>如果每一轮都把整个 batch 的所有输入张量从头构造一遍，会产生明显的 CPU 开销。vLLM V1 中的 Model Runner V2 使用了 persistent batch 思路：持久保存 batch 相关状态张量，每轮只做增量更新，利用&quot;相邻 step batch 大体相同&quot;这一事实来减少 CPU 侧 bookkeeping 成本（官方 Model Runner V2 设计文档明确指出这一点）。</p>
+<p>这说明 vLLM 的优化不只在 GPU kernel 层，它同样重视 host 端执行开销。这也是 Model Runner 必须保持稳定的另一个原因：persistent batch 这类优化需要一个不随模型差异而变化的稳定执行框架来落脚。</p>
+<hr>
+<h2 id="zhe-tiao-zhi-xing-lian-zhui-qiu-de-si-ge-mu-biao" tabindex="-1" id="这条执行链追求的四个目标">这条执行链追求的四个目标</h2>
+<p>理解了每一步之后，可以把这条链的设计意图归结为四点：</p>
+<p><strong>连接动态服务世界与静态模型世界。</strong> 服务世界是动态的（请求随时来去，batch 持续变化），模型世界需要规整张量和稳定执行路径。Model Runner 是两者之间的桥。</p>
+<p><strong>让高频执行路径尽量轻。</strong> Decode 是一步步不断重复的，每步多浪费一点 CPU 开销，累积起来代价很高。persistent state、最小化输入准备、通用执行路径稳定——这些都是为了让这条高频路径尽可能少做无用功。</p>
+<p><strong>支持大量模型而不让主干失控。</strong> Worker 作为设备层，Model Runner 作为通用执行层，Model 作为模型定义层，Sampler 作为解码决策层——这个分层是为&quot;多模型、多任务、长期演化&quot;做的准备，不是过度设计。</p>
+<p><strong>为高性能优化留下稳定的落脚点。</strong> cudagraph、persistent batch、未来的 sampler backend 优化——这些都依赖执行链边界清晰、主路径足够稳定。如果一开始不分层，后面这些优化的落脚点就不存在了。</p>
+<hr>
+<h2 id="yuan-ma-dui-ying-wei-zhi" tabindex="-1" id="源码对应位置">源码对应位置</h2>
+<p>对应这条执行链的主要源码：</p>
+<table>
+<thead>
+<tr>
+<th>路径</th>
+<th>职责</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>vllm/v1/worker/gpu_worker.py</code></td>
+<td>设备级 Worker 进程逻辑</td>
+</tr>
+<tr>
+<td><code>vllm/v1/executor/multiproc_executor.py</code></td>
+<td>多进程执行器，连接 Engine Core 和多个 Worker</td>
+</tr>
+<tr>
+<td><code>vllm/v1/worker/gpu/model_runner.py</code></td>
+<td>Model Runner 主执行逻辑（输入准备、编排、采样器衔接）</td>
+</tr>
+<tr>
+<td><code>vllm/v1/sample/sampler.py</code></td>
+<td>Sampler 主逻辑</td>
+</tr>
+<tr>
+<td><code>vllm/engine/llm_engine.py</code></td>
+<td>更上层的 Engine 入口与整体流程</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="jie-yu" tabindex="-1" id="结语">结语</h2>
+<p>Worker 执行链的本质不是&quot;把模型跑一下&quot;，而是<strong>把动态请求集合稳定、高效地翻译成 GPU 可执行的一步计算，再把结果正确映射回请求状态</strong>。</p>
+<p>这条链的工程价值主要体现在三个地方：Model Runner 作为翻译层吸收了调度世界和模型世界之间的阻抗差；input tensor 准备这一步决定了高频路径上的 CPU 开销是否可控；Sampler 的独立存在让解码策略可以在不改动模型的情况下灵活演化。</p>
+<p>这套分层设计的局限在于：层次越多，调试时跨层追踪问题越麻烦；Model Runner 的&quot;通用最小化&quot;要求需要持续约束才能维持，随着功能增加这个约束会承受压力。</p>
+<hr>
+<h2 id="xi-lie-dao-hang" tabindex="-1" id="系列导航">系列导航</h2>
+<ul>
+<li>导读：<a href="/posts/f77e5973/">vLLM系统拆解-00-导读：从架构、调度到面试表达的学习路线</a></li>
+<li>上一篇：<a href="/posts/be098d92/">vLLM系统拆解-06-Prefix Caching：跨请求KV复用如何做到精确、高效且安全</a></li>
+<li>下一篇：<a href="/posts/b0da0eba/">vLLM系统拆解-08-性能优化：参数背后的系统级权衡</a></li>
+</ul>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/f61cc956/">https://smarter.xin/posts/f61cc956/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/vllm/">vLLM</a><a class="post-meta__tags" href="/tags/model-serving/">模型服务</a><a class="post-meta__tags" href="/tags/call-chain/">调用链</a><a class="post-meta__tags" href="/tags/worker/">Worker</a><a class="post-meta__tags" href="/tags/inference-execution-chain/">推理执行链</a></div><div class="post-share"><div class="social-share" data-image="/img/vllm.png" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/b0da0eba/" title="vLLM系统拆解-08-性能优化：参数背后的系统级权衡"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/vllm.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">vLLM系统拆解-08-性能优化：参数背后的系统级权衡</div></div></div></a><a class="pagination-related  no-desc" href="/posts/be098d92/" title="vLLM系统拆解-06-Prefix Caching：跨请求KV复用如何做到精确、高效且安全"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/vllm.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">vLLM系统拆解-06-Prefix Caching：跨请求KV复用如何做到精确、高效且安全</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/dbff781f/" title="vLLM系统拆解-03-入口分层：LLM、LLMEngine、AsyncLLMEngine与vllm serve"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/vllm.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-04-02</div><div class="info-item-2">vLLM系统拆解-03-入口分层：LLM、LLMEngine、AsyncLLMEngine与vllm serve</div></div></div></a><a class="pagination-related no-desc" href="/posts/c8797d0d/" title="vLLM系统拆解-01-架构设计：为什么推理引擎不能是一个进程"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/vllm.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-04-02</div><div class="info-item-2">vLLM系统拆解-01-架构设计：为什么推理引擎不能是一个进程</div></div></div></a><a class="pagination-related no-desc" href="/posts/354d88e4/" title="vLLM系统拆解-12-源码地图：每个核心能力落在哪一层"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/vllm.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-04-02</div><div class="info-item-2">vLLM系统拆解-12-源码地图：每个核心能力落在哪一层</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">我就是要爬这座山<br>再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">173</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">305</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">27</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#v-llm-xi-tong-chai-jie-07-worker-zhi-xing-lian-diao-du-jue-ce-ru-he-bian-cheng-gpu-shang-de-yi-bu-ji-suan"><span class="toc-text">vLLM系统拆解-07-Worker执行链：调度决策如何变成GPU上的一步计算</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#si-ceng-fen-gong-xian-jian-li-zheng-ti-shi-tu"><span class="toc-text">四层分工：先建立整体视图</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#wei-shi-yao-xu-yao-dan-du-de-worker-jin-cheng"><span class="toc-text">为什么需要单独的 Worker 进程</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#model-runner-cai-shi-zhi-xing-lian-de-he-xin-bu-shi-model-ben-shen"><span class="toc-text">Model Runner 才是执行链的核心，不是 Model 本身</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#model-runner-bi-xu-bao-chi-tong-yong-he-zui-xiao-hua"><span class="toc-text">Model Runner 必须保持通用和最小化</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#zhi-xing-lian-de-wan-zheng-liu-cheng"><span class="toc-text">执行链的完整流程</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#di-yi-bu-jie-shou-scheduler-de-zhi-xing-ji-hua"><span class="toc-text">第一步：接收 Scheduler 的执行计划</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#di-er-bu-model-runner-geng-xin-zhi-xing-zhuang-tai"><span class="toc-text">第二步：Model Runner 更新执行状态</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#di-san-bu-zhun-bei-shu-ru-zhang-liang-zui-rong-yi-bei-di-gu-de-yi-bu"><span class="toc-text">第三步：准备输入张量——最容易被低估的一步</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#di-si-bu-model-forward"><span class="toc-text">第四步：model.forward</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#prefill-yu-decode-zai-worker-ce-de-chai-yi"><span class="toc-text">Prefill 与 Decode 在 Worker 侧的差异</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#di-wu-bu-sampler-bu-shi-mo-wei-sui-shou-xie-ji-xing-softmax"><span class="toc-text">第五步：Sampler——不是末尾随手写几行 softmax</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#di-liu-bu-xie-hui-qing-qiu-zhuang-tai"><span class="toc-text">第六步：写回请求状态</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#di-qi-bu-shu-chu-hui-chuan-gei-shang-ceng"><span class="toc-text">第七步：输出回传给上层</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#persistent-batch-cpu-kai-xiao-ye-shi-tui-li-ping-jing"><span class="toc-text">Persistent Batch：CPU 开销也是推理瓶颈</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#zhe-tiao-zhi-xing-lian-zhui-qiu-de-si-ge-mu-biao"><span class="toc-text">这条执行链追求的四个目标</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#yuan-ma-dui-ying-wei-zhi"><span class="toc-text">源码对应位置</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#jie-yu"><span class="toc-text">结语</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xi-lie-dao-hang"><span class="toc-text">系列导航</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/cc221b1e/" title="vLLM系统拆解-19-AI Infra与推理岗面试手册：vLLM学到什么程度才算够用"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/vllm.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="vLLM系统拆解-19-AI Infra与推理岗面试手册：vLLM学到什么程度才算够用"/></a><div class="content"><a class="title" href="/posts/cc221b1e/" title="vLLM系统拆解-19-AI Infra与推理岗面试手册：vLLM学到什么程度才算够用">vLLM系统拆解-19-AI Infra与推理岗面试手册：vLLM学到什么程度才算够用</a><time datetime="2026-04-02T09:30:00.000Z" title="发表于 2026-04-02 17:30:00">2026-04-02</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/6f0af891/" title="vLLM系统拆解-18-通用LLM推理系统设计：从vLLM出发建立框架"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/vllm.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="vLLM系统拆解-18-通用LLM推理系统设计：从vLLM出发建立框架"/></a><div class="content"><a class="title" href="/posts/6f0af891/" title="vLLM系统拆解-18-通用LLM推理系统设计：从vLLM出发建立框架">vLLM系统拆解-18-通用LLM推理系统设计：从vLLM出发建立框架</a><time datetime="2026-04-02T09:00:00.000Z" title="发表于 2026-04-02 17:00:00">2026-04-02</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/32c30b06/" title="vLLM系统拆解-17-面试深挖：面试官继续追问为什么时怎么回答"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/vllm.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="vLLM系统拆解-17-面试深挖：面试官继续追问为什么时怎么回答"/></a><div class="content"><a class="title" href="/posts/32c30b06/" title="vLLM系统拆解-17-面试深挖：面试官继续追问为什么时怎么回答">vLLM系统拆解-17-面试深挖：面试官继续追问为什么时怎么回答</a><time datetime="2026-04-02T08:30:00.000Z" title="发表于 2026-04-02 16:30:00">2026-04-02</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/attentionisallyouneed.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">从 Self-Attention、位置编码到 Encoder-Decoder，系统梳理 Transformer 的核心结构、设计动机与理解路径</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/d6fa227a/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-16</span><a class="blog-slider__title" href="posts/d6fa227a/" alt="">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</a><div class="blog-slider__text">从访存优化到多卡通信，一篇看清 CUDA 实践系列的结构与学习路线</div><a class="blog-slider__button" href="posts/d6fa227a/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/43c4b52e/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/agent.webp" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-24</span><a class="blog-slider__title" href="posts/43c4b52e/" alt="">从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路</a><div class="blog-slider__text">使用飞书与本地 Agent 对话，远程也要让本地 Agent 干活，当一名狠狠的资本家</div><a class="blog-slider__button" href="posts/43c4b52e/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/92dc1028/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/CUDA_C.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-02-05</span><a class="blog-slider__title" href="posts/92dc1028/" alt="">CUDA C编程权威指南-导读</a><div class="blog-slider__text">从异构并行到多 GPU 实践，串起 CUDA C 权威指南的核心学习路线</div><a class="blog-slider__button" href="posts/92dc1028/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">从全书视角出发，一篇看清 PMPP 的章节结构、核心主题与学习主线</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/aac6e27d/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Computer_System.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/aac6e27d/" alt="">深入理解计算机系统知识点总结</a><div class="blog-slider__text">从程序员视角梳理 CSAPP 的知识脉络、系统抽象与性能理解</div><a class="blog-slider__button" href="posts/aac6e27d/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">围绕类型推导、移动语义与并发，提炼现代 C++ 的核心实践</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>

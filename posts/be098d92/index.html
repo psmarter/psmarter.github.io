@@ -1,0 +1,547 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>vLLM系统拆解-06-Prefix Caching：跨请求KV复用如何做到精确、高效且安全 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="vLLM系统拆解-06-Prefix Caching：跨请求KV复用如何做到精确、高效且安全 这篇文章要搞清楚的，不是&quot;vLLM 支持 prefix cache&quot;这句功能描述，而是它为什么要这样设计：为什么按 block 做而不是按整段 prompt 做，为什么命中条件必须精确到 token 级，为什么只缓存 full block，block hash 里的 parent ha">
+<meta property="og:type" content="article">
+<meta property="og:title" content="vLLM系统拆解-06-Prefix Caching：跨请求KV复用如何做到精确、高效且安全">
+<meta property="og:url" content="https://smarter.xin/posts/be098d92/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="vLLM系统拆解-06-Prefix Caching：跨请求KV复用如何做到精确、高效且安全 这篇文章要搞清楚的，不是&quot;vLLM 支持 prefix cache&quot;这句功能描述，而是它为什么要这样设计：为什么按 block 做而不是按整段 prompt 做，为什么命中条件必须精确到 token 级，为什么只缓存 full block，block hash 里的 parent ha">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/vllm.png">
+<meta property="article:published_time" content="2026-04-02T03:00:00.000Z">
+<meta property="article:modified_time" content="2026-04-03T11:44:50.291Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="vLLM">
+<meta property="article:tag" content="KV Cache">
+<meta property="article:tag" content="大模型推理">
+<meta property="article:tag" content="Prefix Caching">
+<meta property="article:tag" content="多租户安全">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/vllm.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "vLLM系统拆解-06-Prefix Caching：跨请求KV复用如何做到精确、高效且安全",
+  "url": "https://smarter.xin/posts/be098d92/",
+  "image": "https://smarter.xin/img/vllm.png",
+  "datePublished": "2026-04-02T03:00:00.000Z",
+  "dateModified": "2026-04-03T11:44:50.291Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/be098d92/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'vLLM系统拆解-06-Prefix Caching：跨请求KV复用如何做到精确、高效且安全',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">173</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">305</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">27</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/vllm.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">vLLM系统拆解-06-Prefix Caching：跨请求KV复用如何做到精确、高效且安全</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">vLLM系统拆解-06-Prefix Caching：跨请求KV复用如何做到精确、高效且安全</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-04-02T03:00:00.000Z" title="发表于 2026-04-02 11:00:00">2026-04-02</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-04-03T11:44:50.291Z" title="更新于 2026-04-03 19:44:50">2026-04-03</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/">AI Infra</a><i class="fas fa-angle-right post-meta-separator"></i><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/vllm/">vLLM</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">4.7k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>16分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="v-llm-xi-tong-chai-jie-06-prefix-caching-kua-qing-qiu-kv-fu-yong-ru-he-zuo-dao-jing-que-gao-xiao-qie-an-quan" tabindex="-1">vLLM系统拆解-06-Prefix Caching：跨请求KV复用如何做到精确、高效且安全</h1>
+<p>这篇文章要搞清楚的，不是&quot;vLLM 支持 prefix cache&quot;这句功能描述，而是它为什么要这样设计：为什么按 block 做而不是按整段 prompt 做，为什么命中条件必须精确到 token 级，为什么只缓存 full block，block hash 里的 parent hash 和 extra keys 分别解决什么问题，以及 cache salt 这个看起来和性能无关的东西为什么必须存在。</p>
+<p>这篇文章的前置知识是 <a href="/posts/e67da5b6/">vLLM系统拆解-05-KV Cache与PagedAttention：核心不是Attention公式，而是存放方式</a>：Prefix Caching 建立在 block/page 化 KV Cache 之上，理解 block 化设计是读这篇文章的基础。</p>
+<hr>
+<h2 id="pu-tong-kv-cache-de-bian-jie-zai-na-li" tabindex="-1" id="普通-KV-Cache-的边界在哪里">普通 KV Cache 的边界在哪里</h2>
+<p><a href="/posts/e67da5b6/">vLLM系统拆解-05-KV Cache与PagedAttention：核心不是Attention公式，而是存放方式</a> 讲的 KV Cache，解决的是<strong>单请求内部</strong>的重复计算问题：一个请求在 decode 阶段，每一步不需要重新算历史 token 的 K/V，因为之前的结果已经缓存下来了。</p>
+<p>但如果来了另一个请求，它的前 128 个 token 和上一个请求的前 128 个 token 完全一样——普通 KV Cache 不会帮它复用那 128 个 token 的 K/V，它仍然要重新走一遍 prefill。</p>
+<p>这就是普通 KV Cache 的边界：<strong>它只避免&quot;一个请求重复算自己的历史&quot;，但不能自动避免&quot;多个请求重复算同样的前缀&quot;。</strong></p>
+<p>Prefix Caching 解决的正是这个问题：把已经算好的前缀 KV blocks 缓存起来，让后续有相同前缀的请求直接复用，跳过这部分 prefill。</p>
+<hr>
+<h2 id="na-xie-chang-jing-hui-chan-sheng-da-liang-kua-qing-qiu-qian-zhui-zhong-fu" tabindex="-1" id="哪些场景会产生大量跨请求前缀重复">哪些场景会产生大量跨请求前缀重复</h2>
+<p>三类场景覆盖了大多数在线服务的情况：</p>
+<p><strong>固定 system prompt。</strong> 企业服务通常会把角色定义、风格要求、安全规则、工具调用规范、输出格式模板这些内容固定在所有请求前面。这段内容可能很长，但每个请求都要重新 prefill 一遍。</p>
+<p><strong>RAG 固定模板。</strong> 问答系统在用户问题前通常会拼接 instruction、引用规则、输出格式、工具规则等模板内容。这些模板高度重复。</p>
+<p><strong>多轮对话公共前缀。</strong> 多轮对话里，前几轮的消息可能完全相同，只是后面追加了一点新内容。前面那一大段历史完全适合复用。</p>
+<p>这几类场景的共同特征是：<strong>大量请求并不是从零开始的，它们有长度不等的共同前缀</strong>。Prefix Caching 的收益就来自这里。</p>
+<hr>
+<h2 id="wei-shi-yao-an-block-huan-cun-er-bu-shi-an-zheng-duan-prompt-huan-cun" tabindex="-1" id="为什么按-block-缓存，而不是按整段-prompt-缓存">为什么按 block 缓存，而不是按整段 prompt 缓存</h2>
+<p>这是 Prefix Caching 设计里最关键的一个决策，理解它需要从三个角度来看。</p>
+<p><strong>一、粒度一致性。</strong> vLLM 的 KV Cache 本来就是 block/page 化管理的。如果 Prefix Caching 选择以整段 prompt 为单位做缓存，就需要在现有 block 管理体系之外再定义一套&quot;大对象缓存&quot;，然后命中后还要把这个大对象重新拆回 block，才能接入后续计算。多一层转换就多一层复杂度。按 block 缓存，则和现有物理管理粒度天然一致。</p>
+<p><strong>二、部分命中是常态。</strong> 现实里两个请求往往是&quot;前 10 个 block 相同，第 11 个 block 开始不同&quot;。如果按整段 prompt 缓存，命中逻辑就很僵硬：要么全段一样，要么不命中。按 block 链缓存，则可以做到：前 10 个 block 命中，后续从第 11 个 block 继续 prefill。这才是前缀复用真正该有的形态。</p>
+<p><strong>三、生命周期管理更容易。</strong> Block 粒度的缓存对象更适合做引用计数、LRU 驱逐、部分共享。一整段 prompt 对应的大对象，生命周期管理要复杂得多。</p>
+<hr>
+<h2 id="ming-zhong-tiao-jian-yan-ge-token-ji-yi-zhi-bu-shi-yu-yi-xiang-si" tabindex="-1" id="命中条件：严格-token-级一致，不是语义相似">命中条件：严格 token 级一致，不是语义相似</h2>
+<p>Prefix Caching 最容易产生的误解是：同一个 system prompt 只要&quot;看起来差不多&quot;就能命中。这不对。</p>
+<p><strong>命中条件是：前缀 token 序列精确一致。</strong></p>
+<p>原因很直接：KV Cache 是模型对具体 token 序列计算出的中间状态。一个 token 不同，后续所有 attention 的结果就可能不同。所以判断能否复用，必须是精确一致，不能是模糊匹配或语义近似。</p>
+<p>这也是为什么 Prefix Caching 最终要落到 block hash，而不是字符串近似判断。</p>
+<hr>
+<h2 id="block-hash-she-ji-wei-shi-yao-xu-yao-parent-hash-he-extra-keys" tabindex="-1" id="Block-Hash-设计：为什么需要-parent-hash-和-extra-keys">Block Hash 设计：为什么需要 parent hash 和 extra keys</h2>
+<p>这部分是 Prefix Caching 实现里最容易被忽视的细节，也是让它真正&quot;正确&quot;的关键。</p>
+<p>根据 vLLM 设计文档和 <code>kv_cache_utils</code> 的说明，每个 full block 的 hash 由以下内容计算得出：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">block_hash = hash(</span><br><span class="line">    parent_block_hash,      # 前一个 block 的 hash</span><br><span class="line">    curr_block_token_ids,   # 当前 block 的 token 序列</span><br><span class="line">    extra_keys              # LoRA ID、多模态输入 hash、cache salt 等</span><br><span class="line">)</span><br></pre></td></tr></table></figure>
+<p><strong>为什么需要 parent_block_hash？</strong></p>
+<p>考虑这个例子（block size = 4）：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">请求 A：[a b c d]  [e f g h]</span><br><span class="line">            block 0     block 1</span><br><span class="line"></span><br><span class="line">请求 B：[x y z w]  [e f g h]</span><br><span class="line">            block 0     block 1</span><br></pre></td></tr></table></figure>
+<p>两个请求的第二个 block token 完全相同，都是 <code>[e f g h]</code>。但它们的 prefix 完全不同，所以第二个 block 对应的 KV 也不同，不能复用。</p>
+<p>如果只用当前块的 token 计算 hash，就会误判为可以复用。加入 parent_block_hash 后：</p>
+<ul>
+<li>A 的 block 1 hash 依赖 A 的 block 0 hash（由 <code>[a b c d]</code> 决定）</li>
+<li>B 的 block 1 hash 依赖 B 的 block 0 hash（由 <code>[x y z w]</code> 决定）</li>
+</ul>
+<p>即使当前块 token 一样，最终 hash 也不同。这保证了<strong>前缀链级别的正确性</strong>。</p>
+<p>一个 block 的 hash，隐含了&quot;从起点到当前块&quot;为止的完整前缀信息。</p>
+<p><strong>为什么需要 extra_keys？</strong></p>
+<p>即使 token 序列完全一样，底层推理条件不同时 KV Cache 也不能共享：</p>
+<ul>
+<li>使用不同 LoRA adapter：不同 adapter 的 K/V projection 权重不同，对同样 token 序列计算出的 KV 也不同</li>
+<li>使用不同多模态输入：影响 attention 计算的上下文发生变化</li>
+<li>使用不同 cache salt：用于隔离不同信任域（后面专门讲）</li>
+</ul>
+<p>把这些额外信息纳入 hash，确保命中条件不只是&quot;token 相同&quot;，而是&quot;同一前缀链、同一块 token、同一组影响推理语义的额外条件&quot;。</p>
+<hr>
+<h2 id="wei-shi-yao-zhi-huan-cun-full-block" tabindex="-1" id="为什么只缓存-Full-Block">为什么只缓存 Full Block</h2>
+<p>这是 Prefix Caching 里一个设计决策，背后有四个清晰的工程理由。</p>
+<p><strong>内容和边界都稳定。</strong> 一个还没填满的 block 仍然在接收新 token，它的内容还没有最终确定。既然内容会变，hash 就不稳定，缓存身份也不稳定。只有 full block 的内容固定、边界固定、hash 固定，才适合作为可复用缓存对象。</p>
+<p><strong>避免频繁元数据更新。</strong> 如果半满 block 也参与缓存，那每追加一个 token，hash 就变一次，之前的缓存身份要不要作废、旧 hash 如何驱逐、多个请求共享时如何处理&quot;正在变动的尾块&quot;——这些问题会让缓存管理复杂度大幅上升。Full block 策略把这个问题直接切掉：尾块在未满前只当作普通的 request-owned block，满了之后才&quot;晋升&quot;为可缓存 block。</p>
+<p><strong>与 block/page 化管理天然一致。</strong> vLLM 本来就以 page 为物理管理单位，一个完整 page 才更像稳定的物理单元。</p>
+<p><strong>工程权衡的最优点。</strong> 理论上支持 partial block 缓存能多命中一点尾部前缀，但工程上实现更复杂、元数据更新更频繁、一致性更难维护，而收益并不大。牺牲一点理论最优命中率，换来实现简单、行为稳定、维护成本低——这是很典型的 infra 权衡逻辑。</p>
+<hr>
+<h2 id="prefix-caching-de-shu-ju-jie-gou" tabindex="-1" id="Prefix-Caching-的数据结构">Prefix Caching 的数据结构</h2>
+<p>Prefix Caching 实现在 KV Cache Manager 里（路径：<code>vllm/v1/core/kv_cache_manager.py</code>），初始化时建立以下几个核心组件：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line">KV Cache Manager 内部结构：</span><br><span class="line"></span><br><span class="line">┌─────────────────────────────────────────────────────┐</span><br><span class="line">│                   Block Pool                        │</span><br><span class="line">│  所有 KVCacheBlock 对象在启动时一次性预分配           │</span><br><span class="line">│  避免推理过程中频繁创建 Python 对象                   │</span><br><span class="line">├─────────────────────────────────────────────────────┤</span><br><span class="line">│              Free Block Queue（双向链表）             │</span><br><span class="line">│  block 内部直接带链表指针，O(1) 移动中间元素           │</span><br><span class="line">│  用于 LRU 管理和空闲 block 回收                       │</span><br><span class="line">├─────────────────────────────────────────────────────┤</span><br><span class="line">│           Cache Blocks Map                          │</span><br><span class="line">│  block_hash → block_id                              │</span><br><span class="line">│  新请求按前缀逐块查询这张表                            │</span><br><span class="line">├─────────────────────────────────────────────────────┤</span><br><span class="line">│           Request Blocks Map                        │</span><br><span class="line">│  request_id → allocated block ids                   │</span><br><span class="line">│  每个请求当前持有哪些 block                           │</span><br><span class="line">├─────────────────────────────────────────────────────┤</span><br><span class="line">│                 ref_cnt（每个 block 持有）            │</span><br><span class="line">│  多个请求可共享同一批 immutable full block            │</span><br><span class="line">│  ref_cnt = 0 且不在活跃缓存中才可回收                 │</span><br><span class="line">└─────────────────────────────────────────────────────┘</span><br></pre></td></tr></table></figure>
+<p>Block Pool 的设计体现了高性能系统里常见的对象池思路：<strong>高频路径上的对象管理尽量静态化、池化</strong>，避免运行时频繁创建和销毁 Python 对象的 GC 压力。Free Block Queue 的双向链表则让 LRU 的&quot;移动到尾部&quot;操作为 O(1)，不需要额外的包装容器。</p>
+<p>ref_cnt 是共享 block 的关键机制：Prefix Caching 不是给每个请求复制一份 KV，而是让多个请求共同引用同一批 immutable full block。只有当没有请求再引用某个 block 时，它才能返回 free queue。</p>
+<hr>
+<h2 id="xin-qing-qiu-dao-lai-shi-de-wan-zheng-chu-li-liu-cheng" tabindex="-1" id="新请求到来时的完整处理流程">新请求到来时的完整处理流程</h2>
+<pre><code class="highlight mermaid">flowchart TD
+    A[&quot;新请求进入 Scheduler&quot;] --&gt; B[&quot;get_computed_blocks()\n按 block 切分 prompt\n逐块计算 hash，查 Cache Blocks Map&quot;]
+    B --&gt; C&#123;&quot;是否有从头开始的\n连续 block 命中？&quot;&#125;
+    C -- &quot;有命中&quot; --&gt; D[&quot;命中的 full blocks\n直接作为 computed prefix\n跳过这部分 prefill&quot;]
+    C -- &quot;无命中&quot; --&gt; E[&quot;从头分配新 blocks&quot;]
+    D --&gt; F[&quot;allocate_slots()\n只为未命中部分分配新 blocks&quot;]
+    E --&gt; F
+    F --&gt; G[&quot;执行 prefill\n写入未命中的 block&quot;]
+    G --&gt; H&#123;&quot;某个新 block 写满？&quot;&#125;
+    H -- &quot;是&quot; --&gt; I[&quot;计算稳定 hash\n写入 Cache Blocks Map\n等待下次命中&quot;]
+    H -- &quot;否（尾块未满）&quot; --&gt; J[&quot;普通 request-owned block\n不进入 prefix cache&quot;]
+    I --&gt; K[&quot;请求继续 decode&quot;]
+    J --&gt; K
+    K --&gt; L[&quot;请求结束\n所有引用 block 的 ref_cnt--\nref_cnt=0 的 block 进入 LRU 候选&quot;]</code></pre>
+<p>有一个细节值得注意：<strong>命中必须从前缀起点开始连续</strong>，不能跳着命中。因为 parent_block_hash 把前缀链编码进了每个 block 的 hash，中间断掉了就意味着后续的 hash 也全部不同，无法复用。</p>
+<hr>
+<h2 id="wei-shi-yao-prefix-caching-fang-zai-kv-cache-manager-li" tabindex="-1" id="为什么-Prefix-Caching-放在-KV-Cache-Manager-里">为什么 Prefix Caching 放在 KV Cache Manager 里</h2>
+<p>初看起来，Prefix Caching 可以单独做成一个&quot;prompt cache service&quot;。vLLM 没这么做，背后有清晰的理由。</p>
+<p><strong>缓存对象本身就是 KV blocks。</strong> Prefix Caching 缓存的不是文本字符串、不是 logits，而是 KV block 本身。既然缓存对象就是 KV block，最自然的归属地就是管理 KV block 的模块。</p>
+<p><strong>block 的生命周期必须统一管理。</strong> Prefix cache 命中后，请求引用了已有 block，这些 block 仍然要参与 ref_cnt 管理、free queue 管理、驱逐策略、request 映射。如果把 Prefix Caching 单独拆出去，就会有两套状态需要同步：一套在缓存模块，一套在 KV manager。两套状态之间的一致性维护是额外成本。</p>
+<p><strong>Scheduler 需要的接口可以统一。</strong> Scheduler 不关心&quot;缓存系统有多高级&quot;，它只需要知道：这个请求的前缀有哪些 block 已经计算好了，还需要分配多少新 block。把 Prefix Caching 放在 KV Cache Manager 里，这些问题通过同一个接口体系解决，scheduler 不需要感知两个模块。</p>
+<p>这是一种典型的系统设计思路：<strong>让资源的所有权与生命周期管理尽量在同一层闭环</strong>，不要人为拆成多个需要相互同步的模块。</p>
+<hr>
+<h2 id="wei-shi-yao-yong-hash-lookup-er-bu-shi-trie" tabindex="-1" id="为什么用-Hash-Lookup-而不是-Trie">为什么用 Hash Lookup 而不是 Trie</h2>
+<p>看到&quot;前缀复用&quot;，很容易联想到用 trie 来组织——它天然适合前缀共享和前缀检索。但 vLLM 当前设计以 block hash 和 Cache Blocks Map 为主，而不是显式的 trie。</p>
+<p><strong>物理管理单位是 block，不是 token。</strong> 如果用 trie，更自然的倾向是按 token 组织前缀树。但这和 KV Cache 的物理粒度（block）不一致，命中之后还要再从 token 节点映射到对应的 block，增加了一层转换。</p>
+<p><strong>Hash lookup 更直接，更符合缓存的使用模式。</strong> Prefix Caching 的核心需求是：快速判断是否有可复用 block，命中后直接得到 block。这比复杂的前缀索引更像一个缓存系统，hash lookup 天然适合。</p>
+<p><strong>parent_block_hash 链已经隐含了前缀结构。</strong> 虽然没有显式 trie，但 <code>parent_block_hash + current_tokens</code> 的设计，本质上已经把&quot;前缀链&quot;编码进了 hash 关系里。它不是没有前缀结构，而是把前缀结构编码成了更轻量的 hash 链，不需要一棵显式树来维护。</p>
+<hr>
+<h2 id="lru-qu-zhu-zi-yuan-jin-zhang-shi-ru-he-quot-you-ya-di-wang-ji-quot" tabindex="-1" id="LRU-驱逐：资源紧张时如何-优雅地忘记">LRU 驱逐：资源紧张时如何&quot;优雅地忘记&quot;</h2>
+<p>GPU 显存有限，缓存块不能无限保留。当 block 紧张时，系统要驱逐一些旧缓存块来给新请求腾出空间。</p>
+<p>LRU（最近最少使用）是 vLLM 这里的驱逐策略，原因是它和 prefix cache 的使用模式非常匹配：</p>
+<ul>
+<li>热门前缀（比如被大量请求共享的 system prompt）会在短时间内被反复命中</li>
+<li>冷前缀长期不被访问，留着收益低</li>
+</ul>
+<p>Free Block Queue 的双向链表设计正是为此服务的——每次命中时把对应 block 移到链表尾部（O(1) 操作），驱逐时从链表头部取。这不需要额外的包装容器，也不需要维护一个独立的 priority queue。</p>
+<hr>
+<h2 id="cache-salt-he-an-quan-xing-prefix-caching-bu-zhi-shi-xing-neng-wen-ti" tabindex="-1" id="Cache-Salt-和安全性：Prefix-Caching-不只是性能问题">Cache Salt 和安全性：Prefix Caching 不只是性能问题</h2>
+<p>这是很多人学推理系统时会跳过、但在真实多租户部署中不得不面对的问题。</p>
+<p><strong>风险在哪里？</strong></p>
+<p>在共享推理环境里（比如公有云上的多租户服务），如果没有隔离机制：</p>
+<ul>
+<li>用户 A 先发了一个带特定 system prompt 的请求，该 prompt 的 KV blocks 被缓存</li>
+<li>用户 B 猜测 A 可能用了这个 prompt，发一个相同前缀的请求</li>
+<li>如果命中缓存，B 的 TTFT 会明显低于未命中时</li>
+<li>B 通过观察响应延迟，就能推断出某个前缀是否之前被别人使用过</li>
+</ul>
+<p>这是一种<strong>时序侧信道攻击</strong>，可能造成隐私泄露。</p>
+<p><strong>cache_salt 的作用：</strong></p>
+<p>官方设计文档说明，<code>cache_salt</code> 会参与第一个 block 的 hash 计算。这意味着：</p>
+<ul>
+<li>即便 token 序列完全相同</li>
+<li>只要 salt 不同，hash 就不同</li>
+<li>cache 就不会跨 salt 共享</li>
+</ul>
+<p>通过给不同用户或不同信任域分配不同的 salt，可以把 prefix cache 的复用限制在&quot;同一信任组&quot;内部，而不是对所有用户开放。</p>
+<p>这个设计的聪明之处在于：它不是把 prefix cache 整个禁掉，而是加了一层轻量、可控的隔离机制，在性能和安全之间找到了平衡点。</p>
+<hr>
+<h2 id="yu-scheduler-he-paged-attention-de-guan-xi" tabindex="-1" id="与-Scheduler-和-PagedAttention-的关系">与 Scheduler 和 PagedAttention 的关系</h2>
+<p><strong>与 Scheduler 的关系</strong>：Prefix Caching 直接影响 Scheduler 每轮的工作量。KV Cache Manager 告诉 Scheduler 某个请求有哪些 block 已经计算好了，Scheduler 据此决定：这个请求本轮只需要多少 token budget（跳过已命中的部分）、哪些 blocks 还需要 prefill、剩余 budget 是否还够给其他请求。Prefix Caching 减少的不只是单请求的 prefill 成本，而是整个调度面上的 prefill 压力，让更多 budget 留给 decode 和新请求。</p>
+<p><strong>与 PagedAttention 的关系</strong>：两者解决的是不同层次的问题。PagedAttention 解决的是&quot;KV Cache 如何以 block 形式存储，以及 attention kernel 如何在 paged layout 上高效运行&quot;——这是底层数据组织与访问机制。Prefix Caching 解决的是&quot;哪些 block 已经算过，是否可以跨请求复用&quot;——这是跨请求的资源复用机制。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">PagedAttention → 提供 block 化 KV 的底座</span><br><span class="line">                         ↓</span><br><span class="line">Prefix Caching → 利用这个底座把一部分 blocks 变成跨请求可复用资源</span><br></pre></td></tr></table></figure>
+<p>没有 block 化 KV，Prefix Caching 当然也能做，但管理会更笨重。有了 PagedAttention，按 block 复用就变得非常自然。</p>
+<hr>
+<h2 id="shou-yi-bian-jie-he-chang-jian-wu-qu" tabindex="-1" id="收益、边界和常见误区">收益、边界和常见误区</h2>
+<p><strong>真实收益</strong>：减少重复 prefill 计算量；降低 TTFT（跳过前缀计算，更快进入真正的生成阶段）；提升系统吞吐（节省的 token budget 可以分给更多请求）。收益的大小取决于前缀重复率——对使用长固定 system prompt、RAG 模板或多轮对话的服务效果最显著。</p>
+<p><strong>边界与限制</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>收益情况</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>前缀各不相同（随机请求）</td>
+<td>命中率低，有元数据维护成本但收益有限</td>
+</tr>
+<tr>
+<td>尾块未满（最后一个不完整 block）</td>
+<td>不进入 prefix cache，跨请求无法命中</td>
+</tr>
+<tr>
+<td>Block 池紧张</td>
+<td>缓存 block 会被 LRU 驱逐，命中率下降</td>
+</tr>
+<tr>
+<td>多租户环境</td>
+<td>若无 cache salt 隔离，存在时序侧信道风险</td>
+</tr>
+</tbody>
+</table>
+<p>几个常见误区需要澄清：</p>
+<ul>
+<li>Prefix Cache 缓存的是 KV blocks，<strong>不是模型的回答结果</strong></li>
+<li>它是<strong>跨请求</strong>复用，与普通 KV Cache 的<strong>单请求内部</strong>复用不是同一件事</li>
+<li>命中需要<strong>严格 token 级一致</strong>，语义相似不算命中</li>
+<li>是否缓存 partial block 是工程权衡问题，不是命中率越高越好</li>
+<li>Cache salt 的存在说明这个功能<strong>既是性能机制，也是安全机制</strong></li>
+</ul>
+<hr>
+<h2 id="jie-yu" tabindex="-1" id="结语">结语</h2>
+<p>Prefix Caching 的设计体现了 vLLM 的一个一贯思路：把看起来是&quot;高级 feature&quot;的东西，工程化地落在已有基础设施上，而不是另起炉灶。它没有单独发明一套缓存系统，而是沿用 block/page 化 KV 的粒度；它没有维护两套状态，而是把缓存逻辑收归 KV Cache Manager；它没有为了命中率而引入 partial block 缓存的复杂性，而是选择 full block 策略获得简单稳定的实现。</p>
+<p>它的局限也很清晰：前缀重复率低时收益有限；缓存 block 本身占显存需要驱逐策略；多租户场景需要正确配置 cache salt，否则引入安全风险。</p>
+<hr>
+<h2 id="can-kao-zi-liao" tabindex="-1" id="参考资料">参考资料</h2>
+<ul>
+<li>vLLM 官方设计文档：Automatic Prefix Caching，<a target="_blank" rel="noopener" href="https://docs.vllm.ai/en/latest/design/prefix_caching/">https://docs.vllm.ai/en/latest/design/prefix_caching/</a></li>
+<li>vLLM 源码：<code>vllm/v1/core/kv_cache_manager.py</code>，<code>vllm/v1/core/kv_cache_utils.py</code></li>
+<li>vLLM 官方文档：Optimization and Tuning，<a target="_blank" rel="noopener" href="https://docs.vllm.ai/en/stable/configuration/optimization/">https://docs.vllm.ai/en/stable/configuration/optimization/</a></li>
+</ul>
+<hr>
+<h2 id="xi-lie-dao-hang" tabindex="-1" id="系列导航">系列导航</h2>
+<ul>
+<li>导读：<a href="/posts/f77e5973/">vLLM系统拆解-00-导读：从架构、调度到面试表达的学习路线</a></li>
+<li>上一篇：<a href="/posts/e67da5b6/">vLLM系统拆解-05-KV Cache与PagedAttention：核心不是Attention公式，而是存放方式</a></li>
+<li>下一篇：<a href="/posts/f61cc956/">vLLM系统拆解-07-Worker执行链：调度决策如何变成GPU上的一步计算</a></li>
+</ul>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/be098d92/">https://smarter.xin/posts/be098d92/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/vllm/">vLLM</a><a class="post-meta__tags" href="/tags/kv-cache/">KV Cache</a><a class="post-meta__tags" href="/tags/llm-inference/">大模型推理</a><a class="post-meta__tags" href="/tags/prefix-caching/">Prefix Caching</a><a class="post-meta__tags" href="/tags/multi-tenant-security/">多租户安全</a></div><div class="post-share"><div class="social-share" data-image="/img/vllm.png" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/f61cc956/" title="vLLM系统拆解-07-Worker执行链：调度决策如何变成GPU上的一步计算"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/vllm.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">vLLM系统拆解-07-Worker执行链：调度决策如何变成GPU上的一步计算</div></div></div></a><a class="pagination-related  no-desc" href="/posts/e67da5b6/" title="vLLM系统拆解-05-KV Cache与PagedAttention：核心不是Attention公式，而是存放方式"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/vllm.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">vLLM系统拆解-05-KV Cache与PagedAttention：核心不是Attention公式，而是存放方式</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/fb17598c/" title="PyTorch推理工程：08 批处理、KV Cache 与 Serving 视角"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-29</div><div class="info-item-2">PyTorch推理工程：08 批处理、KV Cache 与 Serving 视角</div></div></div></a><a class="pagination-related no-desc" href="/posts/e62b6df0/" title="vLLM系统拆解-02-Prefill、Decode与KV Cache：理解vLLM之前的推理基础"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/vllm.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-04-02</div><div class="info-item-2">vLLM系统拆解-02-Prefill、Decode与KV Cache：理解vLLM之前的推理基础</div></div></div></a><a class="pagination-related no-desc" href="/posts/e67da5b6/" title="vLLM系统拆解-05-KV Cache与PagedAttention：核心不是Attention公式，而是存放方式"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/vllm.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-04-02</div><div class="info-item-2">vLLM系统拆解-05-KV Cache与PagedAttention：核心不是Attention公式，而是存放方式</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">我就是要爬这座山<br>再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">173</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">305</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">27</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#v-llm-xi-tong-chai-jie-06-prefix-caching-kua-qing-qiu-kv-fu-yong-ru-he-zuo-dao-jing-que-gao-xiao-qie-an-quan"><span class="toc-text">vLLM系统拆解-06-Prefix Caching：跨请求KV复用如何做到精确、高效且安全</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#pu-tong-kv-cache-de-bian-jie-zai-na-li"><span class="toc-text">普通 KV Cache 的边界在哪里</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#na-xie-chang-jing-hui-chan-sheng-da-liang-kua-qing-qiu-qian-zhui-zhong-fu"><span class="toc-text">哪些场景会产生大量跨请求前缀重复</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#wei-shi-yao-an-block-huan-cun-er-bu-shi-an-zheng-duan-prompt-huan-cun"><span class="toc-text">为什么按 block 缓存，而不是按整段 prompt 缓存</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#ming-zhong-tiao-jian-yan-ge-token-ji-yi-zhi-bu-shi-yu-yi-xiang-si"><span class="toc-text">命中条件：严格 token 级一致，不是语义相似</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#block-hash-she-ji-wei-shi-yao-xu-yao-parent-hash-he-extra-keys"><span class="toc-text">Block Hash 设计：为什么需要 parent hash 和 extra keys</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#wei-shi-yao-zhi-huan-cun-full-block"><span class="toc-text">为什么只缓存 Full Block</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#prefix-caching-de-shu-ju-jie-gou"><span class="toc-text">Prefix Caching 的数据结构</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xin-qing-qiu-dao-lai-shi-de-wan-zheng-chu-li-liu-cheng"><span class="toc-text">新请求到来时的完整处理流程</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#wei-shi-yao-prefix-caching-fang-zai-kv-cache-manager-li"><span class="toc-text">为什么 Prefix Caching 放在 KV Cache Manager 里</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#wei-shi-yao-yong-hash-lookup-er-bu-shi-trie"><span class="toc-text">为什么用 Hash Lookup 而不是 Trie</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#lru-qu-zhu-zi-yuan-jin-zhang-shi-ru-he-quot-you-ya-di-wang-ji-quot"><span class="toc-text">LRU 驱逐：资源紧张时如何&quot;优雅地忘记&quot;</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#cache-salt-he-an-quan-xing-prefix-caching-bu-zhi-shi-xing-neng-wen-ti"><span class="toc-text">Cache Salt 和安全性：Prefix Caching 不只是性能问题</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#yu-scheduler-he-paged-attention-de-guan-xi"><span class="toc-text">与 Scheduler 和 PagedAttention 的关系</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#shou-yi-bian-jie-he-chang-jian-wu-qu"><span class="toc-text">收益、边界和常见误区</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#jie-yu"><span class="toc-text">结语</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#can-kao-zi-liao"><span class="toc-text">参考资料</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xi-lie-dao-hang"><span class="toc-text">系列导航</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/cc221b1e/" title="vLLM系统拆解-19-AI Infra与推理岗面试手册：vLLM学到什么程度才算够用"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/vllm.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="vLLM系统拆解-19-AI Infra与推理岗面试手册：vLLM学到什么程度才算够用"/></a><div class="content"><a class="title" href="/posts/cc221b1e/" title="vLLM系统拆解-19-AI Infra与推理岗面试手册：vLLM学到什么程度才算够用">vLLM系统拆解-19-AI Infra与推理岗面试手册：vLLM学到什么程度才算够用</a><time datetime="2026-04-02T09:30:00.000Z" title="发表于 2026-04-02 17:30:00">2026-04-02</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/6f0af891/" title="vLLM系统拆解-18-通用LLM推理系统设计：从vLLM出发建立框架"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/vllm.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="vLLM系统拆解-18-通用LLM推理系统设计：从vLLM出发建立框架"/></a><div class="content"><a class="title" href="/posts/6f0af891/" title="vLLM系统拆解-18-通用LLM推理系统设计：从vLLM出发建立框架">vLLM系统拆解-18-通用LLM推理系统设计：从vLLM出发建立框架</a><time datetime="2026-04-02T09:00:00.000Z" title="发表于 2026-04-02 17:00:00">2026-04-02</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/32c30b06/" title="vLLM系统拆解-17-面试深挖：面试官继续追问为什么时怎么回答"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/vllm.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="vLLM系统拆解-17-面试深挖：面试官继续追问为什么时怎么回答"/></a><div class="content"><a class="title" href="/posts/32c30b06/" title="vLLM系统拆解-17-面试深挖：面试官继续追问为什么时怎么回答">vLLM系统拆解-17-面试深挖：面试官继续追问为什么时怎么回答</a><time datetime="2026-04-02T08:30:00.000Z" title="发表于 2026-04-02 16:30:00">2026-04-02</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/attentionisallyouneed.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">从 Self-Attention、位置编码到 Encoder-Decoder，系统梳理 Transformer 的核心结构、设计动机与理解路径</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/d6fa227a/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-16</span><a class="blog-slider__title" href="posts/d6fa227a/" alt="">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</a><div class="blog-slider__text">从访存优化到多卡通信，一篇看清 CUDA 实践系列的结构与学习路线</div><a class="blog-slider__button" href="posts/d6fa227a/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/43c4b52e/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/agent.webp" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-24</span><a class="blog-slider__title" href="posts/43c4b52e/" alt="">从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路</a><div class="blog-slider__text">使用飞书与本地 Agent 对话，远程也要让本地 Agent 干活，当一名狠狠的资本家</div><a class="blog-slider__button" href="posts/43c4b52e/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/92dc1028/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/CUDA_C.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-02-05</span><a class="blog-slider__title" href="posts/92dc1028/" alt="">CUDA C编程权威指南-导读</a><div class="blog-slider__text">从异构并行到多 GPU 实践，串起 CUDA C 权威指南的核心学习路线</div><a class="blog-slider__button" href="posts/92dc1028/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">从全书视角出发，一篇看清 PMPP 的章节结构、核心主题与学习主线</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/aac6e27d/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Computer_System.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/aac6e27d/" alt="">深入理解计算机系统知识点总结</a><div class="blog-slider__text">从程序员视角梳理 CSAPP 的知识脉络、系统抽象与性能理解</div><a class="blog-slider__button" href="posts/aac6e27d/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">围绕类型推导、移动语义与并发，提炼现代 C++ 的核心实践</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>

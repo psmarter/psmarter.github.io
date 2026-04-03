@@ -1,0 +1,656 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>vLLM系统拆解-11-面试题精讲：从概念到系统设计如何讲清楚为什么 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="vLLM系统拆解-11-面试题精讲：从概念到系统设计如何讲清楚为什么 这篇文章不是题库，而是把前 10 篇的核心知识压缩成面试可用的表达框架。 面试里回答 vLLM 相关问题，有一个有效的通用结构：先说它要解决的核心问题，再说采用了什么设计，再说直接收益，最后说边界与代价。 能主动讲出适用场景和边界，才像真正理解过推理系统——而不是记了几个名词。 这篇文章按三类问题组织：概念题、机制题、系统题。每">
+<meta property="og:type" content="article">
+<meta property="og:title" content="vLLM系统拆解-11-面试题精讲：从概念到系统设计如何讲清楚为什么">
+<meta property="og:url" content="https://smarter.xin/posts/c3e99548/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="vLLM系统拆解-11-面试题精讲：从概念到系统设计如何讲清楚为什么 这篇文章不是题库，而是把前 10 篇的核心知识压缩成面试可用的表达框架。 面试里回答 vLLM 相关问题，有一个有效的通用结构：先说它要解决的核心问题，再说采用了什么设计，再说直接收益，最后说边界与代价。 能主动讲出适用场景和边界，才像真正理解过推理系统——而不是记了几个名词。 这篇文章按三类问题组织：概念题、机制题、系统题。每">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/vllm.png">
+<meta property="article:published_time" content="2026-04-02T05:30:00.000Z">
+<meta property="article:modified_time" content="2026-04-03T11:44:50.291Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="AI Infrastructure">
+<meta property="article:tag" content="vLLM">
+<meta property="article:tag" content="推理系统">
+<meta property="article:tag" content="面试">
+<meta property="article:tag" content="系统设计">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/vllm.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "vLLM系统拆解-11-面试题精讲：从概念到系统设计如何讲清楚为什么",
+  "url": "https://smarter.xin/posts/c3e99548/",
+  "image": "https://smarter.xin/img/vllm.png",
+  "datePublished": "2026-04-02T05:30:00.000Z",
+  "dateModified": "2026-04-03T11:44:50.291Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/c3e99548/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'vLLM系统拆解-11-面试题精讲：从概念到系统设计如何讲清楚为什么',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">173</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">305</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">27</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/vllm.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">vLLM系统拆解-11-面试题精讲：从概念到系统设计如何讲清楚为什么</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">vLLM系统拆解-11-面试题精讲：从概念到系统设计如何讲清楚为什么</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-04-02T05:30:00.000Z" title="发表于 2026-04-02 13:30:00">2026-04-02</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-04-03T11:44:50.291Z" title="更新于 2026-04-03 19:44:50">2026-04-03</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/">AI Infra</a><i class="fas fa-angle-right post-meta-separator"></i><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/vllm/">vLLM</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">4.3k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>13分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="v-llm-xi-tong-chai-jie-11-mian-shi-ti-jing-jiang-cong-gai-nian-dao-xi-tong-she-ji-ru-he-jiang-qing-chu-wei-shi-yao" tabindex="-1">vLLM系统拆解-11-面试题精讲：从概念到系统设计如何讲清楚为什么</h1>
+<p>这篇文章不是题库，而是把前 10 篇的核心知识压缩成面试可用的表达框架。</p>
+<p>面试里回答 vLLM 相关问题，有一个有效的通用结构：<strong>先说它要解决的核心问题，再说采用了什么设计，再说直接收益，最后说边界与代价。</strong> 能主动讲出适用场景和边界，才像真正理解过推理系统——而不是记了几个名词。</p>
+<p>这篇文章按三类问题组织：概念题、机制题、系统题。每道题的「追问」部分是面试里最容易暴露深度的地方，不能忽视。</p>
+<hr>
+<h2 id="gai-nian-ti" tabindex="-1" id="概念题">概念题</h2>
+<h3 id="v-llm-shi-shi-yao" tabindex="-1" id="vLLM-是什么？">vLLM 是什么？</h3>
+<p>vLLM 是一个面向大语言模型的高吞吐、显存高效的推理与服务引擎。它不只是「把模型跑起来」的库，而是专门针对<strong>在线服务场景下多请求并发推理</strong>做了系统级优化。</p>
+<p>代表性设计包括：</p>
+<ul>
+<li><strong>PagedAttention</strong>：把 KV Cache 以 block/page 方式管理，减少显存碎片，提高可并发请求数</li>
+<li><strong>Continuous batching</strong>：运行中持续调度新老请求，提高 GPU 利用率</li>
+<li><strong>Unified scheduler（V1）</strong>：把 prompt token 和 output token 统一纳入 token budget 调度，chunked prefill、prefix caching、speculative decoding 都落在这一框架里</li>
+<li><strong>Prefix caching</strong>：重复前缀直接复用已算过的 KV Cache</li>
+<li><strong>Chunked prefill</strong>：把长 prompt 的 prefill 切块，与 decode 混合调度</li>
+<li><strong>OpenAI-compatible serving</strong>：既能离线推理，也能直接作为服务后端</li>
+</ul>
+<p>vLLM 的关键不是「某个 kernel 很快」，而是从 <strong>KV Cache 管理、请求调度、GPU 执行、服务接口</strong>几个层面一起优化。</p>
+<p><strong>面试官常见追问方向</strong>：为什么它比普通 Transformers <code>generate()</code> 更适合服务？PagedAttention 具体解决了什么？Continuous batching 和普通 batching 区别是什么？V1 为什么要统一调度？——所以第一题回答完后，自然引向「资源管理与调度」。</p>
+<hr>
+<h3 id="v-llm-wei-shi-yao-kuai" tabindex="-1" id="vLLM-为什么快？">vLLM 为什么快？</h3>
+<p>不够好的回答是：「因为它用了 PagedAttention，所以快。」这暴露的是只记了一个名词。</p>
+<p>更准确的回答：vLLM 快，是因为它同时优化了在线推理里最关键的几个瓶颈——</p>
+<p><strong>（1）KV Cache 显存管理。</strong> 传统做法要求每个序列的 KV Cache 连续扩展，会产生显存碎片，明明还有显存却放不下更多请求。PagedAttention 把 KV Cache 切成固定大小的 block，用逻辑映射代替物理连续性，显存利用率更高，可并发请求更多。</p>
+<p><strong>（2）动态多请求下的 batch 利用率。</strong> Continuous batching 在运行中持续把新请求插入、把已完成请求移出，而不是等整个静态 batch 全部完成再处理下一批，GPU 更不容易空转。</p>
+<p><strong>（3）统一调度（V1）。</strong> 不再把 prefill 和 decode 硬分成两套逻辑，而是用统一 token budget 调度每轮每个请求需要推进多少 token，chunked prefill、prefix caching、spec decode 都可以自然地落进这个框架。</p>
+<p><strong>（4）跨请求前缀复用。</strong> Prefix caching 让共享同一 system prompt 或 instruction template 的请求直接复用已计算的 KV Cache，跳过重复 prefill。</p>
+<p><strong>（5）进一步的高阶优化。</strong> Chunked prefill、CUDA/HIP graph、speculative decoding、量化、FlashAttention/FlashInfer 集成——这些优化各自针对不同瓶颈，有些优化时延，有些优化吞吐，有些优化显存。</p>
+<p>一句话压缩版：<strong>vLLM 快，核心是它把在线大模型推理里最贵的三件事一起优化了：KV Cache 管理、动态请求调度、GPU 执行路径，而不是只优化一次 forward。</strong></p>
+<hr>
+<h3 id="v-llm-he-hugging-face-transformers-code-generate-code-de-qu-bie-shi-shi-yao" tabindex="-1" id="vLLM-和-Hugging-Face-Transformers-generate-的区别是什么？">vLLM 和 Hugging Face Transformers <code>generate()</code> 的区别是什么？</h3>
+<p>理解它们的层次差异比比较功能更重要：</p>
+<ul>
+<li><strong>Transformers <code>generate()</code></strong>：模型调用接口，解决「如何对一个输入完成生成」</li>
+<li><strong>vLLM</strong>：推理服务引擎，解决「很多请求同时来时，如何把 GPU、KV Cache、调度和服务接口组织好」</li>
+</ul>
+<p>前者是模型级调用，后者是系统级推理与服务。如果只看单条样本、低并发、脚本式使用，两者都能做生成；进入在线服务场景，问题性质完全不同：</p>
+<ul>
+<li>不同请求长度不一样怎么办？</li>
+<li>KV Cache 如何管理才不浪费显存？</li>
+<li>新请求如何在老请求尚未结束时插入 batch？</li>
+<li>重复前缀如何复用？</li>
+<li>长 prompt 会不会拖慢 decode 请求？</li>
+</ul>
+<p>一句总结：Transformers 更适合模型开发与功能验证，vLLM 更适合生产级大模型推理后端。</p>
+<hr>
+<h3 id="v-llm-zuo-liao-fen-ye-shi-kv-cache-wei-shi-yao-huan-hui-oom" tabindex="-1" id="vLLM-做了分页式-KV-Cache，为什么还会-OOM？">vLLM 做了分页式 KV Cache，为什么还会 OOM？</h3>
+<p>PagedAttention 解决的是 <strong>KV Cache 管理效率</strong>，不是「显存无限」。它降低了碎片和浪费，但没有改变「KV Cache 总量会随着请求数和上下文长度增长」这一事实。</p>
+<p>OOM 的常见原因：</p>
+<table>
+<thead>
+<tr>
+<th>原因</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>模型权重本身太大</td>
+<td>和 KV Cache 无关，权重本身就撑爆显存</td>
+</tr>
+<tr>
+<td>并发请求太多</td>
+<td>总 KV Cache 需求超出可用显存</td>
+</tr>
+<tr>
+<td>上下文太长</td>
+<td>长上下文下单请求的 KV Cache 就很大</td>
+</tr>
+<tr>
+<td>batch/token budget 过激进</td>
+<td><code>max_num_batched_tokens</code>、<code>max_num_seqs</code> 设得太高</td>
+</tr>
+<tr>
+<td>并行/量化/显存预留不合理</td>
+<td>权重以外的显存分配没有留出足够余量</td>
+</tr>
+<tr>
+<td>负载瞬时波动</td>
+<td>业务高峰期短时间内大量长请求同时进来</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="ji-zhi-ti" tabindex="-1" id="机制题">机制题</h2>
+<h3 id="shi-yao-shi-paged-attention-ta-de-ben-zhi-shou-yi-shi-shi-yao" tabindex="-1" id="什么是-PagedAttention？它的本质收益是什么？">什么是 PagedAttention？它的本质收益是什么？</h3>
+<p>PagedAttention 的核心思想：把每个请求的 KV Cache 从「必须连续增长的一大段显存」改成「由很多固定大小的 block 组成的逻辑序列」。借鉴操作系统分页内存的思路：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">逻辑视角（对 attention 计算透明）：</span><br><span class="line">  token 0, 1, 2, ..., N  → 一整段连续上下文</span><br><span class="line"></span><br><span class="line">物理视角（实际内存布局）：</span><br><span class="line">  Block 7:  token 0–15</span><br><span class="line">  Block 23: token 16–31</span><br><span class="line">  Block 2:  token 32–47</span><br><span class="line">  ...（分散在不同位置）</span><br><span class="line"></span><br><span class="line">系统维护逻辑块→物理块的映射表，attention kernel 按映射取数据</span><br></pre></td></tr></table></figure>
+<p>解决的两个问题：</p>
+<p><strong>显存碎片。</strong> 在线服务里不同请求长度差异很大，如果 KV Cache 必须连续扩展，会造成很多「碎洞」，显存越来越难用。Block 化管理显著降低这种碎片。</p>
+<p><strong>动态分配与回收。</strong> 在线请求持续进入、持续结束，KV Cache 生命周期动态变化。Block 化后分配和释放都更灵活，系统更容易在很多请求之间复用可用空间。</p>
+<p><strong>本质收益不是「单次 attention 更快」，而是让 KV Cache 更容易被高效管理，从而支撑更大的有效 batch 与更高并发。</strong></p>
+<p>几个容易被追问的点：</p>
+<ul>
+<li><em>为什么不用连续内存加 compaction？</em> 代价太高。Compaction 需要迁移已有 KV 数据，在高并发在线场景下不适合频繁做，分页思路本质上是避免频繁搬家。</li>
+<li><em>会不会增加寻址开销？</em> 会有映射与访存组织成本，但这是自定义 attention kernel 需要处理的部分。</li>
+</ul>
+<hr>
+<h3 id="shi-yao-shi-continuous-batching-wei-shi-yao-jing-tai-batch-bu-gou-yong-yu-zai-xian-fu-wu" tabindex="-1" id="什么是-continuous-batching？为什么静态-batch-不够用于在线服务？">什么是 continuous batching？为什么静态 batch 不够用于在线服务？</h3>
+<p>静态 batch 的问题：先凑一批请求一起跑，这一批结束后再处理下一批。在在线服务里，这会导致：</p>
+<ul>
+<li>少数长请求拖住整批，其他已完成的 GPU 算力空转等待</li>
+<li>新请求必须等上一整批全部完成才能进入，头部等待时间长</li>
+<li>请求长度差异大时，GPU 利用率很差，尾延迟抖动明显</li>
+</ul>
+<p>Continuous batching 的思路：<strong>batch 不是一次性固定下来的</strong>，调度循环会持续把新请求插入、把已完成请求移出，每一轮根据当前状态重新组织可以一起运行的请求。</p>
+<p>三个直接收益：</p>
+<ol>
+<li>提高 GPU 利用率——不会因少数长请求拖住整批</li>
+<li>提高吞吐——更多请求及时进入执行路径</li>
+<li>改善尾延迟——新请求不必等上一整批完全结束</li>
+</ol>
+<p>Continuous batching 真正体现了 vLLM 是一个服务系统而不是单纯模型库——它面对的是动态请求流，不是静态样本集合。</p>
+<hr>
+<h3 id="prefill-he-decode-you-shi-yao-qu-bie-wei-shi-yao-zhe-ge-chai-yi-hen-zhong-yao" tabindex="-1" id="Prefill-和-Decode-有什么区别？为什么这个差异很重要？">Prefill 和 Decode 有什么区别？为什么这个差异很重要？</h3>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Prefill</th>
+<th>Decode</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>做什么</td>
+<td>把整段 prompt 一次性编码，建立初始 KV Cache</td>
+<td>每步生成少量 token，不断追加新 KV Cache</td>
+</tr>
+<tr>
+<td>资源瓶颈</td>
+<td>偏 <strong>compute-bound</strong>（大量矩阵计算）</td>
+<td>偏 <strong>memory-bound</strong>（频繁访问越来越长的历史 KV Cache）</td>
+</tr>
+<tr>
+<td>每轮处理量</td>
+<td>多 token（整段 prompt）</td>
+<td>少 token（通常每步 1 个）</td>
+</tr>
+</tbody>
+</table>
+<p>这个差异是 vLLM 很多设计的出发点：</p>
+<ul>
+<li><strong>chunked prefill</strong>：防止大 prefill 独占资源，拖慢 decode 请求的 ITL</li>
+<li><strong>scheduler 优先 decode</strong>：更好地控制 inter-token latency</li>
+<li><strong>prefix caching</strong>：直接减少重复 prefill 的计算量</li>
+<li><strong>KV Cache 优化</strong>：主要影响 decode 阶段的效率与可扩展性</li>
+</ul>
+<hr>
+<h3 id="v-1-wei-shi-yao-yao-zuo-unified-scheduler" tabindex="-1" id="V1-为什么要做-unified-scheduler？">V1 为什么要做 unified scheduler？</h3>
+<p>V0 时代更容易把 prefill 和 decode 当成两套相对独立的调度逻辑；但随着 chunked prefill、prefix caching、speculative decoding 等特性增加，这种硬分裂让调度逻辑越来越复杂。</p>
+<p>V1 的核心改动：把「一个请求此刻还需要多少 token 计算」抽象成统一 token budget 分配问题，而不是先判断它属于 prefill 还是 decode。</p>
+<p>好处有三：</p>
+<p><strong>调度模型更统一。</strong> 系统只关心：在这一轮预算内，给哪些请求分配多少 token 计算量，而不是先按类别分叉再拼回去。</p>
+<p><strong>更容易支持复杂特性。</strong> Chunked prefill、prefix caching、speculative decoding 本质上都可以理解成「一个请求当前需要推进多少 token 的计算」，统一 scheduler 更自然地容纳它们。</p>
+<p><strong>更便于后续扩展。</strong> 统一抽象后，新功能更容易接进现有框架，而不必重写一套单独调度路径。</p>
+<p>一句话总结：<strong>V1 unified scheduler 的本质，是把「请求类型调度」升级为「token 预算调度」。</strong></p>
+<hr>
+<h3 id="shi-yao-shi-chunked-prefill-wei-shi-yao-you-yong" tabindex="-1" id="什么是-chunked-prefill？为什么有用？">什么是 chunked prefill？为什么有用？</h3>
+<p>如果一个请求的 prompt 很长，整块 prefill 一口气做完，会长时间占用资源，影响其他 decode 请求，导致用户看到的逐 token 输出变慢。</p>
+<p>Chunked prefill 的思路：不把巨大 prefill 一次吃完，而是切成更小块，与 decode 请求一起进入统一调度。V1 默认优先调度 decode，再用剩余 <code>max_num_batched_tokens</code> 预算安排 prefill，放不下的 prefill 自动切块延后。</p>
+<p>三个收益：</p>
+<ol>
+<li><strong>改善 ITL</strong>：decode 请求不容易被超长 prompt 拖住，token 间输出间隔更平滑</li>
+<li><strong>提高 GPU 利用率</strong>：prefill 偏计算密集，decode 偏带宽密集，混在同一 batch 里资源利用更均衡</li>
+<li><strong>平衡吞吐与时延</strong>：在 TTFT、ITL、throughput 三者之间做更细粒度取舍</li>
+</ol>
+<p>边界同样重要：<code>max_num_batched_tokens</code> 越小，越偏 ITL 保护；越大，越偏 TTFT 和吞吐。没有一个值对所有业务都最优。</p>
+<p><strong>chunked prefill 的本质不是把 prompt 切碎，而是让长 prompt 不再以粗粒度方式垄断调度预算。</strong></p>
+<hr>
+<h3 id="prefix-caching-he-pu-tong-kv-cache-you-shi-yao-qu-bie" tabindex="-1" id="Prefix-caching-和普通-KV-Cache-有什么区别？">Prefix caching 和普通 KV Cache 有什么区别？</h3>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>普通 KV Cache</th>
+<th>Prefix caching</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>服务范围</td>
+<td>单请求内递增生成</td>
+<td>跨请求共享前缀</td>
+</tr>
+<tr>
+<td>目的</td>
+<td>避免重复计算该请求历史 token</td>
+<td>避免不同请求重复计算共同前缀</td>
+</tr>
+<tr>
+<td>典型场景</td>
+<td>所有 autoregressive 推理</td>
+<td>system prompt、instruction template、few-shot 前缀相同</td>
+</tr>
+</tbody>
+</table>
+<p>普通 KV Cache 是「同一请求别重复算历史」，prefix caching 是「不同请求别重复算共同前缀」。</p>
+<p><strong>为什么只缓存 full blocks？</strong> Prefix caching 的实现围绕 block/hash 组织。只缓存 full block 有利于保持缓存粒度一致、hash 关系稳定、管理逻辑简单；部分 block 的 hash 计算更复杂且不稳定，缓存收益也有限。</p>
+<p><strong>代价：</strong> 需要维护缓存元数据、引用计数、LRU 驱逐机制；只有共享前缀较多的业务形态收益才明显；多租户场景还需要考虑 cache 隔离和 timing side-channel 风险，vLLM 支持用 <code>cache_salt</code> 做隔离。</p>
+<hr>
+<h2 id="xi-tong-ti" tabindex="-1" id="系统题">系统题</h2>
+<h3 id="speculative-decoding-wei-shi-yao-bu-shi-zong-neng-jia-su" tabindex="-1" id="Speculative-decoding-为什么不是总能加速？">Speculative decoding 为什么不是总能加速？</h3>
+<p>Speculative decoding 更适合被理解为<strong>延迟优化工具</strong>，而不是普适吞吐优化工具。</p>
+<p>三类原因：</p>
+<p><strong>收益依赖负载形态。</strong> 它更适合改善中低 QPS、memory-bound 场景下的 latency。高负载、吞吐优先场景中，额外的 draft 计算和复杂调度可能反而带来负担，收益不稳定。</p>
+<p><strong>不同方法代价不同。</strong> vLLM 支持 EAGLE、MTP、draft model、PARD、MLP、n-gram、suffix decoding 等多种方法，各自的额外计算成本、命中率和收益差异很大。</p>
+<p><strong>系统整体瓶颈不一定在这里。</strong> 如果瓶颈主要是显存、调度、通信或 CPU starvation，speculative decoding 不是最优先的优化手段。</p>
+<p>使用时需要结合具体 workload、模型、QPS 和采样配置评估，而不是直接开启期待收益。</p>
+<hr>
+<h3 id="v-llm-wei-shi-yao-yao-chai-cheng-duo-ge-jin-cheng" tabindex="-1" id="vLLM-为什么要拆成多个进程？">vLLM 为什么要拆成多个进程？</h3>
+<p>这是职责解耦的典型做法：</p>
+<ul>
+<li><strong>API server</strong>：对外接口、tokenization、输入预处理、流式输出</li>
+<li><strong>Engine core</strong>：scheduler、KV Cache 管理、请求生命周期管理、派发执行计划</li>
+<li><strong>GPU worker</strong>：加载模型、执行 forward、管理 GPU 侧资源</li>
+<li><strong>DP coordinator</strong>（DP &gt; 1 时存在）：管理多 DP rank 间 load balancing 和 MoE 场景下的同步</li>
+</ul>
+<p>这样设计有三个实质原因：</p>
+<p><strong>职责边界清晰。</strong> 服务层逻辑、调度逻辑、GPU 执行逻辑关注点不同，API 层的网络与预处理不应阻塞 GPU 执行控制，调度 busy loop 也需要尽可能稳定运行。</p>
+<p><strong>适合扩展。</strong> Worker 可按 GPU 数量扩展，engine core 可按 data parallel rank 组织，每个 DP rank 各自自治。这说明 vLLM 不是把所有逻辑塞进一个大进程，而是在向真正的推理服务系统设计靠拢。</p>
+<p><strong>减少相互干扰。</strong> 进程间隔离比线程隔离更彻底，各层的异常不会直接拖垮其他层。</p>
+<hr>
+<h3 id="gpu-li-yong-lu-bu-gao-ru-he-pan-duan-ping-jing-zai-na-li" tabindex="-1" id="GPU-利用率不高，如何判断瓶颈在哪里？">GPU 利用率不高，如何判断瓶颈在哪里？</h3>
+<p>这道题考察系统性思维，而不只是 GPU 知识。</p>
+<p>vLLM 不是单一 GPU kernel，而是完整推理系统。CPU 负责 API 请求处理、tokenization/detokenization、engine core 的 scheduler busy loop、进程间通信、控制路径和元数据管理。CPU 不足时，GPU 可能明明还有活可做，却吃不到。</p>
+<p>判断框架：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">GPU 利用率偏低</span><br><span class="line">  ├── 是否有频繁 preemption？</span><br><span class="line">  │   → 是：先查显存侧（gpu_memory_utilization、kv_cache_dtype）</span><br><span class="line">  │          再查并发侧（max_num_seqs、max_num_batched_tokens）</span><br><span class="line">  ├── GPU 在等什么？</span><br><span class="line">  │   → 等 CPU：看调度延迟、tokenizer 开销、进程间通信</span><br><span class="line">  │   → 等 KV Cache：看可用 block 数量、是否频繁 GC</span><br><span class="line">  │   → 等网络（多机）：看节点间通信带宽是否成为瓶颈</span><br><span class="line">  └── batch 是否太小？</span><br><span class="line">      → 看 max_num_batched_tokens 和实际每轮 token 数</span><br></pre></td></tr></table></figure>
+<p><strong>GPU 决定「算得快不快」，CPU 决定「系统能不能把请求及时组织并喂给 GPU」。</strong> 只盯 GPU 利用率而不看调度链，是很常见的分析盲区。</p>
+<hr>
+<h2 id="su-cha-he-xin-zhi-shi-dian-yi-ju-hua" tabindex="-1" id="速查：核心知识点一句话">速查：核心知识点一句话</h2>
+<table>
+<thead>
+<tr>
+<th>问题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>vLLM 是什么</td>
+<td>面向大模型在线推理的高吞吐、显存高效服务引擎</td>
+</tr>
+<tr>
+<td>为什么快</td>
+<td>同时优化了 KV Cache 管理、动态请求调度和 GPU 执行路径</td>
+</tr>
+<tr>
+<td>PagedAttention 解决什么</td>
+<td>把 KV Cache 从连续大块变成 block 化分页管理，降低碎片并提升可并发性</td>
+</tr>
+<tr>
+<td>Continuous batching 是什么</td>
+<td>运行中持续加入和移出请求的动态 batch，不等整批完成再处理</td>
+</tr>
+<tr>
+<td>Prefill vs Decode 最大区别</td>
+<td>prefill 偏 compute-bound，decode 偏 memory-bound</td>
+</tr>
+<tr>
+<td>V1 unified scheduler 本质</td>
+<td>把请求推进统一抽象为 token budget 分配，不再硬分成两套调度逻辑</td>
+</tr>
+<tr>
+<td>Chunked prefill 的作用</td>
+<td>让长 prompt 不垄断调度预算，改善 ITL 和整体资源利用率</td>
+</tr>
+<tr>
+<td>Prefix caching 的本质</td>
+<td>跨请求复用共享前缀的 KV Cache，减少重复 prefill</td>
+</tr>
+<tr>
+<td>Speculative decoding 为什么不总有效</td>
+<td>收益取决于 workload、QPS、模型和系统瓶颈，是延迟优化而非普适吞吐优化</td>
+</tr>
+<tr>
+<td>为什么 CPU 也重要</td>
+<td>调度、通信、tokenization 都依赖 CPU，CPU 不够会让 GPU 吃不到活</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="ji-chong-chang-jian-de-fan-mo-shi" tabindex="-1" id="几种常见的反模式">几种常见的反模式</h2>
+<p><strong>只背名词。</strong> 「它有 PagedAttention、chunked prefill、prefix caching、speculative decoding。」这是念菜单，不是回答。</p>
+<p><strong>只讲 kernel，不讲系统。</strong> 问「为什么快」时一直讲 attention 公式，不讲调度和 KV Cache 管理，视角太窄。</p>
+<p><strong>把所有优化都说成无脑收益。</strong> 「speculative decoding 一定更快。」这很危险。成熟的回答必须带 workload 依赖。</p>
+<p><strong>把 vLLM 说成单纯替代 Transformers 的库。</strong> 它确实能做替代后端，但本质上是 serving engine，解决的是服务层问题，而不只是生成质量问题。</p>
+<p>真正像 infra 工程师的回答，往往不是「我知道某技术」，而是：「我知道它解决什么问题、为什么这样设计、这样设计的收益与边界是什么、如果线上遇到瓶颈我会优先怀疑哪里。」</p>
+<hr>
+<hr>
+<h2 id="xi-lie-dao-hang" tabindex="-1" id="系列导航">系列导航</h2>
+<ul>
+<li>导读：<a href="/posts/f77e5973/">vLLM系统拆解-00-导读：从架构、调度到面试表达的学习路线</a></li>
+<li>上一篇：<a href="/posts/9ce7b444/">vLLM系统拆解-10-分布式部署：TP、PP、DP、EP各解决什么问题</a></li>
+<li>下一篇：<a href="/posts/354d88e4/">vLLM系统拆解-12-源码地图：每个核心能力落在哪一层</a></li>
+</ul>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/c3e99548/">https://smarter.xin/posts/c3e99548/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/ai-infrastructure/">AI Infrastructure</a><a class="post-meta__tags" href="/tags/vllm/">vLLM</a><a class="post-meta__tags" href="/tags/inference-system/">推理系统</a><a class="post-meta__tags" href="/tags/interview/">面试</a><a class="post-meta__tags" href="/tags/system-design/">系统设计</a></div><div class="post-share"><div class="social-share" data-image="/img/vllm.png" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/354d88e4/" title="vLLM系统拆解-12-源码地图：每个核心能力落在哪一层"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/vllm.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">vLLM系统拆解-12-源码地图：每个核心能力落在哪一层</div></div></div></a><a class="pagination-related  no-desc" href="/posts/9ce7b444/" title="vLLM系统拆解-10-分布式部署：TP、PP、DP、EP各解决什么问题"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/vllm.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">vLLM系统拆解-10-分布式部署：TP、PP、DP、EP各解决什么问题</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/cc221b1e/" title="vLLM系统拆解-19-AI Infra与推理岗面试手册：vLLM学到什么程度才算够用"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/vllm.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-04-02</div><div class="info-item-2">vLLM系统拆解-19-AI Infra与推理岗面试手册：vLLM学到什么程度才算够用</div></div></div></a><a class="pagination-related no-desc" href="/posts/6f0af891/" title="vLLM系统拆解-18-通用LLM推理系统设计：从vLLM出发建立框架"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/vllm.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-04-02</div><div class="info-item-2">vLLM系统拆解-18-通用LLM推理系统设计：从vLLM出发建立框架</div></div></div></a><a class="pagination-related no-desc" href="/posts/f77e5973/" title="vLLM系统拆解-00-导读：从架构、调度到面试表达的学习路线"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/vllm.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-04-02</div><div class="info-item-2">vLLM系统拆解-00-导读：从架构、调度到面试表达的学习路线</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">我就是要爬这座山<br>再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">173</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">305</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">27</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#v-llm-xi-tong-chai-jie-11-mian-shi-ti-jing-jiang-cong-gai-nian-dao-xi-tong-she-ji-ru-he-jiang-qing-chu-wei-shi-yao"><span class="toc-text">vLLM系统拆解-11-面试题精讲：从概念到系统设计如何讲清楚为什么</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#gai-nian-ti"><span class="toc-text">概念题</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#v-llm-shi-shi-yao"><span class="toc-text">vLLM 是什么？</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#v-llm-wei-shi-yao-kuai"><span class="toc-text">vLLM 为什么快？</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#v-llm-he-hugging-face-transformers-code-generate-code-de-qu-bie-shi-shi-yao"><span class="toc-text">vLLM 和 Hugging Face Transformers generate() 的区别是什么？</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#v-llm-zuo-liao-fen-ye-shi-kv-cache-wei-shi-yao-huan-hui-oom"><span class="toc-text">vLLM 做了分页式 KV Cache，为什么还会 OOM？</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#ji-zhi-ti"><span class="toc-text">机制题</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#shi-yao-shi-paged-attention-ta-de-ben-zhi-shou-yi-shi-shi-yao"><span class="toc-text">什么是 PagedAttention？它的本质收益是什么？</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#shi-yao-shi-continuous-batching-wei-shi-yao-jing-tai-batch-bu-gou-yong-yu-zai-xian-fu-wu"><span class="toc-text">什么是 continuous batching？为什么静态 batch 不够用于在线服务？</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#prefill-he-decode-you-shi-yao-qu-bie-wei-shi-yao-zhe-ge-chai-yi-hen-zhong-yao"><span class="toc-text">Prefill 和 Decode 有什么区别？为什么这个差异很重要？</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#v-1-wei-shi-yao-yao-zuo-unified-scheduler"><span class="toc-text">V1 为什么要做 unified scheduler？</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#shi-yao-shi-chunked-prefill-wei-shi-yao-you-yong"><span class="toc-text">什么是 chunked prefill？为什么有用？</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#prefix-caching-he-pu-tong-kv-cache-you-shi-yao-qu-bie"><span class="toc-text">Prefix caching 和普通 KV Cache 有什么区别？</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xi-tong-ti"><span class="toc-text">系统题</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#speculative-decoding-wei-shi-yao-bu-shi-zong-neng-jia-su"><span class="toc-text">Speculative decoding 为什么不是总能加速？</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#v-llm-wei-shi-yao-yao-chai-cheng-duo-ge-jin-cheng"><span class="toc-text">vLLM 为什么要拆成多个进程？</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#gpu-li-yong-lu-bu-gao-ru-he-pan-duan-ping-jing-zai-na-li"><span class="toc-text">GPU 利用率不高，如何判断瓶颈在哪里？</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#su-cha-he-xin-zhi-shi-dian-yi-ju-hua"><span class="toc-text">速查：核心知识点一句话</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#ji-chong-chang-jian-de-fan-mo-shi"><span class="toc-text">几种常见的反模式</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xi-lie-dao-hang"><span class="toc-text">系列导航</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/cc221b1e/" title="vLLM系统拆解-19-AI Infra与推理岗面试手册：vLLM学到什么程度才算够用"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/vllm.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="vLLM系统拆解-19-AI Infra与推理岗面试手册：vLLM学到什么程度才算够用"/></a><div class="content"><a class="title" href="/posts/cc221b1e/" title="vLLM系统拆解-19-AI Infra与推理岗面试手册：vLLM学到什么程度才算够用">vLLM系统拆解-19-AI Infra与推理岗面试手册：vLLM学到什么程度才算够用</a><time datetime="2026-04-02T09:30:00.000Z" title="发表于 2026-04-02 17:30:00">2026-04-02</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/6f0af891/" title="vLLM系统拆解-18-通用LLM推理系统设计：从vLLM出发建立框架"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/vllm.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="vLLM系统拆解-18-通用LLM推理系统设计：从vLLM出发建立框架"/></a><div class="content"><a class="title" href="/posts/6f0af891/" title="vLLM系统拆解-18-通用LLM推理系统设计：从vLLM出发建立框架">vLLM系统拆解-18-通用LLM推理系统设计：从vLLM出发建立框架</a><time datetime="2026-04-02T09:00:00.000Z" title="发表于 2026-04-02 17:00:00">2026-04-02</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/32c30b06/" title="vLLM系统拆解-17-面试深挖：面试官继续追问为什么时怎么回答"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/vllm.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="vLLM系统拆解-17-面试深挖：面试官继续追问为什么时怎么回答"/></a><div class="content"><a class="title" href="/posts/32c30b06/" title="vLLM系统拆解-17-面试深挖：面试官继续追问为什么时怎么回答">vLLM系统拆解-17-面试深挖：面试官继续追问为什么时怎么回答</a><time datetime="2026-04-02T08:30:00.000Z" title="发表于 2026-04-02 16:30:00">2026-04-02</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/attentionisallyouneed.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">从 Self-Attention、位置编码到 Encoder-Decoder，系统梳理 Transformer 的核心结构、设计动机与理解路径</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/d6fa227a/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-16</span><a class="blog-slider__title" href="posts/d6fa227a/" alt="">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</a><div class="blog-slider__text">从访存优化到多卡通信，一篇看清 CUDA 实践系列的结构与学习路线</div><a class="blog-slider__button" href="posts/d6fa227a/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/43c4b52e/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/agent.webp" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-24</span><a class="blog-slider__title" href="posts/43c4b52e/" alt="">从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路</a><div class="blog-slider__text">使用飞书与本地 Agent 对话，远程也要让本地 Agent 干活，当一名狠狠的资本家</div><a class="blog-slider__button" href="posts/43c4b52e/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/92dc1028/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/CUDA_C.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-02-05</span><a class="blog-slider__title" href="posts/92dc1028/" alt="">CUDA C编程权威指南-导读</a><div class="blog-slider__text">从异构并行到多 GPU 实践，串起 CUDA C 权威指南的核心学习路线</div><a class="blog-slider__button" href="posts/92dc1028/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">从全书视角出发，一篇看清 PMPP 的章节结构、核心主题与学习主线</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/aac6e27d/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Computer_System.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/aac6e27d/" alt="">深入理解计算机系统知识点总结</a><div class="blog-slider__text">从程序员视角梳理 CSAPP 的知识脉络、系统抽象与性能理解</div><a class="blog-slider__button" href="posts/aac6e27d/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">围绕类型推导、移动语义与并发，提炼现代 C++ 的核心实践</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>
