@@ -1,0 +1,631 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>GPU系统拆解-01-架构地图：先建立面向 AI Infra 的 GPU 全景认知 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="GPU系统拆解-01-架构地图：先建立面向 AI Infra 的 GPU 全景认知  本文是「GPU系统拆解」系列第 01 篇。 系列导读：GPU系统拆解-00-导读：从架构认知到推理系统的学习路线 下一篇：GPU系统拆解-02-从 RTX 4090 出发：Ada 架构如何影响 CUDA 与推理   本篇的任务不是介绍显卡型号，而是建立一张足够稳定的认知地图：你需要知道 4090 处在什么位置，为">
+<meta property="og:type" content="article">
+<meta property="og:title" content="GPU系统拆解-01-架构地图：先建立面向 AI Infra 的 GPU 全景认知">
+<meta property="og:url" content="https://smarter.xin/posts/e773bbfa/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="GPU系统拆解-01-架构地图：先建立面向 AI Infra 的 GPU 全景认知  本文是「GPU系统拆解」系列第 01 篇。 系列导读：GPU系统拆解-00-导读：从架构认知到推理系统的学习路线 下一篇：GPU系统拆解-02-从 RTX 4090 出发：Ada 架构如何影响 CUDA 与推理   本篇的任务不是介绍显卡型号，而是建立一张足够稳定的认知地图：你需要知道 4090 处在什么位置，为">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/nvidia.png">
+<meta property="article:published_time" content="2026-04-05T00:30:00.000Z">
+<meta property="article:modified_time" content="2026-04-04T18:24:31.730Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="AI Infrastructure">
+<meta property="article:tag" content="GPU">
+<meta property="article:tag" content="学习路线">
+<meta property="article:tag" content="GPU架构">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/nvidia.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "GPU系统拆解-01-架构地图：先建立面向 AI Infra 的 GPU 全景认知",
+  "url": "https://smarter.xin/posts/e773bbfa/",
+  "image": "https://smarter.xin/img/nvidia.png",
+  "datePublished": "2026-04-05T00:30:00.000Z",
+  "dateModified": "2026-04-04T18:24:31.730Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/e773bbfa/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'GPU系统拆解-01-架构地图：先建立面向 AI Infra 的 GPU 全景认知',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">188</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">305</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">28</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/nvidia.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">GPU系统拆解-01-架构地图：先建立面向 AI Infra 的 GPU 全景认知</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">GPU系统拆解-01-架构地图：先建立面向 AI Infra 的 GPU 全景认知</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-04-05T00:30:00.000Z" title="发表于 2026-04-05 08:30:00">2026-04-05</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-04-04T18:24:31.730Z" title="更新于 2026-04-05 02:24:31">2026-04-05</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/">AI Infra</a><i class="fas fa-angle-right post-meta-separator"></i><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/gpu/">GPU</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">3.2k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>10分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="gpu-xi-tong-chai-jie-01-jia-gou-di-tu-xian-jian-li-mian-xiang-ai-infra-de-gpu-quan-jing-ren-zhi" tabindex="-1">GPU系统拆解-01-架构地图：先建立面向 AI Infra 的 GPU 全景认知</h1>
+<blockquote>
+<p>本文是「GPU系统拆解」系列第 01 篇。<br>
+系列导读：<a href="/posts/3f7ace4/">GPU系统拆解-00-导读：从架构认知到推理系统的学习路线</a><br>
+下一篇：<a href="/posts/3f64a590/">GPU系统拆解-02-从 RTX 4090 出发：Ada 架构如何影响 CUDA 与推理</a></p>
+</blockquote>
+<blockquote>
+<p>本篇的任务不是介绍显卡型号，而是建立一张足够稳定的认知地图：你需要知道 4090 处在什么位置，为什么大厂更偏好 Hopper / Blackwell / MI300 这类数据中心架构，以及这些架构差异为什么会直接影响 CUDA 写法和推理系统设计。</p>
+</blockquote>
+<h2 id="1-xian-gei-jie-lun" tabindex="-1" id="1-先给结论">1. 先给结论</h2>
+<ul>
+<li>学 GPU 架构，重点不是背参数，而是理解硬件在为哪类负载服务。</li>
+<li>4090 属于 Ada 架构，适合做 CUDA、算子优化和单机推理实验，但不是大规模生产集群的默认答案。</li>
+<li>大厂更偏好 Hopper、Blackwell、MI300 这类架构，核心原因通常是显存容量、带宽、互连和系统部署能力，而不是“单卡跑分更高”。</li>
+<li>GPU 架构演进会直接改变你看待 Tensor Core、memory hierarchy、多卡通信和推理瓶颈的方式。</li>
+<li>对 <code>AI infra / 推理</code> 岗位来说，GPU 架构不是背景知识，而是后续理解 CUDA、profiling 和 serving 系统的前提。</li>
+</ul>
+<h2 id="2-xue-gpu-jia-gou-dao-di-zai-xue-shi-yao" tabindex="-1" id="2-学-GPU-架构，到底在学什么">2. 学 GPU 架构，到底在学什么</h2>
+<p>很多人一提 GPU，先想到的是：</p>
+<ul>
+<li>CUDA 核心数</li>
+<li>显存大小</li>
+<li>带宽</li>
+<li>Tensor Core</li>
+<li>FP16 / INT8 / FP8</li>
+<li>某张卡比另一张卡快多少</li>
+</ul>
+<p>这些都重要，但它们更接近结果，不是原因。</p>
+<p>更应该先抓住的是：GPU 架构在持续围绕几类目标演进：</p>
+<ul>
+<li>更高吞吐</li>
+<li>更高带宽利用</li>
+<li>更强的矩阵计算路径</li>
+<li>更大的系统扩展能力</li>
+<li>更适合 AI 训练和推理的资源组织方式</li>
+</ul>
+<p>所以学习 GPU 架构，本质上是在回答两个问题：</p>
+<ol>
+<li>这代硬件主要想解决什么问题。</li>
+<li>这些设计目标会如何反映到 CUDA 写法、算子实现和推理系统设计上。</li>
+</ol>
+<h2 id="3-wei-shi-yao-gpu-bu-shi-geng-kuai-de-cpu" tabindex="-1" id="3-为什么-GPU-不是“更快的-CPU”">3. 为什么 GPU 不是“更快的 CPU”</h2>
+<h3 id="3-1-cpu-de-she-ji-mu-biao" tabindex="-1" id="3-1-CPU-的设计目标">3.1 CPU 的设计目标</h3>
+<p>CPU 更强调：</p>
+<ul>
+<li>低延迟</li>
+<li>复杂控制流</li>
+<li>分支预测</li>
+<li>大缓存层级</li>
+<li>通用性和串行能力</li>
+</ul>
+<p>所以 CPU 更适合：</p>
+<ul>
+<li>操作系统和调度逻辑</li>
+<li>复杂控制面代码</li>
+<li>分支多、规则性弱的小规模任务</li>
+</ul>
+<h3 id="3-2-gpu-de-she-ji-mu-biao" tabindex="-1" id="3-2-GPU-的设计目标">3.2 GPU 的设计目标</h3>
+<p>GPU 更强调：</p>
+<ul>
+<li>高吞吐</li>
+<li>大规模并行</li>
+<li>对相似指令流的大批量处理</li>
+<li>高带宽供数</li>
+<li>尽量让算术单元持续工作</li>
+</ul>
+<p>所以 GPU 更适合：</p>
+<ul>
+<li>GEMM</li>
+<li>卷积</li>
+<li>Attention</li>
+<li>Softmax、LayerNorm 这类规则性较强的张量算子</li>
+</ul>
+<h3 id="3-3-zhe-dui-tui-li-yi-wei-zhao-shi-yao" tabindex="-1" id="3-3-这对推理意味着什么">3.3 这对推理意味着什么</h3>
+<p>深度学习推理的大部分核心算子，都更接近“规则的并行计算”，而不是“复杂的控制流程序”。这就是 GPU 能成为 AI 推理主力硬件的根本原因。</p>
+<p>从这个角度看，GPU 架构演进其实一直在回答同一个问题：</p>
+<blockquote>
+<p>怎样更高效地执行大规模张量计算，并把数据持续喂给这些计算单元。</p>
+</blockquote>
+<h2 id="4-dang-qian-zui-zhong-yao-de-gpu-jia-gou-di-tu" tabindex="-1" id="4-当前最重要的-GPU-架构地图">4. 当前最重要的 GPU 架构地图</h2>
+<p>在 AI infra / 推理语境里，先建立一张够用的地图，比一开始抠微架构细节更重要。</p>
+<h3 id="4-1-nvidia-zhu-xian" tabindex="-1" id="4-1-NVIDIA-主线">4.1 NVIDIA 主线</h3>
+<p>当前最值得先抓住的几代是：</p>
+<ol>
+<li><code>Ampere</code></li>
+<li><code>Ada Lovelace</code></li>
+<li><code>Hopper</code></li>
+<li><code>Blackwell</code></li>
+</ol>
+<p>这几代不是简单的新旧关系，而是对应不同的阶段重点：</p>
+<ul>
+<li><code>Ampere</code>：很多现代 CUDA 优化范式开始更系统化，已经很接近今天常见的 AI 算子优化思路。</li>
+<li><code>Ada</code>：4090 所在代，消费级性能很强，适合做高质量单机学习和实验。</li>
+<li><code>Hopper</code>：真正进入大模型时代后非常关键的一代数据中心架构，很多设计直接围绕 AI 工作负载展开。</li>
+<li><code>Blackwell</code>：继续把 AI 作为核心驱动，在吞吐、低精度、互连和系统扩展上进一步强化。</li>
+</ul>
+<h3 id="4-2-amd-dui-zhao-xian" tabindex="-1" id="4-2-AMD-对照线">4.2 AMD 对照线</h3>
+<p>如果只会讲 NVIDIA，理解会偏窄。至少要知道另一条对照线：</p>
+<ul>
+<li><code>CDNA</code></li>
+<li><code>MI300</code> 系列</li>
+</ul>
+<p>你不一定要先深入 AMD 细节，但至少要理解一件事：行业在看 GPU 时，越来越不只看单卡 FLOPS，而是一起看：</p>
+<ul>
+<li>显存容量</li>
+<li>显存带宽</li>
+<li>GPU 间互连</li>
+<li>软件栈成熟度</li>
+</ul>
+<p>这也是 MI300X / MI325X 会不断进入大模型训练和推理讨论的原因。</p>
+<h2 id="5-4090-zai-zhe-zhang-di-tu-li-de-wei-zhi" tabindex="-1" id="5-4090-在这张地图里的位置">5. 4090 在这张地图里的位置</h2>
+<h3 id="5-1-4090-shi-shi-yao" tabindex="-1" id="5-1-4090-是什么">5.1 4090 是什么</h3>
+<p>4090 属于 <code>GeForce RTX 40</code> 系列，基于 <code>Ada Lovelace</code> 架构。它首先是高端消费级 GPU，不是为大规模数据中心部署设计的产品。</p>
+<h3 id="5-2-wei-shi-yao-ta-hen-gua-he-xue-xi" tabindex="-1" id="5-2-为什么它很适合学习">5.2 为什么它很适合学习</h3>
+<p>对你的目标来说，4090 的价值很明确：</p>
+<ul>
+<li>单卡性能强，足以跑大量 CUDA 实验</li>
+<li>24GB 显存能支撑不少单机推理、量化和算子开发场景</li>
+<li>已经具备现代 GPU 的关键特征，可以学习 warp、memory hierarchy、Tensor Core、kernel launch、stream、async 等核心机制</li>
+</ul>
+<p>更重要的是，它能帮你建立大部分“架构感知的 CUDA 思维”：</p>
+<ul>
+<li>怎么理解 compute 和 memory 的关系</li>
+<li>怎么看数据复用、tile 和带宽压力</li>
+<li>怎么分析常见算子的执行特点</li>
+</ul>
+<h3 id="5-3-ta-de-bian-jie-shi-shi-yao" tabindex="-1" id="5-3-它的边界是什么">5.3 它的边界是什么</h3>
+<p>4090 的问题不在于“不强”，而在于它不是围绕数据中心 AI 系统整体设计的。</p>
+<p>它的常见边界包括：</p>
+<ul>
+<li>显存容量对超大模型、长上下文和大并发推理仍然紧张</li>
+<li>多卡扩展和互连能力不是主设计目标</li>
+<li>企业级部署形态、多租户能力、长期稳定运行能力与数据中心产品不同</li>
+</ul>
+<p>所以更准确的结论是：</p>
+<blockquote>
+<p>4090 很适合学习现代 GPU、CUDA 和单机推理实验，但不能把它直接等同于线上大规模 AI 集群的标准硬件。</p>
+</blockquote>
+<h2 id="6-wei-shi-yao-da-han-geng-pian-hao-shu-ju-zhong-xin-gpu" tabindex="-1" id="6-为什么大厂更偏好数据中心-GPU">6. 为什么大厂更偏好数据中心 GPU</h2>
+<h3 id="6-1-da-han-zhen-zheng-guan-xin-de-bu-shi-dan-qia-kuai-bu-kuai" tabindex="-1" id="6-1-大厂真正关心的不是“单卡快不快”">6.1 大厂真正关心的不是“单卡快不快”</h3>
+<p>大模型训练和推理里，大厂通常更关心：</p>
+<ul>
+<li>模型和 KV cache 能不能放下</li>
+<li>显存带宽是否足够支撑持续供数</li>
+<li>多卡通信是否高效</li>
+<li>机器是否容易扩展到整机、整柜、整集群</li>
+<li>是否适合多租户和长期稳定运行</li>
+</ul>
+<p>这也是为什么数据中心 GPU 的价值，经常体现在“更像系统底座”，而不是“更像一张更贵的显卡”。</p>
+<h3 id="6-2-wei-shi-yao-xian-cun-he-dai-kuan-te-bie-zhong-yao" tabindex="-1" id="6-2-为什么显存和带宽特别重要">6.2 为什么显存和带宽特别重要</h3>
+<p>对现代大模型推理来说，很多场景下瓶颈不只是算力。</p>
+<p>真正经常卡住系统的是：</p>
+<ul>
+<li><code>显存容量</code>：权重和 KV cache 能否容纳</li>
+<li><code>显存带宽</code>：decode 阶段频繁读取权重和历史 KV 是否足够快</li>
+<li><code>互连带宽</code>：多卡并行时通信是否拖慢整体效率</li>
+</ul>
+<p>这也是为什么只看理论 FLOPS 往往不够，尤其在长上下文、连续批处理和高并发推理场景下更是如此。</p>
+<h3 id="6-3-hopper-blackwell-zhe-lei-jia-gou-zai-qiang-hua-shi-yao" tabindex="-1" id="6-3-Hopper-Blackwell-这类架构在强化什么">6.3 Hopper / Blackwell 这类架构在强化什么</h3>
+<p>从系统角度看，数据中心 AI 架构通常在强化以下几类能力：</p>
+<ul>
+<li>更强的矩阵计算路径</li>
+<li>更成熟的低精度支持</li>
+<li>更大的显存容量和更高的显存带宽</li>
+<li>更强的 GPU-GPU 互连</li>
+<li>更适合集群化部署的资源组织方式</li>
+</ul>
+<p>所以理解这些架构时，不要只问“比上一代快多少”，而要问：</p>
+<blockquote>
+<p>它在系统层面放大了哪类能力，解决了哪类 AI 工作负载问题。</p>
+</blockquote>
+<h2 id="7-zhe-zhang-di-tu-wei-shi-yao-hui-zhi-jie-ying-xiang-cuda-he-tui-li-xi-tong" tabindex="-1" id="7-这张地图为什么会直接影响-CUDA-和推理系统">7. 这张地图为什么会直接影响 CUDA 和推理系统</h2>
+<p>架构地图不是硬件史，它会直接改变你的工程判断。</p>
+<h3 id="7-1-dang-memory-hierarchy-geng-zhong-yao-shi" tabindex="-1" id="7-1-当-memory-hierarchy-更重要时">7.1 当 memory hierarchy 更重要时</h3>
+<p>你写 CUDA 就必须更重视：</p>
+<ul>
+<li>数据布局</li>
+<li>coalescing</li>
+<li>tile 设计</li>
+<li>shared memory 或 cache 的数据复用</li>
+<li>访存与计算的重叠</li>
+</ul>
+<h3 id="7-2-dang-tensor-core-cheng-wei-zhu-lu-jing-shi" tabindex="-1" id="7-2-当-Tensor-Core-成为主路径时">7.2 当 Tensor Core 成为主路径时</h3>
+<p>你不能再把优化理解成“把循环写快一点”，而要转成：</p>
+<ul>
+<li>用 GEMM 视角理解算子</li>
+<li>用 block tile / warp tile 理解并行映射</li>
+<li>用 mixed precision 和 layout 视角理解吞吐来源</li>
+</ul>
+<h3 id="7-3-dang-xi-tong-kai-shi-qiang-diao-hu-lian-he-kuo-zhan-shi" tabindex="-1" id="7-3-当系统开始强调互连和扩展时">7.3 当系统开始强调互连和扩展时</h3>
+<p>单卡优化就不再是全部。你需要开始考虑：</p>
+<ul>
+<li>多卡通信</li>
+<li>张量并行和流水并行</li>
+<li>KV cache 的分布与同步</li>
+<li>拓扑对整体效率的影响</li>
+</ul>
+<h3 id="7-4-dang-tui-li-yue-lai-yue-shou-dai-kuan-he-xian-cun-yue-shu-shi" tabindex="-1" id="7-4-当推理越来越受带宽和显存约束时">7.4 当推理越来越受带宽和显存约束时</h3>
+<p>你会更容易理解为什么推理系统反复讨论：</p>
+<ul>
+<li>prefill / decode 分离</li>
+<li>continuous batching</li>
+<li>paged attention</li>
+<li>KV cache 管理</li>
+<li>memory-bound vs compute-bound</li>
+</ul>
+<p>这些不是“框架作者的偏好”，而是硬件约束推动出来的系统设计。</p>
+<h2 id="8-yong-tui-li-shi-jiao-li-jie-zhe-zhang-tu" tabindex="-1" id="8-用推理视角理解这张图">8. 用推理视角理解这张图</h2>
+<p>对 <code>AI infra / 推理</code> 岗位来说，最重要的是把架构地图和真实负载对应起来。</p>
+<p>以 LLM inference 为例，至少要区分两个阶段：</p>
+<ul>
+<li><code>prefill</code>：更像大块、规则的 dense 计算，更容易吃到矩阵计算能力</li>
+<li><code>decode</code>：每步新增计算量不大，但频繁读取权重和历史 KV，更容易暴露显存带宽和访存模式问题</li>
+</ul>
+<p>这会直接影响你对硬件的判断：</p>
+<ul>
+<li>不是所有推理瓶颈都能靠更高 FLOPS 解决</li>
+<li>长上下文和高并发场景往往特别依赖显存和带宽</li>
+<li>大厂选型时更关注系统平衡，而不是孤立的单卡算力</li>
+</ul>
+<p>所以学习 GPU 架构的真正价值，是建立这样一种认知：</p>
+<blockquote>
+<p>推理系统设计，本质上是在适配 GPU 的能力边界和资源约束。</p>
+</blockquote>
+<h2 id="9-chang-jian-wu-qu" tabindex="-1" id="9-常见误区">9. 常见误区</h2>
+<ul>
+<li>
+<p><code>误区 1：学 GPU 架构就是背型号和参数。</code><br>
+更重要的是理解每代硬件在为哪类负载服务。</p>
+</li>
+<li>
+<p><code>误区 2：4090 不是数据中心卡，所以学习价值不大。</code><br>
+对单机学习、CUDA 实验和推理原型开发来说，4090 仍然非常有价值。</p>
+</li>
+<li>
+<p><code>误区 3：只要 FLOPS 高，推理就一定快。</code><br>
+很多推理场景真正卡的是显存容量、带宽、互连和数据流组织。</p>
+</li>
+<li>
+<p><code>误区 4：架构知识和 CUDA 写法关系不大。</code><br>
+实际上 memory hierarchy、Tensor Core、互连和资源组织都会直接影响优化方式。</p>
+</li>
+<li>
+<p><code>误区 5：单卡优化做好了，多卡只是简单复制。</code><br>
+一旦进入多卡，问题很快会转向通信、拓扑和系统调度。</p>
+</li>
+</ul>
+<h2 id="10-ben-pian-bi-xu-ji-zhu-de-nei-rong" tabindex="-1" id="10-本篇必须记住的内容">10. 本篇必须记住的内容</h2>
+<ul>
+<li>GPU 架构学习的重点是硬件设计目标，不是参数背诵。</li>
+<li>4090 属于 Ada 架构，适合学习和单机实验，但不是大规模生产部署的标准答案。</li>
+<li>数据中心 GPU 的优势通常体现在显存、带宽、互连和系统部署能力上。</li>
+<li>GPU 架构演进会改变你对 CUDA 优化、Tensor Core、访存和多卡系统的理解。</li>
+<li>对推理系统来说，很多瓶颈不是纯算力问题，而是数据供给和资源组织问题。</li>
+<li>prefill 和 decode 的硬件特征不同，因此选型和优化重点也不同。</li>
+<li>学架构的最终目的，是反推 CUDA 写法、性能判断和推理系统设计。</li>
+</ul>
+<h2 id="11-jing-jian-ban-mian-shi-biao-da" tabindex="-1" id="11-精简版面试表达">11. 精简版面试表达</h2>
+<h3 id="4090-gua-bu-gua-he-xue-ai-infra-tui-li" tabindex="-1" id="4090-适不适合学-AI-infra-推理">4090 适不适合学 AI infra / 推理</h3>
+<p>可以。4090 属于 Ada 架构，已经足够现代，适合学习 CUDA、算子优化、单机推理和 profiling。它的局限不在于不够强，而在于不是为大规模数据中心部署设计的，所以学习价值和生产选型价值要分开看。</p>
+<h3 id="wei-shi-yao-da-han-geng-pian-hao-h-100-b-200-mi-300" tabindex="-1" id="为什么大厂更偏好-H100-B200-MI300">为什么大厂更偏好 H100 / B200 / MI300</h3>
+<p>核心不是“4090 不快”，而是数据中心 GPU 在显存容量、带宽、互连、扩展性和部署能力上更适合大模型训练与推理，尤其在长上下文、多卡并行和高并发场景下更明显。</p>
+<h3 id="xue-gpu-jia-gou-dui-cuda-you-shi-yao-yi-yi" tabindex="-1" id="学-GPU-架构对-CUDA-有什么意义">学 GPU 架构对 CUDA 有什么意义</h3>
+<p>它能帮助你理解硬件真正偏好什么，再反推优化方法。比如 memory hierarchy 决定你要重视 coalescing 和数据复用，Tensor Core 决定你要从 GEMM 视角理解算子，多卡互连能力则会直接影响系统级推理设计。</p>
+<hr>
+<h2 id="xi-lie-dao-hang" tabindex="-1" id="系列导航">系列导航</h2>
+<ul>
+<li>导读：<a href="/posts/3f7ace4/">GPU系统拆解-00-导读：从架构认知到推理系统的学习路线</a></li>
+<li>下一篇：<a href="/posts/3f64a590/">GPU系统拆解-02-从 RTX 4090 出发：Ada 架构如何影响 CUDA 与推理</a></li>
+<li>延伸阅读：<a href="/posts/92dc1028/">CUDA C编程权威指南：导读</a></li>
+<li>延伸阅读：<a href="/posts/30730973/">PMPP-大规模并行处理器程序设计：导读</a></li>
+</ul>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/e773bbfa/">https://smarter.xin/posts/e773bbfa/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/ai-infrastructure/">AI Infrastructure</a><a class="post-meta__tags" href="/tags/gpu/">GPU</a><a class="post-meta__tags" href="/tags/learning-path/">学习路线</a><a class="post-meta__tags" href="/tags/gpu-architecture/">GPU架构</a></div><div class="post-share"><div class="social-share" data-image="/img/nvidia.png" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/3f64a590/" title="GPU系统拆解-02-从 RTX 4090 出发：Ada 架构如何影响 CUDA 与推理"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">GPU系统拆解-02-从 RTX 4090 出发：Ada 架构如何影响 CUDA 与推理</div></div></div></a><a class="pagination-related  no-desc" href="/posts/3f7ace4/" title="GPU系统拆解-00-导读：从架构认知到推理系统的学习路线"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">GPU系统拆解-00-导读：从架构认知到推理系统的学习路线</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/3f7ace4/" title="GPU系统拆解-00-导读：从架构认知到推理系统的学习路线"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-04-05</div><div class="info-item-2">GPU系统拆解-00-导读：从架构认知到推理系统的学习路线</div></div></div></a><a class="pagination-related no-desc" href="/posts/72d2a668/" title="GPU系统拆解-04-数据中心架构：为什么大厂更偏好 Hopper、Blackwell 与 MI300"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-04-05</div><div class="info-item-2">GPU系统拆解-04-数据中心架构：为什么大厂更偏好 Hopper、Blackwell 与 MI300</div></div></div></a><a class="pagination-related no-desc" href="/posts/b21cbc80/" title="AI Infra学习之旅-第一个vLLM程序"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2025-12-31</div><div class="info-item-2">AI Infra学习之旅-第一个vLLM程序</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">我就是要爬这座山<br>再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">188</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">305</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">28</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#gpu-xi-tong-chai-jie-01-jia-gou-di-tu-xian-jian-li-mian-xiang-ai-infra-de-gpu-quan-jing-ren-zhi"><span class="toc-text">GPU系统拆解-01-架构地图：先建立面向 AI Infra 的 GPU 全景认知</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#1-xian-gei-jie-lun"><span class="toc-text">1. 先给结论</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-xue-gpu-jia-gou-dao-di-zai-xue-shi-yao"><span class="toc-text">2. 学 GPU 架构，到底在学什么</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#3-wei-shi-yao-gpu-bu-shi-geng-kuai-de-cpu"><span class="toc-text">3. 为什么 GPU 不是“更快的 CPU”</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#3-1-cpu-de-she-ji-mu-biao"><span class="toc-text">3.1 CPU 的设计目标</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-2-gpu-de-she-ji-mu-biao"><span class="toc-text">3.2 GPU 的设计目标</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-3-zhe-dui-tui-li-yi-wei-zhao-shi-yao"><span class="toc-text">3.3 这对推理意味着什么</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#4-dang-qian-zui-zhong-yao-de-gpu-jia-gou-di-tu"><span class="toc-text">4. 当前最重要的 GPU 架构地图</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#4-1-nvidia-zhu-xian"><span class="toc-text">4.1 NVIDIA 主线</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-2-amd-dui-zhao-xian"><span class="toc-text">4.2 AMD 对照线</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#5-4090-zai-zhe-zhang-di-tu-li-de-wei-zhi"><span class="toc-text">5. 4090 在这张地图里的位置</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#5-1-4090-shi-shi-yao"><span class="toc-text">5.1 4090 是什么</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-2-wei-shi-yao-ta-hen-gua-he-xue-xi"><span class="toc-text">5.2 为什么它很适合学习</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-3-ta-de-bian-jie-shi-shi-yao"><span class="toc-text">5.3 它的边界是什么</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#6-wei-shi-yao-da-han-geng-pian-hao-shu-ju-zhong-xin-gpu"><span class="toc-text">6. 为什么大厂更偏好数据中心 GPU</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#6-1-da-han-zhen-zheng-guan-xin-de-bu-shi-dan-qia-kuai-bu-kuai"><span class="toc-text">6.1 大厂真正关心的不是“单卡快不快”</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-2-wei-shi-yao-xian-cun-he-dai-kuan-te-bie-zhong-yao"><span class="toc-text">6.2 为什么显存和带宽特别重要</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-3-hopper-blackwell-zhe-lei-jia-gou-zai-qiang-hua-shi-yao"><span class="toc-text">6.3 Hopper &#x2F; Blackwell 这类架构在强化什么</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#7-zhe-zhang-di-tu-wei-shi-yao-hui-zhi-jie-ying-xiang-cuda-he-tui-li-xi-tong"><span class="toc-text">7. 这张地图为什么会直接影响 CUDA 和推理系统</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#7-1-dang-memory-hierarchy-geng-zhong-yao-shi"><span class="toc-text">7.1 当 memory hierarchy 更重要时</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#7-2-dang-tensor-core-cheng-wei-zhu-lu-jing-shi"><span class="toc-text">7.2 当 Tensor Core 成为主路径时</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#7-3-dang-xi-tong-kai-shi-qiang-diao-hu-lian-he-kuo-zhan-shi"><span class="toc-text">7.3 当系统开始强调互连和扩展时</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#7-4-dang-tui-li-yue-lai-yue-shou-dai-kuan-he-xian-cun-yue-shu-shi"><span class="toc-text">7.4 当推理越来越受带宽和显存约束时</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#8-yong-tui-li-shi-jiao-li-jie-zhe-zhang-tu"><span class="toc-text">8. 用推理视角理解这张图</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#9-chang-jian-wu-qu"><span class="toc-text">9. 常见误区</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#10-ben-pian-bi-xu-ji-zhu-de-nei-rong"><span class="toc-text">10. 本篇必须记住的内容</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#11-jing-jian-ban-mian-shi-biao-da"><span class="toc-text">11. 精简版面试表达</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#4090-gua-bu-gua-he-xue-ai-infra-tui-li"><span class="toc-text">4090 适不适合学 AI infra &#x2F; 推理</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#wei-shi-yao-da-han-geng-pian-hao-h-100-b-200-mi-300"><span class="toc-text">为什么大厂更偏好 H100 &#x2F; B200 &#x2F; MI300</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#xue-gpu-jia-gou-dui-cuda-you-shi-yao-yi-yi"><span class="toc-text">学 GPU 架构对 CUDA 有什么意义</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xi-lie-dao-hang"><span class="toc-text">系列导航</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/b47bc812/" title="GPU系统拆解-14-从 PyTorch 到 CUDA Extension：把算子真正接入工程"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="GPU系统拆解-14-从 PyTorch 到 CUDA Extension：把算子真正接入工程"/></a><div class="content"><a class="title" href="/posts/b47bc812/" title="GPU系统拆解-14-从 PyTorch 到 CUDA Extension：把算子真正接入工程">GPU系统拆解-14-从 PyTorch 到 CUDA Extension：把算子真正接入工程</a><time datetime="2026-04-05T07:00:00.000Z" title="发表于 2026-04-05 15:00:00">2026-04-05</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/68e6bad5/" title="GPU系统拆解-13-多 GPU 与通信：并行策略、拓扑与扩展代价"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="GPU系统拆解-13-多 GPU 与通信：并行策略、拓扑与扩展代价"/></a><div class="content"><a class="title" href="/posts/68e6bad5/" title="GPU系统拆解-13-多 GPU 与通信：并行策略、拓扑与扩展代价">GPU系统拆解-13-多 GPU 与通信：并行策略、拓扑与扩展代价</a><time datetime="2026-04-05T06:30:00.000Z" title="发表于 2026-04-05 14:30:00">2026-04-05</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/e141fe5/" title="GPU系统拆解-12-LLM 推理的 GPU 主线：Prefill、Decode、KV Cache 与系统约束"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="GPU系统拆解-12-LLM 推理的 GPU 主线：Prefill、Decode、KV Cache 与系统约束"/></a><div class="content"><a class="title" href="/posts/e141fe5/" title="GPU系统拆解-12-LLM 推理的 GPU 主线：Prefill、Decode、KV Cache 与系统约束">GPU系统拆解-12-LLM 推理的 GPU 主线：Prefill、Decode、KV Cache 与系统约束</a><time datetime="2026-04-05T06:00:00.000Z" title="发表于 2026-04-05 14:00:00">2026-04-05</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/attentionisallyouneed.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">从 Self-Attention、位置编码到 Encoder-Decoder，系统梳理 Transformer 的核心结构、设计动机与理解路径</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/d6fa227a/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-16</span><a class="blog-slider__title" href="posts/d6fa227a/" alt="">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</a><div class="blog-slider__text">从访存优化到多卡通信，一篇看清 CUDA 实践系列的结构与学习路线</div><a class="blog-slider__button" href="posts/d6fa227a/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/43c4b52e/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/agent.webp" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-24</span><a class="blog-slider__title" href="posts/43c4b52e/" alt="">从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路</a><div class="blog-slider__text">使用飞书与本地 Agent 对话，远程也要让本地 Agent 干活，当一名狠狠的资本家</div><a class="blog-slider__button" href="posts/43c4b52e/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/92dc1028/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/CUDA_C.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-02-05</span><a class="blog-slider__title" href="posts/92dc1028/" alt="">CUDA C编程权威指南-导读</a><div class="blog-slider__text">从异构并行到多 GPU 实践，串起 CUDA C 权威指南的核心学习路线</div><a class="blog-slider__button" href="posts/92dc1028/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">从全书视角出发，一篇看清 PMPP 的章节结构、核心主题与学习主线</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/aac6e27d/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Computer_System.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/aac6e27d/" alt="">深入理解计算机系统知识点总结</a><div class="blog-slider__text">从程序员视角梳理 CSAPP 的知识脉络、系统抽象与性能理解</div><a class="blog-slider__button" href="posts/aac6e27d/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">围绕类型推导、移动语义与并发，提炼现代 C++ 的核心实践</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>

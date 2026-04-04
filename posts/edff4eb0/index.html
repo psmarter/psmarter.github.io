@@ -1,0 +1,827 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>GPU系统拆解-09-Profiling 与性能定位：先找到瓶颈，再谈优化 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="GPU系统拆解-09-Profiling 与性能定位：先找到瓶颈，再谈优化  本文是「GPU系统拆解」系列第 09 篇。 系列导读：GPU系统拆解-00-导读：从架构认知到推理系统的学习路线 上一篇：GPU系统拆解-08-Tensor Core、GEMM 与 FlashAttention：AI 计算热点为什么这样组织 下一篇：GPU系统拆解-10-面试表达与系统思维：怎么把 GPU 理解讲成工程判">
+<meta property="og:type" content="article">
+<meta property="og:title" content="GPU系统拆解-09-Profiling 与性能定位：先找到瓶颈，再谈优化">
+<meta property="og:url" content="https://smarter.xin/posts/edff4eb0/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="GPU系统拆解-09-Profiling 与性能定位：先找到瓶颈，再谈优化  本文是「GPU系统拆解」系列第 09 篇。 系列导读：GPU系统拆解-00-导读：从架构认知到推理系统的学习路线 上一篇：GPU系统拆解-08-Tensor Core、GEMM 与 FlashAttention：AI 计算热点为什么这样组织 下一篇：GPU系统拆解-10-面试表达与系统思维：怎么把 GPU 理解讲成工程判">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/nvidia.png">
+<meta property="article:published_time" content="2026-04-05T04:30:00.000Z">
+<meta property="article:modified_time" content="2026-04-04T18:24:31.730Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="GPU">
+<meta property="article:tag" content="Roofline">
+<meta property="article:tag" content="Nsight Compute">
+<meta property="article:tag" content="性能剖析">
+<meta property="article:tag" content="占用率">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/nvidia.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "GPU系统拆解-09-Profiling 与性能定位：先找到瓶颈，再谈优化",
+  "url": "https://smarter.xin/posts/edff4eb0/",
+  "image": "https://smarter.xin/img/nvidia.png",
+  "datePublished": "2026-04-05T04:30:00.000Z",
+  "dateModified": "2026-04-04T18:24:31.730Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/edff4eb0/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'GPU系统拆解-09-Profiling 与性能定位：先找到瓶颈，再谈优化',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">188</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">305</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">28</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/nvidia.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">GPU系统拆解-09-Profiling 与性能定位：先找到瓶颈，再谈优化</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">GPU系统拆解-09-Profiling 与性能定位：先找到瓶颈，再谈优化</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-04-05T04:30:00.000Z" title="发表于 2026-04-05 12:30:00">2026-04-05</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-04-04T18:24:31.730Z" title="更新于 2026-04-05 02:24:31">2026-04-05</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/">AI Infra</a><i class="fas fa-angle-right post-meta-separator"></i><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/gpu/">GPU</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">3.8k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>12分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="gpu-xi-tong-chai-jie-09-profiling-yu-xing-neng-ding-wei-xian-zhao-dao-ping-jing-zai-tan-you-hua" tabindex="-1">GPU系统拆解-09-Profiling 与性能定位：先找到瓶颈，再谈优化</h1>
+<blockquote>
+<p>本文是「GPU系统拆解」系列第 09 篇。<br>
+系列导读：<a href="/posts/3f7ace4/">GPU系统拆解-00-导读：从架构认知到推理系统的学习路线</a><br>
+上一篇：<a href="/posts/6577c292/">GPU系统拆解-08-Tensor Core、GEMM 与 FlashAttention：AI 计算热点为什么这样组织</a><br>
+下一篇：<a href="/posts/821fc7ff/">GPU系统拆解-10-面试表达与系统思维：怎么把 GPU 理解讲成工程判断</a></p>
+</blockquote>
+<blockquote>
+<p>这一篇要解决的是一个非常实际的问题：当一个 CUDA 程序或推理系统变慢时，你应该先看什么、怎么判断、哪些指标真正有用，以及这些指标最后怎样转化成优化动作。学完这一篇之后，你的目标不是“会点开 Nsight”，而是建立一套从现象走到结论的性能诊断框架。</p>
+</blockquote>
+<h2 id="1-xian-gei-jie-lun" tabindex="-1" id="1-先给结论">1. 先给结论</h2>
+<ul>
+<li>Profiling 的核心价值不是“看很多指标”，而是把“感觉慢”变成“知道慢在哪里、为什么慢”。</li>
+<li>第一层先分系统问题和 kernel 问题，所以通常先看 <code>Nsight Systems</code>，再看 <code>Nsight Compute</code>。</li>
+<li>第二层先分 <code>compute-bound</code> 和 <code>memory-bound</code>，不要一上来就盯着 <code>occupancy</code>。</li>
+<li><code>occupancy</code> 很重要，但它只是手段，不是目标；高 occupancy 也可能很慢。</li>
+<li><code>warp stall</code> 的意义，不是告诉你“线程没开起来”，而是告诉你“调度器此刻没有足够 ready 的 warp 可发射”。</li>
+<li><code>memory workload</code> 和 <code>roofline</code> 能帮助你把“算慢了”与“喂不动了”区分开。</li>
+<li>对推理系统来说，<code>prefill</code> 和 <code>decode</code> 往往是两类完全不同的性能问题。</li>
+<li>真正成熟的性能分析，不是背指标定义，而是能把指标翻译成下一步动作。</li>
+</ul>
+<h2 id="2-wei-shi-yao-profiling-shi-gpu-xue-xi-de-fen-shui-ling" tabindex="-1" id="2-为什么-Profiling-是-GPU-学习的分水岭">2. 为什么 Profiling 是 GPU 学习的分水岭</h2>
+<p>很多人学 CUDA 会停留在这一步：</p>
+<ul>
+<li>会写 kernel</li>
+<li>会 launch kernel</li>
+<li>知道 <code>shared memory</code>、<code>coalescing</code>、<code>occupancy</code> 这些词</li>
+</ul>
+<p>但一到真实工程就开始失效，原因很简单：</p>
+<blockquote>
+<p>性能问题不是靠猜出来的，而是靠 profile 定位出来的。</p>
+</blockquote>
+<p>没有 profiling 时，优化很容易沦为这些动作：</p>
+<ul>
+<li>盲目调 block size</li>
+<li>盲目上 fusion</li>
+<li>盲目加 shared memory</li>
+<li>盲目追高 occupancy</li>
+</ul>
+<p>这些动作偶尔会碰巧有效，但你无法稳定复用。</p>
+<p>所以 profiling 是一个明显分水岭：</p>
+<ul>
+<li>会写 CUDA，不代表会做 GPU 工程</li>
+<li>会看 profile，才开始真正具备定位能力</li>
+</ul>
+<h2 id="3-xian-jian-li-yi-zhang-gong-ju-fen-gong-tu" tabindex="-1" id="3-先建立一张工具分工图">3. 先建立一张工具分工图</h2>
+<p>在 NVIDIA 的工具链里，你最常用的通常是两个 profiler：</p>
+<ul>
+<li><code>Nsight Systems</code>：看系统级时间线</li>
+<li><code>Nsight Compute</code>：看单个 kernel 的微观表现</li>
+</ul>
+<p>一定要把它们的职责分开。</p>
+<h3 id="3-1-nsight-systems-xian-kan-shi-jian-dao-di-hua-zai-na" tabindex="-1" id="3-1-Nsight-Systems：先看“时间到底花在哪”">3.1 Nsight Systems：先看“时间到底花在哪”</h3>
+<p><code>Nsight Systems</code> 更像一张全局时间线，它擅长回答：</p>
+<ul>
+<li>CPU 在干什么</li>
+<li>GPU 有没有持续在工作</li>
+<li>kernel 有没有被切得很碎</li>
+<li>有没有频繁的 <code>H2D / D2H</code></li>
+<li>stream 是否真的并发</li>
+<li>同步是不是太多</li>
+</ul>
+<p>它解决的第一个关键问题是：</p>
+<blockquote>
+<p>慢，到底是慢在系统层，还是慢在某个 kernel 本身？</p>
+</blockquote>
+<h3 id="3-2-nsight-compute-zai-kan-zhe-ge-kernel-wei-shi-yao-man" tabindex="-1" id="3-2-Nsight-Compute：再看“这个-kernel-为什么慢”">3.2 Nsight Compute：再看“这个 kernel 为什么慢”</h3>
+<p><code>Nsight Compute</code> 是 kernel 级 profiler，它更擅长回答：</p>
+<ul>
+<li>这个 kernel 更像 <code>compute-bound</code> 还是 <code>memory-bound</code></li>
+<li><code>warp stall</code> 主要来自什么</li>
+<li><code>global memory</code>、<code>L2</code>、<code>shared memory</code> 的行为如何</li>
+<li>寄存器是不是太多</li>
+<li><code>occupancy</code> 被什么限制</li>
+<li>有没有真的用到预期的 Tensor Core 路径</li>
+</ul>
+<p>所以更合理的顺序通常是：</p>
+<blockquote>
+<p>先用 <code>Nsight Systems</code> 找热点，再用 <code>Nsight Compute</code> 解剖热点。</p>
+</blockquote>
+<h2 id="4-yi-ge-biao-zhun-de-xing-neng-ding-wei-liu-cheng" tabindex="-1" id="4-一个标准的性能定位流程">4. 一个标准的性能定位流程</h2>
+<p>以后遇到“程序慢”，建议先固定按这个顺序走。</p>
+<h3 id="4-1-di-yi-bu-xian-pan-duan-shi-xi-tong-ceng-wen-ti-huan-shi-kernel-ceng-wen-ti" tabindex="-1" id="4-1-第一步：先判断是系统层问题还是-kernel-层问题">4.1 第一步：先判断是系统层问题还是 kernel 层问题</h3>
+<p>先看 <code>Nsight Systems</code>。</p>
+<p>如果你发现：</p>
+<ul>
+<li>CPU 线程经常空转或阻塞</li>
+<li>kernel 很碎</li>
+<li>memcpy 很频繁</li>
+<li>graph 没 capture 住</li>
+<li>每一步都在同步</li>
+</ul>
+<p>那这更像系统层问题。</p>
+<p>如果你发现：</p>
+<ul>
+<li>GPU 大部分时间都花在少数几个 kernel 上</li>
+<li>某个 kernel 明显占了主要时间</li>
+</ul>
+<p>那才值得往 kernel 层继续深挖。</p>
+<h3 id="4-2-di-er-bu-zai-re-dian-kernel-shang-xian-fen-da-lei" tabindex="-1" id="4-2-第二步：在热点-kernel-上先分大类">4.2 第二步：在热点 kernel 上先分大类</h3>
+<p>到了热点 kernel，不要第一眼就看 occupancy。</p>
+<p>先回答一个更基础的问题：</p>
+<blockquote>
+<p>这个 kernel 主要是算力受限，还是带宽受限？</p>
+</blockquote>
+<p>这一步会决定你后面看哪些指标、做哪些优化。</p>
+<h3 id="4-3-di-san-bu-zai-kan-launch-occupancy-stall-memory-workload" tabindex="-1" id="4-3-第三步：再看-launch、occupancy、stall、memory-workload">4.3 第三步：再看 launch、occupancy、stall、memory workload</h3>
+<p>这时再进入 <code>Nsight Compute</code> 去看：</p>
+<ul>
+<li>launch statistics</li>
+<li>occupancy</li>
+<li>warp stall breakdown</li>
+<li>memory workload</li>
+<li>source correlation</li>
+</ul>
+<p>注意顺序很重要。正确顺序是“先有方向，再看细节”，不是“先淹死在一堆细节里”。</p>
+<h2 id="5-compute-bound-he-memory-bound-ying-gai-zen-yao-fen" tabindex="-1" id="5-compute-bound-和-memory-bound-应该怎么分">5. compute-bound 和 memory-bound 应该怎么分</h2>
+<p>这是 GPU 性能分析里最关键的第一道分流。</p>
+<h3 id="5-1-shi-yao-geng-xiang-compute-bound" tabindex="-1" id="5-1-什么更像-compute-bound">5.1 什么更像 compute-bound</h3>
+<p>如果一个 kernel 有这些特征：</p>
+<ul>
+<li>算术强度高</li>
+<li>ALU 或 Tensor Core 很忙</li>
+<li>内存吞吐没有逼近瓶颈</li>
+<li>stall 更像执行依赖或 pipe 压力</li>
+</ul>
+<p>那它更接近 <code>compute-bound</code>。</p>
+<p>典型例子：</p>
+<ul>
+<li>大 GEMM</li>
+<li>大 batch dense matmul</li>
+<li>Tensor Core 友好的矩阵 kernel</li>
+</ul>
+<p>这类 kernel 的常见优化方向是：</p>
+<ul>
+<li>改 tile</li>
+<li>改 pipeline</li>
+<li>提高 Tensor Core 利用率</li>
+<li>减少多余指令</li>
+<li>提高 ILP</li>
+</ul>
+<h3 id="5-2-shi-yao-geng-xiang-memory-bound" tabindex="-1" id="5-2-什么更像-memory-bound">5.2 什么更像 memory-bound</h3>
+<p>如果一个 kernel 有这些特征：</p>
+<ul>
+<li>DRAM 或 L2 很忙</li>
+<li>运算量不算大，但耗时不低</li>
+<li>warp 大量时间在等内存</li>
+<li>算力单元并没有特别忙</li>
+</ul>
+<p>那它更接近 <code>memory-bound</code>。</p>
+<p>典型例子：</p>
+<ul>
+<li>gather / scatter</li>
+<li>embedding lookup</li>
+<li>某些 <code>layernorm</code> / <code>softmax</code></li>
+<li>decode 阶段和 <code>KV cache</code> 相关的操作</li>
+<li>低算术强度的 elementwise / reduction</li>
+</ul>
+<p>这类 kernel 更常见的优化方向是：</p>
+<ul>
+<li>改访问模式</li>
+<li>提高 coalescing</li>
+<li>做数据复用</li>
+<li>减少 global round-trip</li>
+<li>融合中间步骤</li>
+</ul>
+<h2 id="6-occupancy-wei-shi-yao-zhong-yao-dan-bu-neng-mi-xin" tabindex="-1" id="6-occupancy-为什么重要，但不能迷信">6. occupancy 为什么重要，但不能迷信</h2>
+<p>很多人学 profiling 时最容易犯的错误，就是把 occupancy 当成性能目标。</p>
+<p>更准确的理解应该是：</p>
+<blockquote>
+<p>occupancy 的价值，在于判断一个 SM 上有没有足够多的活跃 warp 来隐藏延迟。</p>
+</blockquote>
+<p>如果 occupancy 太低，常见风险是：</p>
+<ul>
+<li>某些 warp 一等内存</li>
+<li>调度器没有足够多的其他 warp 可以切换</li>
+<li>SM 更容易空转</li>
+</ul>
+<p>但这不等于 occupancy 越高越快。</p>
+<h3 id="6-1-wei-shi-yao-occupancy-gao-ye-ke-neng-man" tabindex="-1" id="6-1-为什么-occupancy-高也可能慢">6.1 为什么 occupancy 高也可能慢</h3>
+<p>因为高 occupancy 只是说明“挂上去的 warp 多”，不代表：</p>
+<ul>
+<li>访存模式合理</li>
+<li>数据复用足够</li>
+<li>stall 小</li>
+<li>指令选择合理</li>
+<li>Tensor Core 用起来了</li>
+</ul>
+<p>而且很多时候，为了追高 occupancy，反而会付出代价：</p>
+<ul>
+<li>每线程寄存器预算更紧</li>
+<li>spill 风险更高</li>
+<li>shared memory tile 变小</li>
+<li>算法结构变差</li>
+</ul>
+<p>所以更合理的态度是：</p>
+<ul>
+<li>把 occupancy 当成约束信息</li>
+<li>不把 occupancy 当成最终目标</li>
+</ul>
+<h2 id="7-warp-stall-dao-di-zai-gao-su-ni-shi-yao" tabindex="-1" id="7-Warp-Stall-到底在告诉你什么">7. Warp Stall 到底在告诉你什么</h2>
+<p>从硬件视角看，调度器每个周期都想找到一个 ready warp 发射下一条指令。</p>
+<p>如果找不到，就会出现 stall。</p>
+<p>所以 <code>warp stall</code> 的真正含义不是“线程少”，而是：</p>
+<blockquote>
+<p>此刻缺少能立刻继续执行的 warp，或者即使有 warp，也被某种资源或依赖卡住了。</p>
+</blockquote>
+<h3 id="7-1-deng-nei-cun" tabindex="-1" id="7-1-等内存">7.1 等内存</h3>
+<p>这类 stall 通常暗示：</p>
+<ul>
+<li>global memory latency 高</li>
+<li>访问不连续</li>
+<li>cache 命中不好</li>
+<li>数据复用不足</li>
+</ul>
+<p>优化方向更偏：</p>
+<ul>
+<li>改访问模式</li>
+<li>做 tiling</li>
+<li>提高 coalescing</li>
+<li>增强局部复用</li>
+</ul>
+<h3 id="7-2-deng-zhi-xing-yi-lai" tabindex="-1" id="7-2-等执行依赖">7.2 等执行依赖</h3>
+<p>这类 stall 更像：</p>
+<ul>
+<li>指令链太直</li>
+<li>独立工作不够多</li>
+<li>ILP 不足</li>
+</ul>
+<p>优化方向更偏：</p>
+<ul>
+<li>重排计算顺序</li>
+<li>合理 unroll</li>
+<li>让独立数据块并行推进</li>
+</ul>
+<h3 id="7-3-deng-barrier-tong-bu" tabindex="-1" id="7-3-等-barrier-同步">7.3 等 barrier / 同步</h3>
+<p>这通常提示：</p>
+<ul>
+<li>block 内工作不均衡</li>
+<li>同步太频繁</li>
+<li>共享数据结构设计不够顺</li>
+</ul>
+<p>优化方向更偏：</p>
+<ul>
+<li>减少不必要同步</li>
+<li>重构 block 内工作划分</li>
+<li>调整 shared memory 使用方式</li>
+</ul>
+<h3 id="7-4-deng-diao-du-zi-yuan-huo-pipe" tabindex="-1" id="7-4-等调度资源或-pipe">7.4 等调度资源或 pipe</h3>
+<p>这更像是：</p>
+<ul>
+<li>某类指令过于集中</li>
+<li>某条执行管线过热</li>
+<li>指令混合不够均衡</li>
+</ul>
+<p>优化方向更偏：</p>
+<ul>
+<li>看指令构成</li>
+<li>看是否能走更合适的矩阵或向量路径</li>
+<li>调整 tile 和 pipeline</li>
+</ul>
+<h3 id="7-5-bu-yao-gu-li-kan-stall-xi-xiang" tabindex="-1" id="7-5-不要孤立看-stall-细项">7.5 不要孤立看 stall 细项</h3>
+<p>这点非常重要。</p>
+<p>单看某个 stall 细项高，不一定说明它就是主矛盾。更合理的方式是把它和整体 issue 效率一起看。</p>
+<p>只有当发射效率本身就不高时，stall breakdown 才真正有很强的诊断价值。</p>
+<h2 id="8-memory-workload-analysis-ying-gai-zen-yao-kan" tabindex="-1" id="8-Memory-Workload-Analysis-应该怎么看">8. Memory Workload Analysis 应该怎么看</h2>
+<p>这一页往往是判断 memory-bound 问题的核心证据层。</p>
+<p>它在帮你回答这些问题：</p>
+<ul>
+<li>global load / store 多不多</li>
+<li>L1 / L2 / DRAM 吞吐高不高</li>
+<li>cache 利用率怎么样</li>
+<li>访问模式规整不规整</li>
+</ul>
+<p>这里最典型的两种坏情况是：</p>
+<h3 id="8-1-dai-kuan-jie-jin-ji-xian" tabindex="-1" id="8-1-带宽接近极限">8.1 带宽接近极限</h3>
+<p>这说明 kernel 真的可能被带宽卡住了。</p>
+<p>常见动作是：</p>
+<ul>
+<li>减少数据搬运量</li>
+<li>提高复用</li>
+<li>融合算子</li>
+<li>降精度</li>
+</ul>
+<h3 id="8-2-dai-kuan-mei-da-man-dan-yi-ran-hen-man" tabindex="-1" id="8-2-带宽没打满，但依然很慢">8.2 带宽没打满，但依然很慢</h3>
+<p>这通常更麻烦，因为它往往意味着：</p>
+<ul>
+<li>访问模式差</li>
+<li>请求不规整</li>
+<li>事务合并不好</li>
+<li>cache 利用率低</li>
+</ul>
+<p>这时重点通常不是“带宽不够”，而是“带宽没被高效用起来”。</p>
+<p>对推理来说，这类问题很常见于：</p>
+<ul>
+<li>embedding / gather</li>
+<li>不规则 KV 访问</li>
+<li>小 kernel 串联造成的重复读写</li>
+</ul>
+<h2 id="9-roofline-si-wei-wei-shi-yao-zhong-yao" tabindex="-1" id="9-Roofline-思维为什么重要">9. Roofline 思维为什么重要</h2>
+<p>你不一定需要熟练画 roofline 图，但一定要有这个脑子。</p>
+<p>它的核心思想是：</p>
+<blockquote>
+<p>一个 kernel 的性能上限，要么更接近算力天花板，要么更接近带宽天花板。</p>
+</blockquote>
+<p>而决定它偏向哪边的关键，是 <code>arithmetic intensity</code>。</p>
+<p>简单说就是：</p>
+<ul>
+<li>每搬一个单位数据，做了多少计算</li>
+</ul>
+<p>这会把很多现象统一起来：</p>
+<ul>
+<li>GEMM 算术强度高，更容易逼近 compute roof</li>
+<li>gather、elementwise 算术强度低，更容易逼近 bandwidth roof</li>
+<li>prefill 更可能偏 compute-bound</li>
+<li>decode 更可能偏 memory-bound</li>
+</ul>
+<p>这也是为什么：</p>
+<ul>
+<li>更高的 TFLOPS 不一定线性改善 decode</li>
+<li>有些优化对 prefill 很有效，对 decode 却一般</li>
+</ul>
+<h2 id="10-yi-ge-geng-tie-jin-gong-cheng-de-zhen-duan-shun-xu" tabindex="-1" id="10-一个更贴近工程的诊断顺序">10. 一个更贴近工程的诊断顺序</h2>
+<p>这里给你一套更实用的工程化流程。</p>
+<h3 id="10-1-chang-jing-a-duan-dao-duan-tui-li-tun-tu-chai" tabindex="-1" id="10-1-场景-A：端到端推理吞吐差">10.1 场景 A：端到端推理吞吐差</h3>
+<p>先看 <code>Nsight Systems</code>：</p>
+<ol>
+<li>GPU 是否持续有活</li>
+<li>stream 是否真的并发</li>
+<li>CPU 是否成了瓶颈</li>
+<li>kernel 是否过碎</li>
+<li>memcpy 是否频繁</li>
+<li>是否存在过多同步</li>
+</ol>
+<p>如果这里已经发现问题，比如：</p>
+<ul>
+<li>launch 太碎</li>
+<li>CPU pipeline 不顺</li>
+<li>graph 没 capture</li>
+<li>H2D 太频繁</li>
+</ul>
+<p>那先改系统问题，不要急着抠单个 kernel。</p>
+<h3 id="10-2-chang-jing-b-mou-ge-kernel-te-bie-man" tabindex="-1" id="10-2-场景-B：某个-kernel-特别慢">10.2 场景 B：某个 kernel 特别慢</h3>
+<p>这时再看 <code>Nsight Compute</code>：</p>
+<ol>
+<li>先看它在总时间里占比多大</li>
+<li>再看 launch config 和 occupancy 是否明显异常</li>
+<li>再看 memory workload，先判断大方向</li>
+<li>再看 scheduler / warp stall</li>
+<li>必要时做 source correlation，映射回代码</li>
+</ol>
+<h3 id="10-3-chang-jing-c-mou-ge-you-hua-hou-fan-er-geng-man" tabindex="-1" id="10-3-场景-C：某个优化后反而更慢">10.3 场景 C：某个优化后反而更慢</h3>
+<p>这时最常见的原因不是“优化思路完全错了”，而是 trade-off 没算对。</p>
+<p>高频原因包括：</p>
+<ul>
+<li>寄存器上升太多</li>
+<li>shared memory 占用过大</li>
+<li>fusion 虽然减少了访存，但引入了更多同步或更差的指令调度</li>
+<li>block size 换了之后，不再适合当前架构</li>
+<li>编译器没按你预期生成更好的代码</li>
+</ul>
+<p>所以 profile 的作用不是证明“某个技巧很高级”，而是帮你看清：</p>
+<blockquote>
+<p>你到底是在用什么换来了什么。</p>
+</blockquote>
+<h2 id="11-jie-he-tui-li-chang-jing-kan-zui-chang-jian-de-ji-lei-profile-xian-xiang" tabindex="-1" id="11-结合推理场景看，最常见的几类-profile-现象">11. 结合推理场景看，最常见的几类 profile 现象</h2>
+<h3 id="11-1-prefill-kuai-decode-man" tabindex="-1" id="11-1-prefill-快，decode-慢">11.1 prefill 快，decode 慢</h3>
+<p>这往往不是 bug，而是 workload 形态不同。</p>
+<ul>
+<li><code>prefill</code> 更接近 dense compute</li>
+<li><code>decode</code> 更容易暴露缓存、带宽和 <code>KV cache</code> 问题</li>
+</ul>
+<p>所以两者瓶颈不同很正常。</p>
+<h3 id="11-2-gpu-li-yong-lu-bu-di-dan-tun-tu-huan-shi-yi-ban" tabindex="-1" id="11-2-GPU-利用率不低，但吞吐还是一般">11.2 GPU 利用率不低，但吞吐还是一般</h3>
+<p>这通常说明“GPU 有活”不等于“活的质量高”。</p>
+<p>可能的问题包括：</p>
+<ul>
+<li>memory-bound 很重</li>
+<li>活跃 warp 多，但 stall 也多</li>
+<li>有很多小 kernel 串联</li>
+<li>系统层流水并不顺</li>
+</ul>
+<h3 id="11-3-zuo-liao-fusion-yan-chi-fan-er-sheng-gao" tabindex="-1" id="11-3-做了-fusion，延迟反而升高">11.3 做了 fusion，延迟反而升高</h3>
+<p>fusion 不是天然正确。</p>
+<p>常见反效果包括：</p>
+<ul>
+<li>寄存器更高</li>
+<li>shared memory 压力更大</li>
+<li>block 内同步更多</li>
+<li>指令调度变差</li>
+</ul>
+<h3 id="11-4-block-size-geng-da-fan-er-mei-geng-kuai" tabindex="-1" id="11-4-block-size-更大，反而没更快">11.4 block size 更大，反而没更快</h3>
+<p>更大的 block 有时会带来：</p>
+<ul>
+<li>更高资源占用</li>
+<li>更低驻留数量</li>
+<li>更差 occupancy</li>
+<li>更差的工作均衡</li>
+</ul>
+<p>所以 block size 不是越大越好，而是要和 kernel 结构匹配。</p>
+<h2 id="12-4090-ada-shang-zuo-profile-shi-ying-gai-zhu-yi-shi-yao" tabindex="-1" id="12-4090-Ada-上做-profile-时，应该注意什么">12. 4090 / Ada 上做 profile 时，应该注意什么</h2>
+<p>你现在主要是在 4090 上学习，这很合适，但结论不能机械外推。</p>
+<h3 id="12-1-4090-shang-de-jie-lun-bu-deng-yu-h-100-b-200-shang-de-jie-lun" tabindex="-1" id="12-1-4090-上的结论，不等于-H100-B200-上的结论">12.1 4090 上的结论，不等于 H100 / B200 上的结论</h3>
+<p>不同 GPU 在这些方面都会影响 profile 结论：</p>
+<ul>
+<li>显存体系</li>
+<li>带宽规模</li>
+<li>cache 行为</li>
+<li>Tensor Core 路径</li>
+<li>系统互连和部署方式</li>
+</ul>
+<p>所以 4090 非常适合学习方法论，但不要把某个具体数值结论直接外推到数据中心 GPU。</p>
+<h3 id="12-2-4090-shang-geng-rong-yi-kan-chu-mou-xie-memory-bound-wen-ti" tabindex="-1" id="12-2-4090-上更容易看出某些-memory-bound-问题">12.2 4090 上更容易看出某些 memory-bound 问题</h3>
+<p>很多推理实验在 4090 上会更明显地暴露：</p>
+<ul>
+<li>KV cache 访问</li>
+<li>小 kernel 反复读写</li>
+<li>decode 里的带宽和缓存问题</li>
+</ul>
+<p>这对学习其实是好事，因为现象更直观。</p>
+<h2 id="13-zen-yang-ba-zhi-biao-fan-cheng-dong-zuo" tabindex="-1" id="13-怎样把指标翻成动作">13. 怎样把指标翻成动作</h2>
+<p>Profiling 最终不是为了“会解释图”，而是为了知道下一步改什么。</p>
+<p>可以把思路压成三层：</p>
+<h3 id="13-1-xian-fen-ceng" tabindex="-1" id="13-1-先分层">13.1 先分层</h3>
+<ul>
+<li>系统层</li>
+<li>kernel 层</li>
+</ul>
+<h3 id="13-2-zai-fen-liu" tabindex="-1" id="13-2-再分流">13.2 再分流</h3>
+<ul>
+<li><code>compute-bound</code></li>
+<li><code>memory-bound</code></li>
+</ul>
+<h3 id="13-3-zui-hou-fan-cheng-dong-zuo" tabindex="-1" id="13-3-最后翻成动作">13.3 最后翻成动作</h3>
+<p>例如：</p>
+<ul>
+<li>如果系统层碎，就减少 launch、减少同步、改善流水</li>
+<li>如果 memory-bound，就优先改访问模式和复用</li>
+<li>如果 compute-bound，就看 tile、pipeline、指令和 Tensor Core 路径</li>
+<li>如果 trade-off 变差，就看寄存器、shared memory、occupancy 的代价</li>
+</ul>
+<p>只有走到这一步，profile 才真正转化成工程价值。</p>
+<h2 id="14-zhe-yi-pian-bi-xu-ji-zhu-de-ji-ju-hua" tabindex="-1" id="14-这一篇必须记住的几句话">14. 这一篇必须记住的几句话</h2>
+<ul>
+<li>先分系统问题和 kernel 问题，通常先看 <code>Nsight Systems</code>，再看 <code>Nsight Compute</code>。</li>
+<li>先分 <code>compute-bound</code> 和 <code>memory-bound</code>，不要一上来就盯 occupancy。</li>
+<li><code>occupancy</code> 重要，但不是性能目标。</li>
+<li><code>warp stall</code> 的意义是“为什么调度器现在发不出去”，不是“线程没开起来”。</li>
+<li><code>memory workload</code> 和 <code>roofline</code> 能帮助你把“算慢了”和“喂不动了”分开。</li>
+<li>推理里的 <code>prefill</code> 和 <code>decode</code> 往往是两类不同问题。</li>
+<li>真正成熟的 profiling，不是看指标本身，而是能把指标翻成下一步动作。</li>
+</ul>
+<h2 id="15-jing-jian-ban-mian-shi-biao-da" tabindex="-1" id="15-精简版面试表达">15. 精简版面试表达</h2>
+<p>如果面试官问你平时怎么做 GPU profiling，可以这样答：</p>
+<blockquote>
+<p>我一般先用 Nsight Systems 看系统级时间线，先区分问题是出在 CPU 调度、同步、memcpy、kernel 过碎，还是集中在少数热点 kernel 上。找到热点后，再用 Nsight Compute 判断这个 kernel 更像 compute-bound 还是 memory-bound，再结合 occupancy、warp stall、memory workload 和 source correlation 去看瓶颈究竟是算力、访存、寄存器压力还是控制流问题。对推理系统来说，我会特别注意 prefill 和 decode 的差异，因为前者更接近 dense compute，后者更容易暴露 KV cache、带宽和缓存系统问题。</p>
+</blockquote>
+<hr>
+<h2 id="xi-lie-dao-hang" tabindex="-1" id="系列导航">系列导航</h2>
+<ul>
+<li>导读：<a href="/posts/3f7ace4/">GPU系统拆解-00-导读：从架构认知到推理系统的学习路线</a></li>
+<li>上一篇：<a href="/posts/6577c292/">GPU系统拆解-08-Tensor Core、GEMM 与 FlashAttention：AI 计算热点为什么这样组织</a></li>
+<li>下一篇：<a href="/posts/821fc7ff/">GPU系统拆解-10-面试表达与系统思维：怎么把 GPU 理解讲成工程判断</a></li>
+<li>延伸阅读：<a href="/posts/44cb490b/">Triton-08-性能分析与调优闭环</a></li>
+<li>延伸阅读：<a href="/posts/803b94d6/">CUDA实践-13-性能分析屋顶线与占用率</a></li>
+<li>延伸阅读：<a href="/posts/d53a5f5b/">PyTorch推理工程-07-Profiling与瓶颈分析</a></li>
+</ul>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/edff4eb0/">https://smarter.xin/posts/edff4eb0/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/gpu/">GPU</a><a class="post-meta__tags" href="/tags/roofline/">Roofline</a><a class="post-meta__tags" href="/tags/nsight-compute/">Nsight Compute</a><a class="post-meta__tags" href="/tags/performance-profiling/">性能剖析</a><a class="post-meta__tags" href="/tags/occupancy/">占用率</a></div><div class="post-share"><div class="social-share" data-image="/img/nvidia.png" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/821fc7ff/" title="GPU系统拆解-10-面试表达与系统思维：怎么把 GPU 理解讲成工程判断"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">GPU系统拆解-10-面试表达与系统思维：怎么把 GPU 理解讲成工程判断</div></div></div></a><a class="pagination-related  no-desc" href="/posts/6577c292/" title="GPU系统拆解-08-Tensor Core、GEMM 与 FlashAttention：AI 计算热点为什么这样组织"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">GPU系统拆解-08-Tensor Core、GEMM 与 FlashAttention：AI 计算热点为什么这样组织</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/b21cbc80/" title="AI Infra学习之旅-第一个vLLM程序"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2025-12-31</div><div class="info-item-2">AI Infra学习之旅-第一个vLLM程序</div></div></div></a><a class="pagination-related no-desc" href="/posts/82dbd045/" title="PyTorch推理工程：04 CUDA、设备迁移、显存与同步"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-29</div><div class="info-item-2">PyTorch推理工程：04 CUDA、设备迁移、显存与同步</div></div></div></a><a class="pagination-related no-desc" href="/posts/3f7ace4/" title="GPU系统拆解-00-导读：从架构认知到推理系统的学习路线"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-04-05</div><div class="info-item-2">GPU系统拆解-00-导读：从架构认知到推理系统的学习路线</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">我就是要爬这座山<br>再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">188</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">305</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">28</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#gpu-xi-tong-chai-jie-09-profiling-yu-xing-neng-ding-wei-xian-zhao-dao-ping-jing-zai-tan-you-hua"><span class="toc-text">GPU系统拆解-09-Profiling 与性能定位：先找到瓶颈，再谈优化</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#1-xian-gei-jie-lun"><span class="toc-text">1. 先给结论</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-wei-shi-yao-profiling-shi-gpu-xue-xi-de-fen-shui-ling"><span class="toc-text">2. 为什么 Profiling 是 GPU 学习的分水岭</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#3-xian-jian-li-yi-zhang-gong-ju-fen-gong-tu"><span class="toc-text">3. 先建立一张工具分工图</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#3-1-nsight-systems-xian-kan-shi-jian-dao-di-hua-zai-na"><span class="toc-text">3.1 Nsight Systems：先看“时间到底花在哪”</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-2-nsight-compute-zai-kan-zhe-ge-kernel-wei-shi-yao-man"><span class="toc-text">3.2 Nsight Compute：再看“这个 kernel 为什么慢”</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#4-yi-ge-biao-zhun-de-xing-neng-ding-wei-liu-cheng"><span class="toc-text">4. 一个标准的性能定位流程</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#4-1-di-yi-bu-xian-pan-duan-shi-xi-tong-ceng-wen-ti-huan-shi-kernel-ceng-wen-ti"><span class="toc-text">4.1 第一步：先判断是系统层问题还是 kernel 层问题</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-2-di-er-bu-zai-re-dian-kernel-shang-xian-fen-da-lei"><span class="toc-text">4.2 第二步：在热点 kernel 上先分大类</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-3-di-san-bu-zai-kan-launch-occupancy-stall-memory-workload"><span class="toc-text">4.3 第三步：再看 launch、occupancy、stall、memory workload</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#5-compute-bound-he-memory-bound-ying-gai-zen-yao-fen"><span class="toc-text">5. compute-bound 和 memory-bound 应该怎么分</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#5-1-shi-yao-geng-xiang-compute-bound"><span class="toc-text">5.1 什么更像 compute-bound</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-2-shi-yao-geng-xiang-memory-bound"><span class="toc-text">5.2 什么更像 memory-bound</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#6-occupancy-wei-shi-yao-zhong-yao-dan-bu-neng-mi-xin"><span class="toc-text">6. occupancy 为什么重要，但不能迷信</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#6-1-wei-shi-yao-occupancy-gao-ye-ke-neng-man"><span class="toc-text">6.1 为什么 occupancy 高也可能慢</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#7-warp-stall-dao-di-zai-gao-su-ni-shi-yao"><span class="toc-text">7. Warp Stall 到底在告诉你什么</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#7-1-deng-nei-cun"><span class="toc-text">7.1 等内存</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#7-2-deng-zhi-xing-yi-lai"><span class="toc-text">7.2 等执行依赖</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#7-3-deng-barrier-tong-bu"><span class="toc-text">7.3 等 barrier &#x2F; 同步</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#7-4-deng-diao-du-zi-yuan-huo-pipe"><span class="toc-text">7.4 等调度资源或 pipe</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#7-5-bu-yao-gu-li-kan-stall-xi-xiang"><span class="toc-text">7.5 不要孤立看 stall 细项</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#8-memory-workload-analysis-ying-gai-zen-yao-kan"><span class="toc-text">8. Memory Workload Analysis 应该怎么看</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#8-1-dai-kuan-jie-jin-ji-xian"><span class="toc-text">8.1 带宽接近极限</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#8-2-dai-kuan-mei-da-man-dan-yi-ran-hen-man"><span class="toc-text">8.2 带宽没打满，但依然很慢</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#9-roofline-si-wei-wei-shi-yao-zhong-yao"><span class="toc-text">9. Roofline 思维为什么重要</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#10-yi-ge-geng-tie-jin-gong-cheng-de-zhen-duan-shun-xu"><span class="toc-text">10. 一个更贴近工程的诊断顺序</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#10-1-chang-jing-a-duan-dao-duan-tui-li-tun-tu-chai"><span class="toc-text">10.1 场景 A：端到端推理吞吐差</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#10-2-chang-jing-b-mou-ge-kernel-te-bie-man"><span class="toc-text">10.2 场景 B：某个 kernel 特别慢</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#10-3-chang-jing-c-mou-ge-you-hua-hou-fan-er-geng-man"><span class="toc-text">10.3 场景 C：某个优化后反而更慢</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#11-jie-he-tui-li-chang-jing-kan-zui-chang-jian-de-ji-lei-profile-xian-xiang"><span class="toc-text">11. 结合推理场景看，最常见的几类 profile 现象</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#11-1-prefill-kuai-decode-man"><span class="toc-text">11.1 prefill 快，decode 慢</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#11-2-gpu-li-yong-lu-bu-di-dan-tun-tu-huan-shi-yi-ban"><span class="toc-text">11.2 GPU 利用率不低，但吞吐还是一般</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#11-3-zuo-liao-fusion-yan-chi-fan-er-sheng-gao"><span class="toc-text">11.3 做了 fusion，延迟反而升高</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#11-4-block-size-geng-da-fan-er-mei-geng-kuai"><span class="toc-text">11.4 block size 更大，反而没更快</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#12-4090-ada-shang-zuo-profile-shi-ying-gai-zhu-yi-shi-yao"><span class="toc-text">12. 4090 &#x2F; Ada 上做 profile 时，应该注意什么</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#12-1-4090-shang-de-jie-lun-bu-deng-yu-h-100-b-200-shang-de-jie-lun"><span class="toc-text">12.1 4090 上的结论，不等于 H100 &#x2F; B200 上的结论</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#12-2-4090-shang-geng-rong-yi-kan-chu-mou-xie-memory-bound-wen-ti"><span class="toc-text">12.2 4090 上更容易看出某些 memory-bound 问题</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#13-zen-yang-ba-zhi-biao-fan-cheng-dong-zuo"><span class="toc-text">13. 怎样把指标翻成动作</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#13-1-xian-fen-ceng"><span class="toc-text">13.1 先分层</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#13-2-zai-fen-liu"><span class="toc-text">13.2 再分流</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#13-3-zui-hou-fan-cheng-dong-zuo"><span class="toc-text">13.3 最后翻成动作</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#14-zhe-yi-pian-bi-xu-ji-zhu-de-ji-ju-hua"><span class="toc-text">14. 这一篇必须记住的几句话</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#15-jing-jian-ban-mian-shi-biao-da"><span class="toc-text">15. 精简版面试表达</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xi-lie-dao-hang"><span class="toc-text">系列导航</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/b47bc812/" title="GPU系统拆解-14-从 PyTorch 到 CUDA Extension：把算子真正接入工程"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="GPU系统拆解-14-从 PyTorch 到 CUDA Extension：把算子真正接入工程"/></a><div class="content"><a class="title" href="/posts/b47bc812/" title="GPU系统拆解-14-从 PyTorch 到 CUDA Extension：把算子真正接入工程">GPU系统拆解-14-从 PyTorch 到 CUDA Extension：把算子真正接入工程</a><time datetime="2026-04-05T07:00:00.000Z" title="发表于 2026-04-05 15:00:00">2026-04-05</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/68e6bad5/" title="GPU系统拆解-13-多 GPU 与通信：并行策略、拓扑与扩展代价"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="GPU系统拆解-13-多 GPU 与通信：并行策略、拓扑与扩展代价"/></a><div class="content"><a class="title" href="/posts/68e6bad5/" title="GPU系统拆解-13-多 GPU 与通信：并行策略、拓扑与扩展代价">GPU系统拆解-13-多 GPU 与通信：并行策略、拓扑与扩展代价</a><time datetime="2026-04-05T06:30:00.000Z" title="发表于 2026-04-05 14:30:00">2026-04-05</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/e141fe5/" title="GPU系统拆解-12-LLM 推理的 GPU 主线：Prefill、Decode、KV Cache 与系统约束"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="GPU系统拆解-12-LLM 推理的 GPU 主线：Prefill、Decode、KV Cache 与系统约束"/></a><div class="content"><a class="title" href="/posts/e141fe5/" title="GPU系统拆解-12-LLM 推理的 GPU 主线：Prefill、Decode、KV Cache 与系统约束">GPU系统拆解-12-LLM 推理的 GPU 主线：Prefill、Decode、KV Cache 与系统约束</a><time datetime="2026-04-05T06:00:00.000Z" title="发表于 2026-04-05 14:00:00">2026-04-05</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/attentionisallyouneed.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">从 Self-Attention、位置编码到 Encoder-Decoder，系统梳理 Transformer 的核心结构、设计动机与理解路径</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/d6fa227a/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-16</span><a class="blog-slider__title" href="posts/d6fa227a/" alt="">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</a><div class="blog-slider__text">从访存优化到多卡通信，一篇看清 CUDA 实践系列的结构与学习路线</div><a class="blog-slider__button" href="posts/d6fa227a/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/43c4b52e/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/agent.webp" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-24</span><a class="blog-slider__title" href="posts/43c4b52e/" alt="">从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路</a><div class="blog-slider__text">使用飞书与本地 Agent 对话，远程也要让本地 Agent 干活，当一名狠狠的资本家</div><a class="blog-slider__button" href="posts/43c4b52e/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/92dc1028/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/CUDA_C.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-02-05</span><a class="blog-slider__title" href="posts/92dc1028/" alt="">CUDA C编程权威指南-导读</a><div class="blog-slider__text">从异构并行到多 GPU 实践，串起 CUDA C 权威指南的核心学习路线</div><a class="blog-slider__button" href="posts/92dc1028/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">从全书视角出发，一篇看清 PMPP 的章节结构、核心主题与学习主线</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/aac6e27d/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Computer_System.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/aac6e27d/" alt="">深入理解计算机系统知识点总结</a><div class="blog-slider__text">从程序员视角梳理 CSAPP 的知识脉络、系统抽象与性能理解</div><a class="blog-slider__button" href="posts/aac6e27d/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">围绕类型推导、移动语义与并发，提炼现代 C++ 的核心实践</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>

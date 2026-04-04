@@ -1,0 +1,646 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>GPU系统拆解-02-从 RTX 4090 出发：Ada 架构如何影响 CUDA 与推理 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="GPU系统拆解-02-从 RTX 4090 出发：Ada 架构如何影响 CUDA 与推理  本文是「GPU系统拆解」系列第 02 篇。 系列导读：GPU系统拆解-00-导读：从架构认知到推理系统的学习路线 上一篇：GPU系统拆解-01-架构地图：先建立面向 AI Infra 的 GPU 全景认知 下一篇：GPU系统拆解-03-从 Ampere 到 Hopper：现代 CUDA 写法为什么变了">
+<meta property="og:type" content="article">
+<meta property="og:title" content="GPU系统拆解-02-从 RTX 4090 出发：Ada 架构如何影响 CUDA 与推理">
+<meta property="og:url" content="https://smarter.xin/posts/3f64a590/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="GPU系统拆解-02-从 RTX 4090 出发：Ada 架构如何影响 CUDA 与推理  本文是「GPU系统拆解」系列第 02 篇。 系列导读：GPU系统拆解-00-导读：从架构认知到推理系统的学习路线 上一篇：GPU系统拆解-01-架构地图：先建立面向 AI Infra 的 GPU 全景认知 下一篇：GPU系统拆解-03-从 Ampere 到 Hopper：现代 CUDA 写法为什么变了">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/nvidia.png">
+<meta property="article:published_time" content="2026-04-05T01:00:00.000Z">
+<meta property="article:modified_time" content="2026-04-04T18:24:31.730Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="RTX 4090">
+<meta property="article:tag" content="GPU">
+<meta property="article:tag" content="CUDA">
+<meta property="article:tag" content="GPU架构">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/nvidia.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "GPU系统拆解-02-从 RTX 4090 出发：Ada 架构如何影响 CUDA 与推理",
+  "url": "https://smarter.xin/posts/3f64a590/",
+  "image": "https://smarter.xin/img/nvidia.png",
+  "datePublished": "2026-04-05T01:00:00.000Z",
+  "dateModified": "2026-04-04T18:24:31.730Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/3f64a590/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'GPU系统拆解-02-从 RTX 4090 出发：Ada 架构如何影响 CUDA 与推理',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">188</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">305</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">28</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/nvidia.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">GPU系统拆解-02-从 RTX 4090 出发：Ada 架构如何影响 CUDA 与推理</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">GPU系统拆解-02-从 RTX 4090 出发：Ada 架构如何影响 CUDA 与推理</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-04-05T01:00:00.000Z" title="发表于 2026-04-05 09:00:00">2026-04-05</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-04-04T18:24:31.730Z" title="更新于 2026-04-05 02:24:31">2026-04-05</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/">AI Infra</a><i class="fas fa-angle-right post-meta-separator"></i><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/gpu/">GPU</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">3.6k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>11分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="gpu-xi-tong-chai-jie-02-cong-rtx-4090-chu-fa-ada-jia-gou-ru-he-ying-xiang-cuda-yu-tui-li" tabindex="-1">GPU系统拆解-02-从 RTX 4090 出发：Ada 架构如何影响 CUDA 与推理</h1>
+<blockquote>
+<p>本文是「GPU系统拆解」系列第 02 篇。<br>
+系列导读：<a href="/posts/3f7ace4/">GPU系统拆解-00-导读：从架构认知到推理系统的学习路线</a><br>
+上一篇：<a href="/posts/e773bbfa/">GPU系统拆解-01-架构地图：先建立面向 AI Infra 的 GPU 全景认知</a><br>
+下一篇：<a href="/posts/85cd1013/">GPU系统拆解-03-从 Ampere 到 Hopper：现代 CUDA 写法为什么变了</a></p>
+</blockquote>
+<blockquote>
+<p>本篇不再重复 GPU 总图，而是聚焦你手上的 <code>RTX 4090 / Ada</code>。目标是回答四个问题：Ada 为什么值得认真学，它在现代 GPU 演进里处在什么位置，它对 CUDA 编程和推理实验有什么直接启发，以及它和数据中心 GPU 的边界到底在哪里。</p>
+</blockquote>
+<h2 id="1-xian-gei-jie-lun" tabindex="-1" id="1-先给结论">1. 先给结论</h2>
+<ul>
+<li>4090 属于 <code>Ada Lovelace</code> 架构，是高端消费级 GPU，但已经足够现代，完全可以用来深入学习 CUDA 和推理性能分析。</li>
+<li>Ada 的价值不只是“单卡很强”，而是它已经体现出很多现代 GPU 的关键设计取向：更强调 Tensor Core、缓存层次、数据供给和资源组织。</li>
+<li>对推理学习来说，Ada 最有启发的点是大 <code>L2 cache</code>、统一的 <code>L1 / shared memory</code> 资源组织，以及面向现代 CUDA 的执行和编译目标。</li>
+<li>4090 适合做单机实验、算子优化、profiling 和中小规模推理原型，但不能把它直接等同于数据中心 AI 系统的标准硬件。</li>
+<li>你在 Ada 上学到的大部分 CUDA 思维是可迁移的，但“系统级能力”这一层不能直接外推到 Hopper / Blackwell。</li>
+</ul>
+<h2 id="2-wei-shi-yao-di-2-pian-yao-zhuan-men-jiang-4090-ada" tabindex="-1" id="2-为什么第-2-篇要专门讲-4090-Ada">2. 为什么第 2 篇要专门讲 4090 / Ada</h2>
+<p>如果你手上就是 4090，那么最有效的学习顺序不是先背 H100、B200 的参数，而是先把自己能真实跑代码、跑 profile 的这代硬件学透。</p>
+<p>这有三个直接好处：</p>
+<ul>
+<li>你能把架构知识和真实实验连起来，而不是停留在纸面概念。</li>
+<li>你能在单卡上学会大部分现代 CUDA 的核心问题：资源约束、访存、Tensor Core、occupancy、编译目标。</li>
+<li>你之后看 Ampere、Hopper、Blackwell 时，会更容易判断它们相比 Ada 强化了什么，而不是把新架构理解成“只是更快”。</li>
+</ul>
+<p>所以这一篇的核心任务不是介绍 4090 的参数表，而是建立一个判断框架：</p>
+<ul>
+<li>Ada 为哪些场景做了优化</li>
+<li>这些优化为什么对 CUDA 和推理有意义</li>
+<li>哪些认知能迁移到更高端架构</li>
+<li>哪些边界必须明确承认</li>
+</ul>
+<h2 id="3-4090-de-shen-fen-he-ding-wei" tabindex="-1" id="3-4090-的身份和定位">3. 4090 的身份和定位</h2>
+<h3 id="3-1-4090-shi-shi-yao" tabindex="-1" id="3-1-4090-是什么">3.1 4090 是什么</h3>
+<p>4090 属于 <code>GeForce RTX 40</code> 系列，基于 <code>Ada Lovelace</code> 架构。它的典型特征包括：</p>
+<ul>
+<li>高端消费级定位</li>
+<li><code>24GB</code> 本地显存</li>
+<li><code>GDDR6X</code> 路线，而不是 HBM 路线</li>
+<li>对 CUDA 来说属于 <code>compute capability 8.9</code></li>
+</ul>
+<p>这几件事分别对应不同层面的意义：</p>
+<ul>
+<li><code>Ada Lovelace</code> 说明它属于一代具体架构，不只是一个产品名。</li>
+<li><code>24GB</code> 决定了你能做多大规模的单机实验。</li>
+<li><code>GDDR6X</code> 说明它仍然是消费级显存体系，不是数据中心高带宽内存路线。</li>
+<li><code>8.9</code> 说明编译目标、部分优化路径和底层能力判断都应按 Ada 来理解。</li>
+</ul>
+<h3 id="3-2-wei-shi-yao-ta-te-bie-gua-he-xue-xi" tabindex="-1" id="3-2-为什么它特别适合学习">3.2 为什么它特别适合学习</h3>
+<p>4090 的学习价值来自一个很实际的事实：它不是“缩水版体验”，而是能真实体现现代 GPU 关键问题的一张卡。</p>
+<p>你可以在它上面直接学习：</p>
+<ul>
+<li>warp / block / SM 的执行模型</li>
+<li>memory hierarchy 和数据供给问题</li>
+<li>Tensor Core 路径</li>
+<li>shared memory 与寄存器的资源权衡</li>
+<li>编译目标与性能行为的关系</li>
+<li>单机推理中的 compute-bound 和 memory-bound 区分</li>
+</ul>
+<p>所以对个人学习来说，4090 的核心价值不是“它和 H100 很像”，而是：</p>
+<blockquote>
+<p>它已经足够现代，足够让你建立绝大多数正确的 CUDA 与推理性能直觉。</p>
+</blockquote>
+<h2 id="4-ada-de-she-ji-zhong-dian-dao-di-shi-shi-yao" tabindex="-1" id="4-Ada-的设计重点到底是什么">4. Ada 的设计重点到底是什么</h2>
+<p>Ada 不是为纯数据中心 AI 设计的架构。它同时服务于：</p>
+<ul>
+<li>高端图形</li>
+<li>光追</li>
+<li>桌面创作</li>
+<li>AI 加速功能</li>
+<li>通用 CUDA 计算</li>
+</ul>
+<p>这意味着 Ada 的设计取向不是“只为大模型集群服务”，而是：</p>
+<ul>
+<li>保持很强的单卡性能</li>
+<li>强化现代 GPU 的核心执行路径</li>
+<li>让图形、AI 和通用高端桌面计算都受益</li>
+</ul>
+<p>但这并不意味着它对 AI 学习价值低。恰恰相反，Ada 非常适合学习现代 GPU 的两个核心主题：</p>
+<ol>
+<li>算力并不是唯一瓶颈，数据供给同样关键。</li>
+<li>高性能 CUDA 的本质是资源和数据流组织，而不是只会写线程索引。</li>
+</ol>
+<h2 id="5-ada-zui-zhi-de-ni-zhua-zhu-de-ji-ge-she-ji-dian" tabindex="-1" id="5-Ada-最值得你抓住的几个设计点">5. Ada 最值得你抓住的几个设计点</h2>
+<h3 id="5-1-geng-da-de-l-2-cache" tabindex="-1" id="5-1-更大的-L2-cache">5.1 更大的 L2 cache</h3>
+<p>Ada 一个非常有启发意义的变化，是更大的 <code>L2 cache</code>。以 4090 所在的 <code>AD102</code> 为例，L2 容量达到了 <code>96MB</code>。</p>
+<p>这件事的意义不在于“缓存更大”本身，而在于它在试图缓解 GPU 的核心矛盾：</p>
+<blockquote>
+<p>算得很快，但数据不一定喂得上。</p>
+</blockquote>
+<p>大 L2 带来的直接启发是：</p>
+<ul>
+<li>热点数据更可能被复用</li>
+<li>某些重复读取的代价会降低</li>
+<li>memory-sensitive kernel 更容易从缓存层次中受益</li>
+<li>你写 CUDA 时需要开始认真考虑时间局部性和访问顺序</li>
+</ul>
+<p>对推理尤其重要，因为很多场景并不只是算得快不快，而是：</p>
+<ul>
+<li>权重是否频繁重复读取</li>
+<li>中间结果是否能减少回到更远的内存层次</li>
+<li>decode 这类 memory-sensitive 阶段能否尽量减少无效数据搬运</li>
+</ul>
+<h3 id="5-2-tong-yi-de-l-1-shared-memory-ti-xi" tabindex="-1" id="5-2-统一的-L1-shared-memory-体系">5.2 统一的 L1 / shared memory 体系</h3>
+<p>Ada 延续了现代 NVIDIA GPU 上常见的统一 <code>L1 / texture / shared memory</code> 资源组织思路。</p>
+<p>这个设计最重要的启发不是“更高级”，而是：</p>
+<ul>
+<li><code>L1</code> 更偏自动缓存</li>
+<li><code>shared memory</code> 更偏显式控制的数据复用</li>
+<li>两者的价值取决于 kernel 的访问模式，而不是谁天然更好</li>
+</ul>
+<p>所以你在 Ada 上写 CUDA 时，不应该停留在“shared memory 比 global 快，所以多用 shared”这种表述，而应进一步问：</p>
+<ul>
+<li>这段数据到底适合自动缓存还是显式搬运</li>
+<li>共享内存带来的复用值不值同步和资源占用成本</li>
+<li>cache 命中和 tile 复用，哪一个更像当前 kernel 的主要收益来源</li>
+</ul>
+<h3 id="5-3-geng-qiang-de-fp-32-he-tensor-core-lu-jing" tabindex="-1" id="5-3-更强的-FP32-和-Tensor-Core-路径">5.3 更强的 FP32 和 Tensor Core 路径</h3>
+<p>Ada 并不只是强化 Tensor Core，也强化了常规计算路径。这意味着它在很多混合型工作负载里都很强：</p>
+<ul>
+<li>纯矩阵主路径可以受益于 Tensor Core</li>
+<li>前后处理、部分 reduction、某些非理想 shape 路径仍然受益于常规 FP32 吞吐</li>
+</ul>
+<p>对 <code>AI infra / 推理</code> 来说，这一层最重要的认识是：</p>
+<blockquote>
+<p>真正的系统性能不只来自“主 GEMM 有多快”，还来自整条执行路径能不能被合理组织。</p>
+</blockquote>
+<h2 id="6-ada-dui-cuda-bian-cheng-zui-zhi-jie-de-qi-fa" tabindex="-1" id="6-Ada-对-CUDA-编程最直接的启发">6. Ada 对 CUDA 编程最直接的启发</h2>
+<h3 id="6-1-bu-yao-xian-wen-block-size-xian-wen-zi-yuan-ping-jing" tabindex="-1" id="6-1-不要先问-block-size，先问资源瓶颈">6.1 不要先问 block size，先问资源瓶颈</h3>
+<p>一看到 CUDA kernel，很多人先想的是：</p>
+<ul>
+<li>block size 取多少</li>
+<li>grid 怎么配</li>
+</ul>
+<p>这不够。</p>
+<p>更成熟的 Ada 视角应该是先问：</p>
+<ul>
+<li>它更可能受寄存器限制吗</li>
+<li>更可能受 shared memory 限制吗</li>
+<li>更可能受 global memory 访问限制吗</li>
+<li>更可能受 occupancy 或 launch 开销影响吗</li>
+</ul>
+<p>这才是真正的“架构感知”。</p>
+<h3 id="6-2-occupancy-zhong-yao-dan-bu-shi-mu-biao-ben-shen" tabindex="-1" id="6-2-occupancy-重要，但不是目标本身">6.2 occupancy 重要，但不是目标本身</h3>
+<p>Ada 依然能很好体现一个常见误区：<code>occupancy</code> 不是越高越好。</p>
+<p>更准确的理解是：</p>
+<ul>
+<li>occupancy 提供潜在的 latency hiding 能力</li>
+<li>但更高 occupancy 不等于更高性能</li>
+<li>如果为了追求 occupancy，反而伤害了寄存器复用、tile 设计或指令级并行，整体可能更慢</li>
+</ul>
+<p>所以你学 Ada 时要建立的不是“怎么把 occupancy 拉满”，而是：</p>
+<blockquote>
+<p>怎么在寄存器、shared memory、并发和数据流之间找到更合理的平衡。</p>
+</blockquote>
+<h3 id="6-3-kai-shi-ren-zhen-li-yong-huan-cun-he-fu-yong" tabindex="-1" id="6-3-开始认真利用缓存和复用">6.3 开始认真利用缓存和复用</h3>
+<p>大 L2 的存在会改变你对很多 kernel 的思考方式。</p>
+<p>你需要开始问：</p>
+<ul>
+<li>这个访问模式是否有时间局部性</li>
+<li>kernel fusion 会不会让中间结果更容易留在缓存里</li>
+<li>是否存在无意义的 global round-trip</li>
+</ul>
+<p>这类思考会直接通向后面的：</p>
+<ul>
+<li>GEMM tile</li>
+<li>FlashAttention</li>
+<li>layernorm / softmax 的访存分析</li>
+<li>KV cache 的布局和访问问题</li>
+</ul>
+<h3 id="6-4-zhen-dui-code-sm-89-code-bian-yi-bu-shi-xiao-shi" tabindex="-1" id="6-4-针对-sm-89-编译不是小事">6.4 针对 <code>sm_89</code> 编译不是小事</h3>
+<p>Ada 的 <code>compute capability</code> 是 <code>8.9</code>。这意味着“能跑”和“按该架构充分利用能力地跑”不是一回事。</p>
+<p>对个人学习很有帮助的一点是：你应该逐渐建立这样的工程意识：</p>
+<ul>
+<li>为目标架构编译</li>
+<li>观察编译目标和性能表现的关系</li>
+<li>不把“默认能跑”误认为“已经对该架构足够友好”</li>
+</ul>
+<h2 id="7-ada-dui-tui-li-shi-yan-de-yi-yi" tabindex="-1" id="7-Ada-对推理实验的意义">7. Ada 对推理实验的意义</h2>
+<h3 id="7-1-gua-he-zuo-shi-yao" tabindex="-1" id="7-1-适合做什么">7.1 适合做什么</h3>
+<p>4090 很适合用来做：</p>
+<ul>
+<li>CUDA 核心实验</li>
+<li>单机 profiling</li>
+<li>常见算子优化练习</li>
+<li>TensorRT / Triton / 自定义 kernel 原型实验</li>
+<li>中小规模模型的推理原型</li>
+<li>量化和 KV cache 相关实验</li>
+</ul>
+<p>它尤其适合帮助你把“架构 -&gt; kernel -&gt; profile -&gt; 系统现象”这条链连起来。</p>
+<h3 id="7-2-bu-gua-he-zhi-jie-dai-biao-shi-yao" tabindex="-1" id="7-2-不适合直接代表什么">7.2 不适合直接代表什么</h3>
+<p>4090 不能直接代表数据中心 AI 集群的真实约束。它的边界主要在：</p>
+<ul>
+<li>显存容量和带宽路线不是数据中心级上限</li>
+<li>多卡互连和系统扩展能力不是主设计重点</li>
+<li>企业级部署、稳定性、多租户和资源切分能力不是这类产品的核心卖点</li>
+</ul>
+<p>所以你在 4090 上得出的结论，需要分两类看：</p>
+<ul>
+<li><code>可迁移的</code>：大多数 CUDA 机制、访存直觉、Tensor Core 视角、单卡 kernel 分析方法</li>
+<li><code>不可直接外推的</code>：多卡通信代价、集群形态、HBM 路线带来的系统行为差异</li>
+</ul>
+<h2 id="8-cong-ada-kan-dan-ji-xue-xi-yu-shu-ju-zhong-xin-xuan-xing-de-chai-bie" tabindex="-1" id="8-从-Ada-看单机学习与数据中心选型的差别">8. 从 Ada 看单机学习与数据中心选型的差别</h2>
+<p>这部分很容易在面试里被问到，也很容易被答歪。</p>
+<p>错误说法通常是：</p>
+<blockquote>
+<p>4090 不适合大厂，因为它不够强。</p>
+</blockquote>
+<p>更准确的说法是：</p>
+<blockquote>
+<p>4090 单卡很强，也足够支持大量 CUDA 与推理实验；但大厂生产环境更关心显存容量、带宽、互连、扩展性、稳定性和数据中心部署能力，因此常选择 Hopper、Blackwell、MI300 这类更偏系统底座的产品。</p>
+</blockquote>
+<p>这两种回答的差别在于：</p>
+<ul>
+<li>前者只看“强不强”</li>
+<li>后者看的是“是否适合系统目标”</li>
+</ul>
+<p>对 <code>AI infra / 推理</code> 岗位来说，后者才是更重要的判断框架。</p>
+<h2 id="9-na-xie-jing-yan-neng-qian-yi-dao-hopper-na-xie-bu-neng" tabindex="-1" id="9-哪些经验能迁移到-Hopper，哪些不能">9. 哪些经验能迁移到 Hopper，哪些不能</h2>
+<h3 id="9-1-ke-yi-qian-yi-de" tabindex="-1" id="9-1-可以迁移的">9.1 可以迁移的</h3>
+<ul>
+<li>对 memory hierarchy 的重视</li>
+<li>对 coalescing、数据复用和访存模式的重视</li>
+<li>用 GEMM / Tensor Core 视角理解核心算子</li>
+<li>用 profile 判断 compute-bound / memory-bound</li>
+<li>理解 occupancy、寄存器和 shared memory 的资源平衡</li>
+</ul>
+<h3 id="9-2-bu-neng-zhi-jie-xiang-dang-ran-qian-yi-de" tabindex="-1" id="9-2-不能直接想当然迁移的">9.2 不能直接想当然迁移的</h3>
+<ul>
+<li>多卡通信成本的结论</li>
+<li>显存和带宽瓶颈的具体比例</li>
+<li>某些 cache 行为的具体收益</li>
+<li>数据中心系统级能力带来的调度和部署差异</li>
+</ul>
+<p>所以更好的心态是：</p>
+<blockquote>
+<p>在 Ada 上学的是通用机制和判断方法，不是把所有性能结论机械外推到更高端架构。</p>
+</blockquote>
+<h2 id="10-chang-jian-wu-qu" tabindex="-1" id="10-常见误区">10. 常见误区</h2>
+<ul>
+<li>
+<p><code>误区 1：Ada 只是消费级架构，所以没有认真学习价值。</code><br>
+错。它足够现代，完全能支撑深入的 CUDA 和推理学习。</p>
+</li>
+<li>
+<p><code>误区 2：只要 Tensor Core 强，推理就一定快。</code><br>
+错。很多问题仍然来自访存、缓存、数据组织和系统路径。</p>
+</li>
+<li>
+<p><code>误区 3：大 L2 意味着 shared memory 没那么重要。</code><br>
+错。两者解决的是不同层次的数据复用问题。</p>
+</li>
+<li>
+<p><code>误区 4：只要 occupancy 高，kernel 就会快。</code><br>
+错。occupancy 只是潜在并发能力，不是最终性能结论。</p>
+</li>
+<li>
+<p><code>误区 5：4090 不适合生产，所以在它上面学到的东西没法迁移。</code><br>
+错。大部分底层 CUDA 机制和性能分析方法是可迁移的，不能直接外推的主要是系统级选型结论。</p>
+</li>
+</ul>
+<h2 id="11-ben-pian-bi-xu-ji-zhu-de-nei-rong" tabindex="-1" id="11-本篇必须记住的内容">11. 本篇必须记住的内容</h2>
+<ul>
+<li>4090 属于 Ada 架构，对 CUDA 来说是 <code>compute capability 8.9</code>。</li>
+<li>Ada 是消费级旗舰架构，但已经具备非常现代的 CUDA 学习价值。</li>
+<li>Ada 的关键看点不是单卡跑分，而是大 L2、统一 L1 / shared 体系、Tensor Core 和资源组织方式。</li>
+<li>学 Ada 时最该建立的是“资源和数据流意识”，不是参数背诵。</li>
+<li>4090 适合单机推理实验和算子优化，不适合直接代表数据中心集群结论。</li>
+<li>在 Ada 上学到的 CUDA 机制和判断方法大多可迁移，但系统级选型结论不能机械外推。</li>
+</ul>
+<h2 id="12-jing-jian-ban-mian-shi-biao-da" tabindex="-1" id="12-精简版面试表达">12. 精简版面试表达</h2>
+<h3 id="wei-shi-yao-ada-zhi-de-xue" tabindex="-1" id="为什么-Ada-值得学">为什么 Ada 值得学</h3>
+<p>因为 Ada 已经足够现代，能完整体现 CUDA 编程里最关键的几个问题：访存、缓存、Tensor Core、资源平衡和编译目标。用 4090 学 CUDA、profiling 和单机推理，能学到大量可迁移的核心思维。</p>
+<h3 id="ada-dui-cuda-bian-cheng-zui-da-de-qi-fa-shi-shi-yao" tabindex="-1" id="Ada-对-CUDA-编程最大的启发是什么">Ada 对 CUDA 编程最大的启发是什么</h3>
+<p>不要只盯线程数量，而要先看资源和数据流。比如寄存器、shared memory、occupancy 和缓存行为会一起决定 kernel 的表现；大 L2 让你更该重视数据复用，而 <code>sm_89</code> 编译目标也会影响你是否真正利用了这代架构。</p>
+<h3 id="wei-shi-yao-4090-bu-shi-da-han-xun-lian-tui-li-ji-qun-de-mo-ren-da-an" tabindex="-1" id="为什么-4090-不是大厂训练-推理集群的默认答案">为什么 4090 不是大厂训练 / 推理集群的默认答案</h3>
+<p>不是因为它单卡不强，而是因为它的设计目标偏高端桌面和消费级计算。大厂生产环境更看重显存容量、带宽、互连、扩展性和部署能力，所以常选择 Hopper、Blackwell 或 MI300 这类数据中心架构。</p>
+<hr>
+<h2 id="xi-lie-dao-hang" tabindex="-1" id="系列导航">系列导航</h2>
+<ul>
+<li>导读：<a href="/posts/3f7ace4/">GPU系统拆解-00-导读：从架构认知到推理系统的学习路线</a></li>
+<li>上一篇：<a href="/posts/e773bbfa/">GPU系统拆解-01-架构地图：先建立面向 AI Infra 的 GPU 全景认知</a></li>
+<li>下一篇：<a href="/posts/85cd1013/">GPU系统拆解-03-从 Ampere 到 Hopper：现代 CUDA 写法为什么变了</a></li>
+<li>延伸阅读：<a href="/posts/d6fa227a/">CUDA实践-00-系列导读与学习路线</a></li>
+<li>延伸阅读：<a href="/posts/846fbbaf/">PyTorch推理工程-00-系列导读与学习路线</a></li>
+</ul>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/3f64a590/">https://smarter.xin/posts/3f64a590/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/rtx-4090/">RTX 4090</a><a class="post-meta__tags" href="/tags/gpu/">GPU</a><a class="post-meta__tags" href="/tags/cuda/">CUDA</a><a class="post-meta__tags" href="/tags/gpu-architecture/">GPU架构</a></div><div class="post-share"><div class="social-share" data-image="/img/nvidia.png" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/85cd1013/" title="GPU系统拆解-03-从 Ampere 到 Hopper：现代 CUDA 写法为什么变了"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">GPU系统拆解-03-从 Ampere 到 Hopper：现代 CUDA 写法为什么变了</div></div></div></a><a class="pagination-related  no-desc" href="/posts/e773bbfa/" title="GPU系统拆解-01-架构地图：先建立面向 AI Infra 的 GPU 全景认知"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">GPU系统拆解-01-架构地图：先建立面向 AI Infra 的 GPU 全景认知</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/85cd1013/" title="GPU系统拆解-03-从 Ampere 到 Hopper：现代 CUDA 写法为什么变了"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-04-05</div><div class="info-item-2">GPU系统拆解-03-从 Ampere 到 Hopper：现代 CUDA 写法为什么变了</div></div></div></a><a class="pagination-related no-desc" href="/posts/82dbd045/" title="PyTorch推理工程：04 CUDA、设备迁移、显存与同步"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-29</div><div class="info-item-2">PyTorch推理工程：04 CUDA、设备迁移、显存与同步</div></div></div></a><a class="pagination-related no-desc" href="/posts/3f7ace4/" title="GPU系统拆解-00-导读：从架构认知到推理系统的学习路线"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-04-05</div><div class="info-item-2">GPU系统拆解-00-导读：从架构认知到推理系统的学习路线</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">我就是要爬这座山<br>再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">188</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">305</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">28</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#gpu-xi-tong-chai-jie-02-cong-rtx-4090-chu-fa-ada-jia-gou-ru-he-ying-xiang-cuda-yu-tui-li"><span class="toc-text">GPU系统拆解-02-从 RTX 4090 出发：Ada 架构如何影响 CUDA 与推理</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#1-xian-gei-jie-lun"><span class="toc-text">1. 先给结论</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-wei-shi-yao-di-2-pian-yao-zhuan-men-jiang-4090-ada"><span class="toc-text">2. 为什么第 2 篇要专门讲 4090 &#x2F; Ada</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#3-4090-de-shen-fen-he-ding-wei"><span class="toc-text">3. 4090 的身份和定位</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#3-1-4090-shi-shi-yao"><span class="toc-text">3.1 4090 是什么</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-2-wei-shi-yao-ta-te-bie-gua-he-xue-xi"><span class="toc-text">3.2 为什么它特别适合学习</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#4-ada-de-she-ji-zhong-dian-dao-di-shi-shi-yao"><span class="toc-text">4. Ada 的设计重点到底是什么</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#5-ada-zui-zhi-de-ni-zhua-zhu-de-ji-ge-she-ji-dian"><span class="toc-text">5. Ada 最值得你抓住的几个设计点</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#5-1-geng-da-de-l-2-cache"><span class="toc-text">5.1 更大的 L2 cache</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-2-tong-yi-de-l-1-shared-memory-ti-xi"><span class="toc-text">5.2 统一的 L1 &#x2F; shared memory 体系</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-3-geng-qiang-de-fp-32-he-tensor-core-lu-jing"><span class="toc-text">5.3 更强的 FP32 和 Tensor Core 路径</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#6-ada-dui-cuda-bian-cheng-zui-zhi-jie-de-qi-fa"><span class="toc-text">6. Ada 对 CUDA 编程最直接的启发</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#6-1-bu-yao-xian-wen-block-size-xian-wen-zi-yuan-ping-jing"><span class="toc-text">6.1 不要先问 block size，先问资源瓶颈</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-2-occupancy-zhong-yao-dan-bu-shi-mu-biao-ben-shen"><span class="toc-text">6.2 occupancy 重要，但不是目标本身</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-3-kai-shi-ren-zhen-li-yong-huan-cun-he-fu-yong"><span class="toc-text">6.3 开始认真利用缓存和复用</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-4-zhen-dui-code-sm-89-code-bian-yi-bu-shi-xiao-shi"><span class="toc-text">6.4 针对 sm_89 编译不是小事</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#7-ada-dui-tui-li-shi-yan-de-yi-yi"><span class="toc-text">7. Ada 对推理实验的意义</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#7-1-gua-he-zuo-shi-yao"><span class="toc-text">7.1 适合做什么</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#7-2-bu-gua-he-zhi-jie-dai-biao-shi-yao"><span class="toc-text">7.2 不适合直接代表什么</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#8-cong-ada-kan-dan-ji-xue-xi-yu-shu-ju-zhong-xin-xuan-xing-de-chai-bie"><span class="toc-text">8. 从 Ada 看单机学习与数据中心选型的差别</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#9-na-xie-jing-yan-neng-qian-yi-dao-hopper-na-xie-bu-neng"><span class="toc-text">9. 哪些经验能迁移到 Hopper，哪些不能</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#9-1-ke-yi-qian-yi-de"><span class="toc-text">9.1 可以迁移的</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#9-2-bu-neng-zhi-jie-xiang-dang-ran-qian-yi-de"><span class="toc-text">9.2 不能直接想当然迁移的</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#10-chang-jian-wu-qu"><span class="toc-text">10. 常见误区</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#11-ben-pian-bi-xu-ji-zhu-de-nei-rong"><span class="toc-text">11. 本篇必须记住的内容</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#12-jing-jian-ban-mian-shi-biao-da"><span class="toc-text">12. 精简版面试表达</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#wei-shi-yao-ada-zhi-de-xue"><span class="toc-text">为什么 Ada 值得学</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#ada-dui-cuda-bian-cheng-zui-da-de-qi-fa-shi-shi-yao"><span class="toc-text">Ada 对 CUDA 编程最大的启发是什么</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#wei-shi-yao-4090-bu-shi-da-han-xun-lian-tui-li-ji-qun-de-mo-ren-da-an"><span class="toc-text">为什么 4090 不是大厂训练 &#x2F; 推理集群的默认答案</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xi-lie-dao-hang"><span class="toc-text">系列导航</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/b47bc812/" title="GPU系统拆解-14-从 PyTorch 到 CUDA Extension：把算子真正接入工程"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="GPU系统拆解-14-从 PyTorch 到 CUDA Extension：把算子真正接入工程"/></a><div class="content"><a class="title" href="/posts/b47bc812/" title="GPU系统拆解-14-从 PyTorch 到 CUDA Extension：把算子真正接入工程">GPU系统拆解-14-从 PyTorch 到 CUDA Extension：把算子真正接入工程</a><time datetime="2026-04-05T07:00:00.000Z" title="发表于 2026-04-05 15:00:00">2026-04-05</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/68e6bad5/" title="GPU系统拆解-13-多 GPU 与通信：并行策略、拓扑与扩展代价"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="GPU系统拆解-13-多 GPU 与通信：并行策略、拓扑与扩展代价"/></a><div class="content"><a class="title" href="/posts/68e6bad5/" title="GPU系统拆解-13-多 GPU 与通信：并行策略、拓扑与扩展代价">GPU系统拆解-13-多 GPU 与通信：并行策略、拓扑与扩展代价</a><time datetime="2026-04-05T06:30:00.000Z" title="发表于 2026-04-05 14:30:00">2026-04-05</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/e141fe5/" title="GPU系统拆解-12-LLM 推理的 GPU 主线：Prefill、Decode、KV Cache 与系统约束"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="GPU系统拆解-12-LLM 推理的 GPU 主线：Prefill、Decode、KV Cache 与系统约束"/></a><div class="content"><a class="title" href="/posts/e141fe5/" title="GPU系统拆解-12-LLM 推理的 GPU 主线：Prefill、Decode、KV Cache 与系统约束">GPU系统拆解-12-LLM 推理的 GPU 主线：Prefill、Decode、KV Cache 与系统约束</a><time datetime="2026-04-05T06:00:00.000Z" title="发表于 2026-04-05 14:00:00">2026-04-05</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/attentionisallyouneed.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">从 Self-Attention、位置编码到 Encoder-Decoder，系统梳理 Transformer 的核心结构、设计动机与理解路径</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/d6fa227a/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-16</span><a class="blog-slider__title" href="posts/d6fa227a/" alt="">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</a><div class="blog-slider__text">从访存优化到多卡通信，一篇看清 CUDA 实践系列的结构与学习路线</div><a class="blog-slider__button" href="posts/d6fa227a/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/43c4b52e/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/agent.webp" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-24</span><a class="blog-slider__title" href="posts/43c4b52e/" alt="">从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路</a><div class="blog-slider__text">使用飞书与本地 Agent 对话，远程也要让本地 Agent 干活，当一名狠狠的资本家</div><a class="blog-slider__button" href="posts/43c4b52e/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/92dc1028/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/CUDA_C.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-02-05</span><a class="blog-slider__title" href="posts/92dc1028/" alt="">CUDA C编程权威指南-导读</a><div class="blog-slider__text">从异构并行到多 GPU 实践，串起 CUDA C 权威指南的核心学习路线</div><a class="blog-slider__button" href="posts/92dc1028/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">从全书视角出发，一篇看清 PMPP 的章节结构、核心主题与学习主线</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/aac6e27d/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Computer_System.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/aac6e27d/" alt="">深入理解计算机系统知识点总结</a><div class="blog-slider__text">从程序员视角梳理 CSAPP 的知识脉络、系统抽象与性能理解</div><a class="blog-slider__button" href="posts/aac6e27d/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">围绕类型推导、移动语义与并发，提炼现代 C++ 的核心实践</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>

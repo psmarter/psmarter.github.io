@@ -1,0 +1,758 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>GPU系统拆解-05-CUDA 执行映射：抽象模型如何落到真实硬件 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="GPU系统拆解-05-CUDA 执行映射：抽象模型如何落到真实硬件  本文是「GPU系统拆解」系列第 05 篇。 系列导读：GPU系统拆解-00-导读：从架构认知到推理系统的学习路线 上一篇：GPU系统拆解-04-数据中心架构：为什么大厂更偏好 Hopper、Blackwell 与 MI300 下一篇：GPU系统拆解-06-内存层次与访存主线：GPU 性能为什么常常卡在数据   这一篇要解决的是一">
+<meta property="og:type" content="article">
+<meta property="og:title" content="GPU系统拆解-05-CUDA 执行映射：抽象模型如何落到真实硬件">
+<meta property="og:url" content="https://smarter.xin/posts/492fe17c/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="GPU系统拆解-05-CUDA 执行映射：抽象模型如何落到真实硬件  本文是「GPU系统拆解」系列第 05 篇。 系列导读：GPU系统拆解-00-导读：从架构认知到推理系统的学习路线 上一篇：GPU系统拆解-04-数据中心架构：为什么大厂更偏好 Hopper、Blackwell 与 MI300 下一篇：GPU系统拆解-06-内存层次与访存主线：GPU 性能为什么常常卡在数据   这一篇要解决的是一">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/nvidia.png">
+<meta property="article:published_time" content="2026-04-05T02:30:00.000Z">
+<meta property="article:modified_time" content="2026-04-04T18:24:31.730Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="GPU">
+<meta property="article:tag" content="CUDA">
+<meta property="article:tag" content="并行计算">
+<meta property="article:tag" content="执行模型">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/nvidia.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "GPU系统拆解-05-CUDA 执行映射：抽象模型如何落到真实硬件",
+  "url": "https://smarter.xin/posts/492fe17c/",
+  "image": "https://smarter.xin/img/nvidia.png",
+  "datePublished": "2026-04-05T02:30:00.000Z",
+  "dateModified": "2026-04-04T18:24:31.730Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/492fe17c/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'GPU系统拆解-05-CUDA 执行映射：抽象模型如何落到真实硬件',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">188</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">305</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">28</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/nvidia.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">GPU系统拆解-05-CUDA 执行映射：抽象模型如何落到真实硬件</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">GPU系统拆解-05-CUDA 执行映射：抽象模型如何落到真实硬件</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-04-05T02:30:00.000Z" title="发表于 2026-04-05 10:30:00">2026-04-05</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-04-04T18:24:31.730Z" title="更新于 2026-04-05 02:24:31">2026-04-05</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/">AI Infra</a><i class="fas fa-angle-right post-meta-separator"></i><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/gpu/">GPU</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">4.3k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>14分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="gpu-xi-tong-chai-jie-05-cuda-zhi-xing-ying-she-chou-xiang-mo-xing-ru-he-luo-dao-zhen-shi-ying-jian" tabindex="-1">GPU系统拆解-05-CUDA 执行映射：抽象模型如何落到真实硬件</h1>
+<blockquote>
+<p>本文是「GPU系统拆解」系列第 05 篇。<br>
+系列导读：<a href="/posts/3f7ace4/">GPU系统拆解-00-导读：从架构认知到推理系统的学习路线</a><br>
+上一篇：<a href="/posts/72d2a668/">GPU系统拆解-04-数据中心架构：为什么大厂更偏好 Hopper、Blackwell 与 MI300</a><br>
+下一篇：<a href="/posts/63789fbe/">GPU系统拆解-06-内存层次与访存主线：GPU 性能为什么常常卡在数据</a></p>
+</blockquote>
+<blockquote>
+<p>这一篇要解决的是一个基础但很容易混乱的问题：你写下的 <code>thread / block / grid</code>，到底是怎么在真实 GPU 上跑起来的。学完这一篇之后，你应该能把 <code>thread</code>、<code>warp</code>、<code>block</code>、<code>SM</code> 放到同一张图里理解，并知道它们为什么会直接影响 kernel 性能和推理系统设计。</p>
+</blockquote>
+<h2 id="1-xian-gei-jie-lun" tabindex="-1" id="1-先给结论">1. 先给结论</h2>
+<ul>
+<li><code>thread</code> 是最小逻辑工作单位，但不是 GPU 最重要的硬件调度单位。</li>
+<li>GPU 真正高频调度和发射指令时，更关键的粒度是 <code>warp</code>。</li>
+<li><code>block</code> 不是多余中间层，它决定了调度、局部同步、<code>shared memory</code> 归属和可扩展性。</li>
+<li><code>SM</code> 不是“一个大核”，而是能同时维护很多 <code>warp</code> 上下文的吞吐型执行资源池。</li>
+<li>GPU 隐藏延迟的核心不是把单线程做得像 CPU 一样快，而是让一个 <code>SM</code> 上同时挂很多可切换的 <code>warp</code>。</li>
+<li><code>occupancy</code> 很重要，但只是手段，不是目标；真正目标是整体吞吐更高。</li>
+<li>对 <code>AI infra / 推理</code> 来说，很多 kernel 设计问题，本质上都是在选择合适的 <code>thread / warp / block</code> 粒度。</li>
+</ul>
+<h2 id="2-wei-shi-yao-cuda-bu-rang-ni-zhi-jie-xie-sm-cheng-xu" tabindex="-1" id="2-为什么-CUDA-不让你直接写“SM-程序”">2. 为什么 CUDA 不让你直接写“SM 程序”</h2>
+<p>一个很自然的问题是：既然 kernel 最终在 <code>SM</code> 上执行，为什么 CUDA 不让你直接指定“这个任务给哪个 SM”？</p>
+<p>原因很简单：那样会让代码几乎不可移植，也不利于扩展。</p>
+<p>不同 GPU 之间会变化的东西很多：</p>
+<ul>
+<li><code>SM</code> 数量</li>
+<li>每个 <code>SM</code> 的寄存器和 <code>shared memory</code> 容量</li>
+<li><code>L1 / L2</code> 组织方式</li>
+<li>Tensor Core 路径和执行细节</li>
+<li>最优 <code>block size</code> 和最优 tile 形状</li>
+</ul>
+<p>如果 CUDA 让程序员直接绑定具体硬件细节，那么一份代码很难跨设备复用。</p>
+<p>所以 CUDA 的设计思路是：</p>
+<ul>
+<li>给程序员稳定的并行抽象</li>
+<li>让编译器、runtime、driver 去做映射</li>
+<li>保留足够多的优化空间，但不把你绑死在某代 GPU 上</li>
+</ul>
+<p>可以把它理解成一种平衡：</p>
+<blockquote>
+<p>程序员写的是“逻辑并行”，系统再把它翻译成“硬件执行”。</p>
+</blockquote>
+<h2 id="3-cong-yi-ge-zui-chang-jian-de-kernel-kai-shi" tabindex="-1" id="3-从一个最常见的-kernel-开始">3. 从一个最常见的 kernel 开始</h2>
+<p>最常见的 CUDA kernel 会长这样：</p>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="function">__global__ <span class="type">void</span> <span class="title">vec_add</span><span class="params">(<span class="type">const</span> <span class="type">float</span>* a, <span class="type">const</span> <span class="type">float</span>* b, <span class="type">float</span>* c, <span class="type">int</span> n)</span> </span>&#123;</span><br><span class="line">    <span class="type">int</span> idx = blockIdx.x * blockDim.x + threadIdx.x;</span><br><span class="line">    <span class="keyword">if</span> (idx &lt; n) &#123;</span><br><span class="line">        c[idx] = a[idx] + b[idx];</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>如果只停留在语法层面，你会说：</p>
+<ul>
+<li>有很多 <code>thread</code></li>
+<li>每个 <code>thread</code> 算一个元素</li>
+<li><code>blockDim.x</code> 决定每个 block 有多少线程</li>
+<li><code>gridDim.x</code> 决定总共有多少 block</li>
+</ul>
+<p>这没错，但还不够。</p>
+<p>真正重要的是：这段代码在 GPU 上并不是“所有线程同时独立起飞”，而是经历了一层层映射。</p>
+<h2 id="4-cong-kernel-launch-dao-gpu-zhi-xing-shi-ji-fa-sheng-liao-shi-yao" tabindex="-1" id="4-从-kernel-launch-到-GPU-执行，实际发生了什么">4. 从 kernel launch 到 GPU 执行，实际发生了什么</h2>
+<p>当你写下：</p>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">vec_add&lt;&lt;&lt;grid_size, block_size&gt;&gt;&gt;(d_a, d_b, d_c, n);</span><br></pre></td></tr></table></figure>
+<p>背后至少有四步。</p>
+<h3 id="4-1-host-ti-jiao-gong-zuo-miao-shu" tabindex="-1" id="4-1-Host-提交工作描述">4.1 Host 提交工作描述</h3>
+<p>CPU 侧通过 CUDA Runtime 发起 launch，请求里会包含：</p>
+<ul>
+<li>kernel 是谁</li>
+<li><code>grid</code> 维度</li>
+<li><code>block</code> 维度</li>
+<li>参数</li>
+<li>stream 信息</li>
+</ul>
+<p>这一步不是 CPU 在执行 kernel，而是 CPU 在向 GPU 提交一份工作描述。</p>
+<h3 id="4-2-runtime-driver-zuo-zhun-bei" tabindex="-1" id="4-2-Runtime-Driver-做准备">4.2 Runtime / Driver 做准备</h3>
+<p>接下来 runtime 和 driver 会负责：</p>
+<ul>
+<li>找到对应的 device code</li>
+<li>打包参数</li>
+<li>检查 launch 配置</li>
+<li>处理 stream 依赖</li>
+<li>管理执行上下文</li>
+</ul>
+<p>你平时最常写的是 Runtime API，但更底层的系统框架经常会直接接触 Driver API，因为它控制更细。</p>
+<h3 id="4-3-grid-bu-hui-bei-yi-ci-xing-quan-bu-zhan-kai" tabindex="-1" id="4-3-Grid-不会被“一次性全部展开”">4.3 Grid 不会被“一次性全部展开”</h3>
+<p>很多人刚学 CUDA 时会误以为：我有一百万个线程，GPU 就会把这一百万个线程一次性全跑起来。</p>
+<p>真实情况不是这样。</p>
+<p>更接近实际的描述是：</p>
+<ol>
+<li><code>grid</code> 里有很多 <code>block</code></li>
+<li>GPU 把这些 <code>block</code> 分批装载到各个 <code>SM</code></li>
+<li>一个 <code>SM</code> 同时驻留若干个 <code>block</code></li>
+<li>每个 <code>block</code> 再被切成多个 <code>warp</code></li>
+<li><code>warp scheduler</code> 从可执行的 <code>warp</code> 中挑一个发射指令</li>
+</ol>
+<p>所以真正的执行链条是：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">grid -&gt; block -&gt; warp -&gt; instruction issue on SM</span><br></pre></td></tr></table></figure>
+<h3 id="4-4-zhen-zheng-huo-qi-lai-de-bu-shi-gu-li-thread" tabindex="-1" id="4-4-真正“活起来”的不是孤立-thread">4.4 真正“活起来”的不是孤立 thread</h3>
+<p>这句话要单独记住：</p>
+<blockquote>
+<p>线程是你写代码时最直观的抽象，但硬件真正推进执行时，看的不是孤立 thread，而是 block 和 warp。</p>
+</blockquote>
+<h2 id="5-wei-shi-yao-block-zhe-yi-ceng-bi-bu-ke-shao" tabindex="-1" id="5-为什么-block-这一层必不可少">5. 为什么 block 这一层必不可少</h2>
+<p>很多人会问：既然硬件最终按 <code>warp</code> 调度，为什么 CUDA 还要多设计一层 <code>block</code>？</p>
+<p>因为 <code>block</code> 解决的是和 <code>warp</code> 完全不同的问题。</p>
+<h3 id="5-1-block-shi-diao-du-zhuang-zai-dan-wei" tabindex="-1" id="5-1-block-是调度装载单位">5.1 block 是调度装载单位</h3>
+<p>GPU 不会把单个线程随意扔到不同 <code>SM</code>。真正被装到某个 <code>SM</code> 上执行的是 <code>block</code>。</p>
+<p>这样做的好处是：</p>
+<ul>
+<li>调度开销可控</li>
+<li>一组线程天然归属于同一个局部协作域</li>
+<li>资源边界清晰</li>
+<li>任务容易拆分成大量独立工作包</li>
+</ul>
+<h3 id="5-2-block-shi-ju-bu-tong-bu-bian-jie" tabindex="-1" id="5-2-block-是局部同步边界">5.2 block 是局部同步边界</h3>
+<p><code>__syncthreads()</code> 只在 block 内有效，这不是限制太多，而是 CUDA 明确给出的设计边界。</p>
+<p>这意味着：</p>
+<ul>
+<li>block 内线程可以同步</li>
+<li>block 内线程可以协作</li>
+<li>block 间默认独立</li>
+</ul>
+<p>这样调度器才有足够自由度去分批执行大 grid。</p>
+<h3 id="5-3-block-ding-yi-liao-shared-memory-de-gui-shu" tabindex="-1" id="5-3-block-定义了-shared-memory-的归属">5.3 block 定义了 shared memory 的归属</h3>
+<p><code>shared memory</code> 不是整张卡共享，而是一个 block 在某个 <code>SM</code> 上执行时使用的片上共享存储。</p>
+<p>所以很多需要局部复用的 kernel，天然会围绕 block 设计：</p>
+<ul>
+<li>GEMM</li>
+<li>卷积</li>
+<li>attention tile</li>
+<li>block reduction</li>
+</ul>
+<h3 id="5-4-block-rang-cheng-xu-tian-ran-ke-kuo-zhan" tabindex="-1" id="5-4-block-让程序天然可扩展">5.4 block 让程序天然可扩展</h3>
+<p>同一份代码里，如果任务被切成很多 block：</p>
+<ul>
+<li>小 GPU 可以一次只跑少量 block</li>
+<li>大 GPU 可以同时装更多 block</li>
+</ul>
+<p>这就是 CUDA 跨设备扩展能力的根基之一。</p>
+<h2 id="6-wei-shi-yao-ying-jian-zui-zhong-you-hui-dao-warp-zhe-yi-ceng" tabindex="-1" id="6-为什么硬件最终又回到-warp-这一层">6. 为什么硬件最终又回到 warp 这一层</h2>
+<p>如果 block 这么重要，为什么执行粒度又不是 block，而是 warp？</p>
+<p>因为 block 太大，不适合作为最小指令发射单位。</p>
+<p>假设一个 block 有 256 个线程。如果硬件每次都要“让 256 个线程一起执行一条指令”，会遇到很多问题：</p>
+<ul>
+<li>发射粒度太粗</li>
+<li>分支控制代价高</li>
+<li>数据依赖管理复杂</li>
+<li>流水线压力大</li>
+</ul>
+<p>于是硬件采用更细的粒度：<code>warp</code>。</p>
+<p>在 NVIDIA 体系里，一个 warp 通常是 32 个线程。你可以先把它理解成：</p>
+<blockquote>
+<p>一组在执行路径和调度上强相关的线程集合。</p>
+</blockquote>
+<p>所以：</p>
+<ul>
+<li><code>block</code> 负责任务切分和局部协作</li>
+<li><code>warp</code> 负责高吞吐执行和硬件调度</li>
+</ul>
+<p>这两层都不可少。</p>
+<h2 id="7-thread-warp-block-sm-dao-di-zen-yao-dui-ying" tabindex="-1" id="7-thread、warp、block、SM-到底怎么对应">7. thread、warp、block、SM 到底怎么对应</h2>
+<p>这一部分要建立成脑图。</p>
+<h3 id="7-1-thread-luo-ji-gong-zuo-dan-wei" tabindex="-1" id="7-1-thread：逻辑工作单位">7.1 thread：逻辑工作单位</h3>
+<p><code>thread</code> 是最直观的编程单位。你会用它来映射数据空间，比如：</p>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">int</span> idx = blockIdx.x * blockDim.x + threadIdx.x;</span><br></pre></td></tr></table></figure>
+<p>每个 thread 都有自己的：</p>
+<ul>
+<li><code>threadIdx</code></li>
+<li>局部变量</li>
+<li>寄存器上下文</li>
+</ul>
+<p>但它更多是编程视角的最小单位，不是最经济的硬件调度粒度。</p>
+<h3 id="7-2-warp-zhi-xing-he-diao-du-de-zhong-yao-li-du" tabindex="-1" id="7-2-warp：执行和调度的重要粒度">7.2 warp：执行和调度的重要粒度</h3>
+<p>一个 block 会按线程 ID 连续切成若干个 warp。</p>
+<p>例如 block 大小为 256 时，会形成 8 个 warp：</p>
+<ul>
+<li>warp 0: thread 0-31</li>
+<li>warp 1: thread 32-63</li>
+<li>…</li>
+<li>warp 7: thread 224-255</li>
+</ul>
+<p>很多性能问题都要放到 warp 这一层看：</p>
+<ul>
+<li>分支发散</li>
+<li>warp-level primitive</li>
+<li>访存合并</li>
+<li>活跃 warp 数量</li>
+</ul>
+<h3 id="7-3-block-zi-yuan-zhuang-zai-dan-wei" tabindex="-1" id="7-3-block：资源装载单位">7.3 block：资源装载单位</h3>
+<p>一个 block 被放到某个 <code>SM</code> 上时，会消耗这台 <code>SM</code> 的一部分资源，例如：</p>
+<ul>
+<li>寄存器</li>
+<li><code>shared memory</code></li>
+<li>warp slot</li>
+<li>block slot</li>
+</ul>
+<p>只有等这个 block 执行结束，这些资源才会释放。</p>
+<p>所以：</p>
+<ul>
+<li>block 太大可能压低同时驻留数量</li>
+<li>寄存器用太多可能压低驻留数量</li>
+<li>shared memory 用太多也会压低驻留数量</li>
+</ul>
+<h3 id="7-4-sm-tun-tu-xing-zhi-xing-zi-yuan-chi" tabindex="-1" id="7-4-SM：吞吐型执行资源池">7.4 SM：吞吐型执行资源池</h3>
+<p>不要把 <code>SM</code> 简化成“一个大核”。</p>
+<p>更准确的理解是：</p>
+<blockquote>
+<p>SM 是一个能同时维护很多 warp 上下文、拥有寄存器文件、shared memory、调度器和执行单元的吞吐型资源池。</p>
+</blockquote>
+<p>这也是 GPU 和 CPU 在执行哲学上的关键差异：</p>
+<ul>
+<li>CPU 更强调少量线程的低延迟</li>
+<li>GPU 更强调大量 warp 的整体吞吐</li>
+</ul>
+<h2 id="8-yi-ge-block-shi-ru-he-zai-sm-shang-huo-qi-lai-de" tabindex="-1" id="8-一个-block-是如何在-SM-上“活起来”的">8. 一个 block 是如何在 SM 上“活起来”的</h2>
+<p>继续用 <code>block_size = 256</code> 举例。</p>
+<p>当一个 256-thread 的 block 被放到某个 <code>SM</code> 上时，大致会发生：</p>
+<ol>
+<li>它被切成 8 个 warp</li>
+<li>这些 warp 共享这个 block 的 <code>shared memory</code></li>
+<li>每个 thread 使用自己的寄存器</li>
+<li><code>warp scheduler</code> 在很多就绪 warp 之间轮流发射指令</li>
+</ol>
+<p>这里最关键的一点是：</p>
+<blockquote>
+<p>GPU 的高吞吐不主要来自“单个 warp 很快”，而主要来自“一个 SM 上同时挂着很多 warp，可以来回切换”。</p>
+</blockquote>
+<h2 id="9-latency-hiding-gpu-wei-shi-yao-mei-na-yao-pa-nei-cun-yan-chi" tabindex="-1" id="9-latency-hiding：GPU-为什么没那么怕内存延迟">9. latency hiding：GPU 为什么没那么怕内存延迟</h2>
+<p>CPU 通常会用 cache、乱序执行、分支预测等手段，让少量线程尽量低延迟执行。</p>
+<p>GPU 的思路更像是：</p>
+<ul>
+<li>某个 warp 去等内存</li>
+<li>调度器先不等它</li>
+<li>切换到另一个 ready warp</li>
+</ul>
+<p>这就是 <code>latency hiding</code>。</p>
+<p>所以 GPU 喜欢一个 <code>SM</code> 上有足够多的 in-flight warps。这样当某个 warp 因为下面这些原因暂时不能前进时：</p>
+<ul>
+<li>global memory 访问还没返回</li>
+<li>数据依赖还没满足</li>
+<li>某类执行单元暂时繁忙</li>
+</ul>
+<p>调度器还能继续推进别的 warp。</p>
+<p>这就是为什么 GPU 不是靠“单线程做快”吃饭，而是靠“让很多 warp 在途”。</p>
+<h2 id="10-occupancy-dao-di-shi-shi-yao" tabindex="-1" id="10-occupancy-到底是什么">10. occupancy 到底是什么</h2>
+<p><code>occupancy</code> 可以粗略理解为：</p>
+<blockquote>
+<p>某个 SM 上当前活跃 warp 数，占该 SM 理论最大活跃 warp 数的比例。</p>
+</blockquote>
+<p>它回答的是一个很实际的问题：</p>
+<p>当前这个 kernel，在一个 <code>SM</code> 上到底留下了多少可供调度器切换的 warp？</p>
+<p>如果 occupancy 太低，容易出现这种情况：</p>
+<ul>
+<li>某个 warp 去等内存</li>
+<li>结果没别的 warp 可切</li>
+<li><code>SM</code> 空转</li>
+</ul>
+<p>所以 occupancy 对隐藏延迟确实重要。</p>
+<h2 id="11-wei-shi-yao-occupancy-bu-shi-yue-gao-yue-hao" tabindex="-1" id="11-为什么-occupancy-不是越高越好">11. 为什么 occupancy 不是越高越好</h2>
+<p>这是非常高频的误区。</p>
+<p>很多人知道 occupancy 之后，会不自觉地把目标变成“把 occupancy 拉满”。这不对。</p>
+<p>因为提高 occupancy 往往有代价：</p>
+<ul>
+<li>block 变小，数据复用可能变差</li>
+<li>每线程寄存器预算更紧，可能发生 spill</li>
+<li><code>shared memory</code> tile 变小，访存次数变多</li>
+<li>指令级并行度下降</li>
+</ul>
+<p>所以正确理解应该是：</p>
+<blockquote>
+<p>occupancy 是隐藏延迟的重要手段，但最终目标始终是整体吞吐更好。</p>
+</blockquote>
+<p>更直白一点说：</p>
+<ul>
+<li>occupancy 太低，通常有风险</li>
+<li>occupancy 很高，不代表一定最快</li>
+<li>还是要和寄存器、shared memory、访存模式、计算强度一起看</li>
+</ul>
+<h2 id="12-wei-shi-yao-block-zhi-jian-mo-ren-du-li" tabindex="-1" id="12-为什么-block-之间默认独立">12. 为什么 block 之间默认独立</h2>
+<p>很多初学者会问：为什么 CUDA 不允许我随便在 grid 中间做一次全局同步？</p>
+<p>因为一旦允许 block 之间自由同步，调度自由度会被严重破坏。</p>
+<p>现在这套设计的好处是：</p>
+<ul>
+<li>block A 可以先在 <code>SM0</code> 跑</li>
+<li>block B 可以同时在 <code>SM1</code> 跑</li>
+<li>block C 暂时不跑，等资源空出来再上</li>
+</ul>
+<p>也就是说，grid 可以远大于当前硬件能同时容纳的 block 数量，GPU 只需要分批处理。</p>
+<p>如果中途强制所有 block 同步，就会变成：</p>
+<ul>
+<li>你得保证所有 block 都同时有位置</li>
+<li>调度器自由度下降</li>
+<li>很多大规模问题会失去可扩展性</li>
+</ul>
+<p>所以 CUDA 的默认设计是：</p>
+<ul>
+<li>block 内强协作</li>
+<li>block 间弱耦合</li>
+<li>全局同步通常交给 kernel 边界</li>
+</ul>
+<p>这也是为什么很多算法会拆成多个 kernel。不是程序员爱麻烦，而是 kernel 边界天然就是一个清晰的全局同步点。</p>
+<h2 id="13-zhe-tao-mo-xing-wei-shi-yao-te-bie-gua-he-shen-du-xue-xi-he-tui-li" tabindex="-1" id="13-这套模型为什么特别适合深度学习和推理">13. 这套模型为什么特别适合深度学习和推理</h2>
+<p>深度学习里的很多操作都有类似结构：</p>
+<ul>
+<li>输出空间很大</li>
+<li>相邻输出往往依赖相邻输入块</li>
+<li>同类运算重复很多次</li>
+<li>局部复用很重要</li>
+</ul>
+<p>这和 CUDA 的层次化抽象刚好很契合：</p>
+<ul>
+<li><code>grid</code>：覆盖整个问题空间</li>
+<li><code>block</code>：处理一个 tile、一段 token 或一块输出区域</li>
+<li><code>warp</code>：推进更细粒度协作</li>
+<li><code>thread</code>：处理局部元素</li>
+</ul>
+<p>例如：</p>
+<ul>
+<li><code>GEMM</code> 里，一个 block 常常负责输出矩阵的一块 tile</li>
+<li><code>attention</code> 里，一个 block 或 warp 可能负责部分 token/head 区域</li>
+<li><code>decode</code> kernel 里，粒度选择会直接影响并行度和缓存行为</li>
+</ul>
+<p>所以 CUDA 长期成为 AI 计算主战场，不只是生态问题，也因为这套抽象和张量计算的结构高度匹配。</p>
+<h2 id="14-wei-shi-yao-hen-duo-tui-li-kernel-de-she-ji-du-rao-bu-kai-li-du" tabindex="-1" id="14-为什么很多推理-kernel-的设计都绕不开“粒度”">14. 为什么很多推理 kernel 的设计都绕不开“粒度”</h2>
+<p>当你开始看：</p>
+<ul>
+<li><code>FlashAttention</code></li>
+<li><code>PagedAttention</code></li>
+<li><code>layernorm</code></li>
+<li><code>RMSNorm</code></li>
+<li><code>TopK</code></li>
+<li>sampling kernel</li>
+</ul>
+<p>会发现大家总在讨论：</p>
+<ul>
+<li>一个 block 处理多少元素</li>
+<li>一个 warp 处理几行或几列</li>
+<li>一个 thread 一次处理几个值</li>
+<li>归约放在 warp 内还是 block 内</li>
+</ul>
+<p>原因很简单：</p>
+<blockquote>
+<p>GPU 性能优化，本质上就是在选择最贴合硬件的执行粒度。</p>
+</blockquote>
+<p>粒度太粗，容易出现：</p>
+<ul>
+<li>block 太大</li>
+<li>资源占用过高</li>
+<li>同时驻留数量下降</li>
+<li>occupancy 下降</li>
+</ul>
+<p>粒度太细，容易出现：</p>
+<ul>
+<li>调度和 launch 开销占比升高</li>
+<li>数据复用变差</li>
+<li>shared memory 的价值下降</li>
+<li>带宽压力变大</li>
+</ul>
+<p>所以好的 kernel 不是“线程越多越好”，而是 <code>thread / warp / block</code> 三层粒度和数据组织方式刚好贴合问题结构。</p>
+<h2 id="15-volta-zhi-hou-bu-yao-luan-yong-warp-tian-ran-tong-bu-de-jia-she" tabindex="-1" id="15-Volta-之后，不要乱用“warp-天然同步”的假设">15. Volta 之后，不要乱用“warp 天然同步”的假设</h2>
+<p>老资料里常见一种说法：同一个 warp 内线程天然同步，所以很多事情可以不写显式同步。</p>
+<p>在现代 GPU 上，这种说法要非常谨慎。</p>
+<p>从 Volta 开始，NVIDIA 引入了 <code>Independent Thread Scheduling</code>。这意味着你不能再随意依赖一些没有被正式保证的隐式行为。</p>
+<p>更稳妥的原则是：</p>
+<ul>
+<li>需要同步时，用明确同步原语</li>
+<li>需要 warp 内通信时，用官方支持的 warp primitive</li>
+<li>不要依赖某一代 GPU 的偶然执行细节</li>
+</ul>
+<p>这不是“代码风格”问题，而是你是否把 CUDA 当成抽象模型来写的问题。</p>
+<h2 id="16-yi-ge-jian-dan-li-zi-wei-shi-yao-gui-yue-hui-bao-lu-zhi-xing-li-du-wen-ti" tabindex="-1" id="16-一个简单例子：为什么归约会暴露执行粒度问题">16. 一个简单例子：为什么归约会暴露执行粒度问题</h2>
+<p>先看一个简化的 block 级归约：</p>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line"><span class="function">__global__ <span class="type">void</span> <span class="title">block_sum</span><span class="params">(<span class="type">const</span> <span class="type">float</span>* x, <span class="type">float</span>* out, <span class="type">int</span> n)</span> </span>&#123;</span><br><span class="line">    __shared__ <span class="type">float</span> smem[<span class="number">256</span>];</span><br><span class="line"></span><br><span class="line">    <span class="type">int</span> tid = threadIdx.x;</span><br><span class="line">    <span class="type">int</span> idx = blockIdx.x * blockDim.x + threadIdx.x;</span><br><span class="line"></span><br><span class="line">    <span class="type">float</span> val = <span class="number">0.0f</span>;</span><br><span class="line">    <span class="keyword">if</span> (idx &lt; n) val = x[idx];</span><br><span class="line"></span><br><span class="line">    smem[tid] = val;</span><br><span class="line">    __syncthreads();</span><br><span class="line"></span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> stride = blockDim.x / <span class="number">2</span>; stride &gt; <span class="number">0</span>; stride &gt;&gt;= <span class="number">1</span>) &#123;</span><br><span class="line">        <span class="keyword">if</span> (tid &lt; stride) &#123;</span><br><span class="line">            smem[tid] += smem[tid + stride];</span><br><span class="line">        &#125;</span><br><span class="line">        __syncthreads();</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">if</span> (tid == <span class="number">0</span>) &#123;</span><br><span class="line">        out[blockIdx.x] = smem[<span class="number">0</span>];</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>这个例子虽然简单，但已经暴露了几个关键点：</p>
+<ul>
+<li>为什么要有 block：因为归约需要局部协作</li>
+<li>为什么 block 内线程必须在同一个 <code>SM</code>：否则 <code>shared memory</code> 没法成立</li>
+<li>为什么后半段效率会下降：活跃线程越来越少</li>
+<li>为什么很多高性能实现后半段会切到 warp primitive：因为协作粒度在变化</li>
+</ul>
+<p>这个思路不只适用于 reduction，也适用于 <code>softmax</code>、<code>layernorm</code>、sampling 等推理 kernel。</p>
+<h2 id="17-zhe-yi-pian-bi-xu-ji-zhu-de-ji-ju-hua" tabindex="-1" id="17-这一篇必须记住的几句话">17. 这一篇必须记住的几句话</h2>
+<ul>
+<li><code>thread</code> 是逻辑单位，<code>warp</code> 是关键执行粒度，<code>block</code> 是关键资源和协作粒度。</li>
+<li><code>SM</code> 是吞吐型执行资源池，不是简单意义上的“一个核”。</li>
+<li><code>grid</code> 中的 block 会被分批装载到 <code>SM</code>，不是一次性全部同时执行。</li>
+<li>GPU 的高吞吐依赖大量 in-flight warps 来隐藏延迟。</li>
+<li><code>occupancy</code> 重要，但不是越高越好。</li>
+<li>block 间默认独立，是 CUDA 保持可扩展性的关键设计。</li>
+<li>很多 AI 推理 kernel 的核心问题，其实都是执行粒度和数据组织是否贴合硬件。</li>
+</ul>
+<h2 id="18-jing-jian-ban-mian-shi-biao-da" tabindex="-1" id="18-精简版面试表达">18. 精简版面试表达</h2>
+<p>如果面试官问 CUDA 的 <code>thread / block / warp / SM</code> 是怎么对应的，可以这样答：</p>
+<blockquote>
+<p>thread 是编程时最直观的逻辑工作单位，但 GPU 不会按单线程高成本调度。实际执行时，一个 block 会被装到某个 SM 上，再切成多个 warp，由 warp scheduler 选择可执行 warp 发射指令。block 负责资源分配、shared memory 和局部同步，warp 负责更细粒度的执行推进，SM 则是承载这些资源和上下文的吞吐型执行单元。很多 kernel 性能问题，本质上都来自这几层粒度与数据组织之间是否匹配。</p>
+</blockquote>
+<hr>
+<h2 id="xi-lie-dao-hang" tabindex="-1" id="系列导航">系列导航</h2>
+<ul>
+<li>导读：<a href="/posts/3f7ace4/">GPU系统拆解-00-导读：从架构认知到推理系统的学习路线</a></li>
+<li>上一篇：<a href="/posts/72d2a668/">GPU系统拆解-04-数据中心架构：为什么大厂更偏好 Hopper、Blackwell 与 MI300</a></li>
+<li>下一篇：<a href="/posts/63789fbe/">GPU系统拆解-06-内存层次与访存主线：GPU 性能为什么常常卡在数据</a></li>
+<li>延伸阅读：<a href="/posts/92dc1028/">CUDA C编程权威指南：导读</a></li>
+<li>延伸阅读：<a href="/posts/7608f1b0/">CUDA实践-01-基础概念与分块</a></li>
+</ul>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/492fe17c/">https://smarter.xin/posts/492fe17c/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/gpu/">GPU</a><a class="post-meta__tags" href="/tags/cuda/">CUDA</a><a class="post-meta__tags" href="/tags/parallel-computing/">并行计算</a><a class="post-meta__tags" href="/tags/execution-model/">执行模型</a></div><div class="post-share"><div class="social-share" data-image="/img/nvidia.png" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/63789fbe/" title="GPU系统拆解-06-内存层次与访存主线：GPU 性能为什么常常卡在数据"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">GPU系统拆解-06-内存层次与访存主线：GPU 性能为什么常常卡在数据</div></div></div></a><a class="pagination-related  no-desc" href="/posts/72d2a668/" title="GPU系统拆解-04-数据中心架构：为什么大厂更偏好 Hopper、Blackwell 与 MI300"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">GPU系统拆解-04-数据中心架构：为什么大厂更偏好 Hopper、Blackwell 与 MI300</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/b8f3cfc3/" title="GPU系统拆解-07-PTX、SASS 与编译链：一段 CUDA 代码如何变成指令"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-04-05</div><div class="info-item-2">GPU系统拆解-07-PTX、SASS 与编译链：一段 CUDA 代码如何变成指令</div></div></div></a><a class="pagination-related no-desc" href="/posts/bf3e0449/" title="CUDA C编程权威指南-第三章：CUDA执行模型"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/CUDA_C.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-02-05</div><div class="info-item-2">CUDA C编程权威指南-第三章：CUDA执行模型</div></div></div></a><a class="pagination-related no-desc" href="/posts/82dbd045/" title="PyTorch推理工程：04 CUDA、设备迁移、显存与同步"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-29</div><div class="info-item-2">PyTorch推理工程：04 CUDA、设备迁移、显存与同步</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">我就是要爬这座山<br>再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">188</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">305</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">28</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#gpu-xi-tong-chai-jie-05-cuda-zhi-xing-ying-she-chou-xiang-mo-xing-ru-he-luo-dao-zhen-shi-ying-jian"><span class="toc-text">GPU系统拆解-05-CUDA 执行映射：抽象模型如何落到真实硬件</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#1-xian-gei-jie-lun"><span class="toc-text">1. 先给结论</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-wei-shi-yao-cuda-bu-rang-ni-zhi-jie-xie-sm-cheng-xu"><span class="toc-text">2. 为什么 CUDA 不让你直接写“SM 程序”</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#3-cong-yi-ge-zui-chang-jian-de-kernel-kai-shi"><span class="toc-text">3. 从一个最常见的 kernel 开始</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#4-cong-kernel-launch-dao-gpu-zhi-xing-shi-ji-fa-sheng-liao-shi-yao"><span class="toc-text">4. 从 kernel launch 到 GPU 执行，实际发生了什么</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#4-1-host-ti-jiao-gong-zuo-miao-shu"><span class="toc-text">4.1 Host 提交工作描述</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-2-runtime-driver-zuo-zhun-bei"><span class="toc-text">4.2 Runtime &#x2F; Driver 做准备</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-3-grid-bu-hui-bei-yi-ci-xing-quan-bu-zhan-kai"><span class="toc-text">4.3 Grid 不会被“一次性全部展开”</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-4-zhen-zheng-huo-qi-lai-de-bu-shi-gu-li-thread"><span class="toc-text">4.4 真正“活起来”的不是孤立 thread</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#5-wei-shi-yao-block-zhe-yi-ceng-bi-bu-ke-shao"><span class="toc-text">5. 为什么 block 这一层必不可少</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#5-1-block-shi-diao-du-zhuang-zai-dan-wei"><span class="toc-text">5.1 block 是调度装载单位</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-2-block-shi-ju-bu-tong-bu-bian-jie"><span class="toc-text">5.2 block 是局部同步边界</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-3-block-ding-yi-liao-shared-memory-de-gui-shu"><span class="toc-text">5.3 block 定义了 shared memory 的归属</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-4-block-rang-cheng-xu-tian-ran-ke-kuo-zhan"><span class="toc-text">5.4 block 让程序天然可扩展</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#6-wei-shi-yao-ying-jian-zui-zhong-you-hui-dao-warp-zhe-yi-ceng"><span class="toc-text">6. 为什么硬件最终又回到 warp 这一层</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#7-thread-warp-block-sm-dao-di-zen-yao-dui-ying"><span class="toc-text">7. thread、warp、block、SM 到底怎么对应</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#7-1-thread-luo-ji-gong-zuo-dan-wei"><span class="toc-text">7.1 thread：逻辑工作单位</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#7-2-warp-zhi-xing-he-diao-du-de-zhong-yao-li-du"><span class="toc-text">7.2 warp：执行和调度的重要粒度</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#7-3-block-zi-yuan-zhuang-zai-dan-wei"><span class="toc-text">7.3 block：资源装载单位</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#7-4-sm-tun-tu-xing-zhi-xing-zi-yuan-chi"><span class="toc-text">7.4 SM：吞吐型执行资源池</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#8-yi-ge-block-shi-ru-he-zai-sm-shang-huo-qi-lai-de"><span class="toc-text">8. 一个 block 是如何在 SM 上“活起来”的</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#9-latency-hiding-gpu-wei-shi-yao-mei-na-yao-pa-nei-cun-yan-chi"><span class="toc-text">9. latency hiding：GPU 为什么没那么怕内存延迟</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#10-occupancy-dao-di-shi-shi-yao"><span class="toc-text">10. occupancy 到底是什么</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#11-wei-shi-yao-occupancy-bu-shi-yue-gao-yue-hao"><span class="toc-text">11. 为什么 occupancy 不是越高越好</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#12-wei-shi-yao-block-zhi-jian-mo-ren-du-li"><span class="toc-text">12. 为什么 block 之间默认独立</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#13-zhe-tao-mo-xing-wei-shi-yao-te-bie-gua-he-shen-du-xue-xi-he-tui-li"><span class="toc-text">13. 这套模型为什么特别适合深度学习和推理</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#14-wei-shi-yao-hen-duo-tui-li-kernel-de-she-ji-du-rao-bu-kai-li-du"><span class="toc-text">14. 为什么很多推理 kernel 的设计都绕不开“粒度”</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#15-volta-zhi-hou-bu-yao-luan-yong-warp-tian-ran-tong-bu-de-jia-she"><span class="toc-text">15. Volta 之后，不要乱用“warp 天然同步”的假设</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#16-yi-ge-jian-dan-li-zi-wei-shi-yao-gui-yue-hui-bao-lu-zhi-xing-li-du-wen-ti"><span class="toc-text">16. 一个简单例子：为什么归约会暴露执行粒度问题</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#17-zhe-yi-pian-bi-xu-ji-zhu-de-ji-ju-hua"><span class="toc-text">17. 这一篇必须记住的几句话</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#18-jing-jian-ban-mian-shi-biao-da"><span class="toc-text">18. 精简版面试表达</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xi-lie-dao-hang"><span class="toc-text">系列导航</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/b47bc812/" title="GPU系统拆解-14-从 PyTorch 到 CUDA Extension：把算子真正接入工程"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="GPU系统拆解-14-从 PyTorch 到 CUDA Extension：把算子真正接入工程"/></a><div class="content"><a class="title" href="/posts/b47bc812/" title="GPU系统拆解-14-从 PyTorch 到 CUDA Extension：把算子真正接入工程">GPU系统拆解-14-从 PyTorch 到 CUDA Extension：把算子真正接入工程</a><time datetime="2026-04-05T07:00:00.000Z" title="发表于 2026-04-05 15:00:00">2026-04-05</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/68e6bad5/" title="GPU系统拆解-13-多 GPU 与通信：并行策略、拓扑与扩展代价"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="GPU系统拆解-13-多 GPU 与通信：并行策略、拓扑与扩展代价"/></a><div class="content"><a class="title" href="/posts/68e6bad5/" title="GPU系统拆解-13-多 GPU 与通信：并行策略、拓扑与扩展代价">GPU系统拆解-13-多 GPU 与通信：并行策略、拓扑与扩展代价</a><time datetime="2026-04-05T06:30:00.000Z" title="发表于 2026-04-05 14:30:00">2026-04-05</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/e141fe5/" title="GPU系统拆解-12-LLM 推理的 GPU 主线：Prefill、Decode、KV Cache 与系统约束"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="GPU系统拆解-12-LLM 推理的 GPU 主线：Prefill、Decode、KV Cache 与系统约束"/></a><div class="content"><a class="title" href="/posts/e141fe5/" title="GPU系统拆解-12-LLM 推理的 GPU 主线：Prefill、Decode、KV Cache 与系统约束">GPU系统拆解-12-LLM 推理的 GPU 主线：Prefill、Decode、KV Cache 与系统约束</a><time datetime="2026-04-05T06:00:00.000Z" title="发表于 2026-04-05 14:00:00">2026-04-05</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/attentionisallyouneed.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">从 Self-Attention、位置编码到 Encoder-Decoder，系统梳理 Transformer 的核心结构、设计动机与理解路径</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/d6fa227a/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-16</span><a class="blog-slider__title" href="posts/d6fa227a/" alt="">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</a><div class="blog-slider__text">从访存优化到多卡通信，一篇看清 CUDA 实践系列的结构与学习路线</div><a class="blog-slider__button" href="posts/d6fa227a/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/43c4b52e/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/agent.webp" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-24</span><a class="blog-slider__title" href="posts/43c4b52e/" alt="">从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路</a><div class="blog-slider__text">使用飞书与本地 Agent 对话，远程也要让本地 Agent 干活，当一名狠狠的资本家</div><a class="blog-slider__button" href="posts/43c4b52e/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/92dc1028/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/CUDA_C.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-02-05</span><a class="blog-slider__title" href="posts/92dc1028/" alt="">CUDA C编程权威指南-导读</a><div class="blog-slider__text">从异构并行到多 GPU 实践，串起 CUDA C 权威指南的核心学习路线</div><a class="blog-slider__button" href="posts/92dc1028/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">从全书视角出发，一篇看清 PMPP 的章节结构、核心主题与学习主线</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/aac6e27d/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Computer_System.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/aac6e27d/" alt="">深入理解计算机系统知识点总结</a><div class="blog-slider__text">从程序员视角梳理 CSAPP 的知识脉络、系统抽象与性能理解</div><a class="blog-slider__button" href="posts/aac6e27d/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">围绕类型推导、移动语义与并发，提炼现代 C++ 的核心实践</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>

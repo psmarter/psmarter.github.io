@@ -1,0 +1,737 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>GPU系统拆解-07-PTX、SASS 与编译链：一段 CUDA 代码如何变成指令 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="GPU系统拆解-07-PTX、SASS 与编译链：一段 CUDA 代码如何变成指令  本文是「GPU系统拆解」系列第 07 篇。 系列导读：GPU系统拆解-00-导读：从架构认知到推理系统的学习路线 上一篇：GPU系统拆解-06-内存层次与访存主线：GPU 性能为什么常常卡在数据 下一篇：GPU系统拆解-08-Tensor Core、GEMM 与 FlashAttention：AI 计算热点为什么">
+<meta property="og:type" content="article">
+<meta property="og:title" content="GPU系统拆解-07-PTX、SASS 与编译链：一段 CUDA 代码如何变成指令">
+<meta property="og:url" content="https://smarter.xin/posts/b8f3cfc3/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="GPU系统拆解-07-PTX、SASS 与编译链：一段 CUDA 代码如何变成指令  本文是「GPU系统拆解」系列第 07 篇。 系列导读：GPU系统拆解-00-导读：从架构认知到推理系统的学习路线 上一篇：GPU系统拆解-06-内存层次与访存主线：GPU 性能为什么常常卡在数据 下一篇：GPU系统拆解-08-Tensor Core、GEMM 与 FlashAttention：AI 计算热点为什么">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/nvidia.png">
+<meta property="article:published_time" content="2026-04-05T03:30:00.000Z">
+<meta property="article:modified_time" content="2026-04-04T18:24:31.730Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="GPU">
+<meta property="article:tag" content="CUDA">
+<meta property="article:tag" content="执行模型">
+<meta property="article:tag" content="Kernel 开发">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/nvidia.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "GPU系统拆解-07-PTX、SASS 与编译链：一段 CUDA 代码如何变成指令",
+  "url": "https://smarter.xin/posts/b8f3cfc3/",
+  "image": "https://smarter.xin/img/nvidia.png",
+  "datePublished": "2026-04-05T03:30:00.000Z",
+  "dateModified": "2026-04-04T18:24:31.730Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/b8f3cfc3/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'GPU系统拆解-07-PTX、SASS 与编译链：一段 CUDA 代码如何变成指令',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">188</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">305</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">28</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/nvidia.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">GPU系统拆解-07-PTX、SASS 与编译链：一段 CUDA 代码如何变成指令</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">GPU系统拆解-07-PTX、SASS 与编译链：一段 CUDA 代码如何变成指令</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-04-05T03:30:00.000Z" title="发表于 2026-04-05 11:30:00">2026-04-05</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-04-04T18:24:31.730Z" title="更新于 2026-04-05 02:24:31">2026-04-05</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/">AI Infra</a><i class="fas fa-angle-right post-meta-separator"></i><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/gpu/">GPU</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">4k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>12分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="gpu-xi-tong-chai-jie-07-ptx-sass-yu-bian-yi-lian-yi-duan-cuda-dai-ma-ru-he-bian-cheng-zhi-ling" tabindex="-1">GPU系统拆解-07-PTX、SASS 与编译链：一段 CUDA 代码如何变成指令</h1>
+<blockquote>
+<p>本文是「GPU系统拆解」系列第 07 篇。<br>
+系列导读：<a href="/posts/3f7ace4/">GPU系统拆解-00-导读：从架构认知到推理系统的学习路线</a><br>
+上一篇：<a href="/posts/63789fbe/">GPU系统拆解-06-内存层次与访存主线：GPU 性能为什么常常卡在数据</a><br>
+下一篇：<a href="/posts/6577c292/">GPU系统拆解-08-Tensor Core、GEMM 与 FlashAttention：AI 计算热点为什么这样组织</a></p>
+</blockquote>
+<blockquote>
+<p>这一篇要解决的是一个很容易被忽略的问题：你写下的 CUDA 源码，最终到底变成了什么。学完这一篇之后，你不需要会手写 SASS，但应该知道什么时候该看 <code>PTX</code>、什么时候该看 <code>SASS</code>，以及它们为什么能帮助你解释 kernel 的真实性能表现。</p>
+</blockquote>
+<h2 id="1-xian-gei-jie-lun" tabindex="-1" id="1-先给结论">1. 先给结论</h2>
+<ul>
+<li>CUDA 源码不会一步直接变成 GPU 机器码，中间通常还要经过 <code>PTX</code> 这一层。</li>
+<li><code>PTX</code> 是虚拟 ISA 和中间表示，<code>SASS</code> 才是某一具体 GPU 架构真正执行的机器指令。</li>
+<li>同一份 <code>.cu</code> 源码，在不同 GPU 上最终生成的机器码可能不同，所以性能也可能不同。</li>
+<li>很多性能问题不是算法本身的问题，而是编译结果不理想，例如寄存器过多、spill、指令膨胀、没有走到预期的矩阵路径。</li>
+<li><code>PTX / SASS</code> 不是日常开发起点，而是定位复杂性能问题时的重要证据层。</li>
+<li>对 <code>AI infra / 推理</code> 来说，<code>Tensor Core</code> 没用上、小 kernel 底层效率差、变长序列导致控制流复杂、寄存器压力过高，这些都很值得从 <code>PTX / SASS</code> 角度去看。</li>
+</ul>
+<h2 id="2-xian-ba-zheng-tiao-bian-yi-lian-ji-zhu" tabindex="-1" id="2-先把整条编译链记住">2. 先把整条编译链记住</h2>
+<p>可以先把 CUDA 代码的大致链路记成这样：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">CUDA C++ 源码</span><br><span class="line">  -&gt; 前端编译</span><br><span class="line">  -&gt; PTX</span><br><span class="line">  -&gt; ptxas / 后端</span><br><span class="line">  -&gt; cubin / fatbin</span><br><span class="line">  -&gt; 驱动加载</span><br><span class="line">  -&gt; 必要时 JIT</span><br><span class="line">  -&gt; GPU 执行</span><br></pre></td></tr></table></figure>
+<p>这条链最重要的意义不是记名词，而是建立一个判断：</p>
+<blockquote>
+<p>你写的源码只是最上层意图，真正落到 GPU 上执行的是更底层的结果。</p>
+</blockquote>
+<h3 id="2-1-qian-duan-zai-zuo-shi-yao" tabindex="-1" id="2-1-前端在做什么">2.1 前端在做什么</h3>
+<p>前端主要负责把 CUDA C++ 里的这些东西展开和整理：</p>
+<ul>
+<li><code>__global__</code>、<code>__device__</code></li>
+<li>模板</li>
+<li>内联</li>
+<li>常量传播</li>
+<li>循环展开</li>
+<li>各种语义分析</li>
+</ul>
+<p>到这一步，代码已经开始从“人类写的程序”往“GPU 可执行程序”靠近。</p>
+<h3 id="2-2-ptx-zai-zheng-tiao-lian-li-de-wei-zhi" tabindex="-1" id="2-2-PTX-在整条链里的位置">2.2 PTX 在整条链里的位置</h3>
+<p><code>PTX</code> 不是最终机器码，而是一层更接近 GPU 的中间表示。</p>
+<p>它已经会出现很多底层概念：</p>
+<ul>
+<li>寄存器</li>
+<li>地址空间</li>
+<li>load/store</li>
+<li>谓词</li>
+<li>分支</li>
+<li>某些矩阵路径相关操作</li>
+</ul>
+<p>所以 PTX 已经不是“算法描述”，而是“GPU 视角下的程序描述”。</p>
+<h3 id="2-3-cubin-fatbin-jit-ying-gai-zen-yao-li-jie" tabindex="-1" id="2-3-cubin、fatbin、JIT-应该怎么理解">2.3 cubin、fatbin、JIT 应该怎么理解</h3>
+<p>可以先用最实用的方式理解：</p>
+<ul>
+<li><code>cubin</code>：某个具体架构可直接执行的设备二进制</li>
+<li><code>fatbin</code>：打包了多种设备代码或中间代码的容器</li>
+<li><code>JIT</code>：驱动在运行时根据当前 GPU，把中间表示进一步编译成适合本机的机器码</li>
+</ul>
+<p>你不用在这一篇里把所有工具链细节背全，但至少要知道：</p>
+<ul>
+<li>有时程序会直接带着某些架构的已编译结果</li>
+<li>有时也会保留 PTX，留给驱动在运行时再做最后一段编译</li>
+</ul>
+<h2 id="3-ptx-he-sass-dao-di-fen-bie-shi-shi-yao" tabindex="-1" id="3-PTX-和-SASS-到底分别是什么">3. PTX 和 SASS 到底分别是什么</h2>
+<h3 id="3-1-ptx-xu-ni-isa-he-zhong-jian-ceng" tabindex="-1" id="3-1-PTX：虚拟-ISA-和中间层">3.1 PTX：虚拟 ISA 和中间层</h3>
+<p><code>PTX</code> 的定位是：</p>
+<blockquote>
+<p>介于高层 CUDA 源码和最终机器码之间的虚拟指令集。</p>
+</blockquote>
+<p>它的价值在于两点：</p>
+<ul>
+<li>给上层提供相对稳定的抽象</li>
+<li>给下层后端和驱动保留优化空间</li>
+</ul>
+<p>这就是为什么 NVIDIA 不直接要求大家面向具体 GPU 机器码编程。</p>
+<h3 id="3-2-sass-zhen-zheng-mian-xiang-ju-ti-jia-gou-de-ji-qi-zhi-ling" tabindex="-1" id="3-2-SASS：真正面向具体架构的机器指令">3.2 SASS：真正面向具体架构的机器指令</h3>
+<p>如果说 PTX 是“还没完全落地的中间表示”，那么 <code>SASS</code> 就是某一具体架构真正执行的机器指令表示。</p>
+<p>它更贴近这些问题：</p>
+<ul>
+<li>这条 load/store 最终怎么发射</li>
+<li>这个分支最后怎么实现</li>
+<li>寄存器怎么分配</li>
+<li>某些架构特性有没有真正被用上</li>
+</ul>
+<p>所以：</p>
+<ul>
+<li>想看“程序大致被翻译成了什么”，PTX 往往就很有帮助</li>
+<li>想看“某张具体卡上最后到底跑了什么”，SASS 更有解释力</li>
+</ul>
+<h2 id="4-wei-shi-yao-ai-infra-tui-li-gong-cheng-shi-xu-yao-li-jie-ta-men" tabindex="-1" id="4-为什么-AI-infra-推理工程师需要理解它们">4. 为什么 AI infra / 推理工程师需要理解它们</h2>
+<p>先纠正一个误区：</p>
+<blockquote>
+<p>不是只有写汇编的人才需要懂 PTX / SASS。</p>
+</blockquote>
+<p>大多数 GPU 工程师并不会手写 SASS。主流路径仍然是：</p>
+<ul>
+<li>CUDA C++</li>
+<li>各种模板和库</li>
+<li>CUTLASS / Triton / TVM 等生成代码</li>
+</ul>
+<p>但你仍然要懂 PTX / SASS 的意义，因为很多关键问题只看源码解释不通。</p>
+<p>例如：</p>
+<ul>
+<li>为什么加了一个看似无害的临时变量后 kernel 变慢了</li>
+<li>为什么寄存器数突然暴涨</li>
+<li>为什么 occupancy 明明不低，性能还是很差</li>
+<li>为什么你以为会走 Tensor Core，结果没走上</li>
+<li>为什么相同源码在 Ada 和 Hopper 上表现差异明显</li>
+</ul>
+<p>这些问题的共同点是：</p>
+<blockquote>
+<p>你必须知道编译器和后端最终把源码翻译成了什么。</p>
+</blockquote>
+<h2 id="5-cong-yuan-ma-dao-ptx-si-wei-fang-shi-wei-shi-yao-hui-bian" tabindex="-1" id="5-从源码到-PTX，思维方式为什么会变">5. 从源码到 PTX，思维方式为什么会变</h2>
+<p>先看一个最简单的例子：</p>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="function">__global__ <span class="type">void</span> <span class="title">vec_add</span><span class="params">(<span class="type">const</span> <span class="type">float</span>* a, <span class="type">const</span> <span class="type">float</span>* b, <span class="type">float</span>* c, <span class="type">int</span> n)</span> </span>&#123;</span><br><span class="line">    <span class="type">int</span> idx = blockIdx.x * blockDim.x + threadIdx.x;</span><br><span class="line">    <span class="keyword">if</span> (idx &lt; n) &#123;</span><br><span class="line">        c[idx] = a[idx] + b[idx];</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>从源码看，你只看到了：</p>
+<ul>
+<li>索引计算</li>
+<li>一个边界判断</li>
+<li>两次读取</li>
+<li>一次加法</li>
+<li>一次写回</li>
+</ul>
+<p>但从 PTX / 底层视角看，这段逻辑通常会拆成更多动作：</p>
+<ol>
+<li>读取内建索引寄存器</li>
+<li>做整数乘加，计算 <code>idx</code></li>
+<li>比较 <code>idx &lt; n</code></li>
+<li>形成谓词</li>
+<li>计算 <code>a[idx]</code>、<code>b[idx]</code>、<code>c[idx]</code> 的地址</li>
+<li>发出 load</li>
+<li>发出浮点加法</li>
+<li>发出 store</li>
+</ol>
+<p>这里要建立的核心直觉是：</p>
+<blockquote>
+<p>源码里一句很普通的数组访问，落到 GPU 上往往已经拆成了一串地址计算、寄存器分配、load/store 和控制流处理。</p>
+</blockquote>
+<p>所以很多性能问题并不是“加法慢”，而是：</p>
+<ul>
+<li>地址算得太复杂</li>
+<li>多了额外的 load/store</li>
+<li>对齐不好</li>
+<li>谓词或分支让活动线程模式变差</li>
+<li>寄存器占用过高</li>
+</ul>
+<h2 id="6-wei-ci-fen-zhi-he-kan-si-jian-dan-de-if" tabindex="-1" id="6-谓词、分支和“看似简单的-if”">6. 谓词、分支和“看似简单的 if”</h2>
+<p>GPU 控制流里一个很重要的概念是 <code>predicate</code>。</p>
+<p>很多高层的 <code>if</code>，在底层不一定变成你想象中的粗暴跳转，也可能变成“带条件执行”的指令。</p>
+<p>例如：</p>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">if</span> (idx &lt; n) &#123;</span><br><span class="line">    x = y + z;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>底层可以粗略理解成：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">p = (idx &lt; n)</span><br><span class="line">@p 执行 add</span><br><span class="line">@p 执行 store</span><br></pre></td></tr></table></figure>
+<p>这意味着两件事：</p>
+<ul>
+<li>即使你只写了一个很小的边界判断，底层也确实存在控制流成本</li>
+<li>在 warp 级执行模型下，条件是否整齐、活动线程是否集中，会影响实际执行效率</li>
+</ul>
+<p>这类问题在推理里很常见，尤其是：</p>
+<ul>
+<li>变长序列</li>
+<li>ragged batch</li>
+<li>边界 tile</li>
+<li>decode 阶段 token 不齐</li>
+<li>padding 和 mask 处理</li>
+</ul>
+<p>所以很多“逻辑很简单”的 kernel，底层未必简单。</p>
+<h2 id="7-ji-cun-qi-wei-shi-yao-zong-shi-di-yi-xian-yi-ren" tabindex="-1" id="7-寄存器为什么总是第一嫌疑人">7. 寄存器为什么总是第一嫌疑人</h2>
+<p>很多人一开始学 GPU 优化只盯 shared memory，后面才会意识到：</p>
+<blockquote>
+<p>寄存器往往才是最容易不知不觉把性能搞坏的资源。</p>
+</blockquote>
+<h3 id="7-1-wei-shi-yao-ji-cun-qi-zhe-yao-zhong-yao" tabindex="-1" id="7-1-为什么寄存器这么重要">7.1 为什么寄存器这么重要</h3>
+<p>寄存器是线程私有、速度最快的存储层。中间结果如果能一直留在寄存器里，通常会有：</p>
+<ul>
+<li>更低延迟</li>
+<li>更少额外访存</li>
+<li>更好的算术流水</li>
+</ul>
+<p>所以编译器会尽量把活跃变量放在寄存器里。</p>
+<h3 id="7-2-wei-shi-yao-ji-cun-qi-you-hui-bian-cheng-wen-ti" tabindex="-1" id="7-2-为什么寄存器又会变成问题">7.2 为什么寄存器又会变成问题</h3>
+<p>因为寄存器不是无限的。</p>
+<p>如果每线程用的寄存器太多，会直接带来两个结果：</p>
+<ul>
+<li>同一个 <code>SM</code> 上能驻留的 warp 和 block 更少</li>
+<li><code>occupancy</code> 下降</li>
+</ul>
+<p>更糟的是，当寄存器放不下时，会发生 <code>spill</code>。</p>
+<h3 id="7-3-spill-wei-shi-yao-wei-xian" tabindex="-1" id="7-3-spill-为什么危险">7.3 spill 为什么危险</h3>
+<p>当变量 spill 到 <code>local memory</code> 时，名字看起来像“本地内存”，但它通常并不是真正意义上的快。</p>
+<p>更实用的理解是：</p>
+<blockquote>
+<p>spill 往往意味着本来应该待在寄存器里的数据，被迫变成了更贵的内存访问。</p>
+</blockquote>
+<p>于是就会出现这种常见链条：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">代码复杂一点</span><br><span class="line">  -&gt; 活跃变量增多</span><br><span class="line">  -&gt; 寄存器数上升</span><br><span class="line">  -&gt; spill</span><br><span class="line">  -&gt; 额外 load/store 增多</span><br><span class="line">  -&gt; kernel 变慢</span><br></pre></td></tr></table></figure>
+<p>这类问题单看源码经常看不出来，必须结合编译结果和 profile 一起判断。</p>
+<h2 id="8-wei-shi-yao-yuan-ma-geng-you-ya-bu-yi-ding-ji-qi-ma-geng-gao-xiao" tabindex="-1" id="8-为什么“源码更优雅”不一定“机器码更高效”">8. 为什么“源码更优雅”不一定“机器码更高效”</h2>
+<p>这是 GPU 学习里必须尽快接受的一件事。</p>
+<p>软件工程视角里更优雅的写法，未必能生成更高效的底层代码。</p>
+<p>常见原因包括：</p>
+<ul>
+<li>引入更多临时对象</li>
+<li>把索引封装得太深</li>
+<li>看似更通用的函数拆分导致内联不理想</li>
+<li>模板层次更复杂，但没有换来更好的静态展开</li>
+<li>为了代码复用，引入了额外地址计算和控制流</li>
+</ul>
+<p>这些都可能导致：</p>
+<ul>
+<li>指令条数增多</li>
+<li>寄存器占用升高</li>
+<li>load/store 更多</li>
+<li>编译器更难做激进优化</li>
+</ul>
+<p>所以高性能 GPU 代码经常看起来没有那么“优雅”，不是作者不会写，而是优先级不同：</p>
+<blockquote>
+<p>高性能 kernel 首先是为了生成好代码，其次才是源码形式漂亮。</p>
+</blockquote>
+<h2 id="9-kan-ptx-sass-shi-xian-zhao-na-xie-pi-wei-dao" tabindex="-1" id="9-看-PTX-SASS-时，先找哪些“坏味道”">9. 看 PTX / SASS 时，先找哪些“坏味道”</h2>
+<p>工程实践里，最有效的方式不是逐条啃底层指令，而是先找明显异常。</p>
+<h3 id="9-1-zhi-ling-tiao-shu-yi-chang-duo" tabindex="-1" id="9-1-指令条数异常多">9.1 指令条数异常多</h3>
+<p>如果一个逻辑很简单的 kernel，底层却膨胀出很多地址计算、移动、类型转换，通常说明：</p>
+<ul>
+<li>索引表达式太复杂</li>
+<li>冗余操作没消掉</li>
+<li>编译器没能很好地简化代码</li>
+</ul>
+<h3 id="9-2-da-liang-local-memory-fang-wen" tabindex="-1" id="9-2-大量-local-memory-访问">9.2 大量 local memory 访问</h3>
+<p>这通常是 spill 或对象无法留在寄存器里的信号。</p>
+<h3 id="9-3-load-store-li-du-bu-li-xiang" tabindex="-1" id="9-3-load-store-粒度不理想">9.3 load/store 粒度不理想</h3>
+<p>如果你预期应该是规整访问，但底层变成很多零散读写，通常说明访存路径没有走顺。</p>
+<h3 id="9-4-mei-zou-dao-yu-qi-de-ju-zhen-lu-jing" tabindex="-1" id="9-4-没走到预期的矩阵路径">9.4 没走到预期的矩阵路径</h3>
+<p>如果你原本期待某个 GEMM 或 attention 核心部分能走到 Tensor Core 路径，但底层没体现出来，就说明：</p>
+<ul>
+<li>数据类型不合适</li>
+<li>布局不合适</li>
+<li>tile 组织不合适</li>
+<li>调用方式没满足后端优化条件</li>
+</ul>
+<h3 id="9-5-fen-zhi-he-wei-ci-guo-zhong" tabindex="-1" id="9-5-分支和谓词过重">9.5 分支和谓词过重</h3>
+<p>这在不规则 workload 中很常见，尤其是：</p>
+<ul>
+<li>decode</li>
+<li>稀疏</li>
+<li>变长序列</li>
+<li>边界处理很多的 kernel</li>
+</ul>
+<p>这也是为什么看 PTX / SASS 的目的不是“欣赏底层代码”，而是快速验证你对瓶颈的猜测。</p>
+<h2 id="10-cuda-bian-yi-qi-dao-di-zai-bang-ni-zuo-shi-yao" tabindex="-1" id="10-CUDA-编译器到底在帮你做什么">10. CUDA 编译器到底在帮你做什么</h2>
+<p>你应该把 CUDA 编译器理解成：</p>
+<blockquote>
+<p>在可读源码和可执行 GPU 代码之间做大量转换工作的核心后端。</p>
+</blockquote>
+<p>它会做很多事：</p>
+<ul>
+<li>内联</li>
+<li>常量传播</li>
+<li>循环展开</li>
+<li>寄存器分配</li>
+<li>指令选择</li>
+<li>地址计算优化</li>
+<li>调度</li>
+<li>面向具体架构的 lowering</li>
+</ul>
+<p>这带来一个很重要的工程判断：</p>
+<blockquote>
+<p>你的源码意图，不等于最终执行结果。</p>
+</blockquote>
+<p>所以成熟的 GPU 工程思维不是只看源码，而是一起看：</p>
+<ul>
+<li>源码设计</li>
+<li>编译器行为</li>
+<li>硬件执行</li>
+</ul>
+<h2 id="11-ptx-sass-he-jia-gou-yan-jin-shi-shi-yao-guan-xi" tabindex="-1" id="11-PTX-SASS-和架构演进是什么关系">11. PTX / SASS 和架构演进是什么关系</h2>
+<p>前面你已经学过 Ada、Hopper 这些架构差异，这一篇要把那些差异落到“代码最终怎么执行”上。</p>
+<p>关键点是：</p>
+<ul>
+<li>新架构会引入新能力</li>
+<li>这些能力不会自动无条件生效</li>
+</ul>
+<p>例如：</p>
+<ul>
+<li>更强的 Tensor Core 路径</li>
+<li>更好的异步搬运支持</li>
+<li>更适合矩阵或 attention 的底层能力</li>
+</ul>
+<p>如果你的代码组织方式不对，后端未必会把它映射到最优路径。</p>
+<p>所以：</p>
+<blockquote>
+<p>架构升级不等于你的 kernel 自动吃满新特性。</p>
+</blockquote>
+<p>中间还隔着：</p>
+<ul>
+<li>编程模型</li>
+<li>编译器</li>
+<li>库实现</li>
+<li>数据布局</li>
+<li>launch 参数</li>
+<li>tile 策略</li>
+</ul>
+<p>这也是为什么 <code>CUTLASS</code>、<code>cuBLAS</code>、<code>TensorRT</code> 这类库往往能系统性地利用底层路径，而朴素 kernel 不行。</p>
+<h2 id="12-zai-tui-li-chang-jing-li-na-xie-wen-ti-zhi-de-cong-ptx-sass-jiao-du-qu-kan" tabindex="-1" id="12-在推理场景里，哪些问题值得从-PTX-SASS-角度去看">12. 在推理场景里，哪些问题值得从 PTX / SASS 角度去看</h2>
+<p>这一部分最贴近 <code>AI infra / 推理</code>。</p>
+<h3 id="12-1-xiao-kernel-hen-duo-dan-bu-zhi-shi-launch-kai-xiao-wen-ti" tabindex="-1" id="12-1-小-kernel-很多，但不只是-launch-开销问题">12.1 小 kernel 很多，但不只是 launch 开销问题</h3>
+<p>像这些操作经常很碎：</p>
+<ul>
+<li><code>layernorm</code></li>
+<li><code>softmax</code></li>
+<li>elementwise</li>
+<li>decode 里的细碎后处理</li>
+</ul>
+<p>它们的问题不只是 launch 多，还可能是底层代码本身就不够紧凑。</p>
+<h3 id="12-2-bian-chang-xu-lie-hui-dai-lai-fu-za-kong-zhi-liu" tabindex="-1" id="12-2-变长序列会带来复杂控制流">12.2 变长序列会带来复杂控制流</h3>
+<p>一旦涉及：</p>
+<ul>
+<li>padding</li>
+<li>mask</li>
+<li>ragged batch</li>
+<li>decode 长度不齐</li>
+</ul>
+<p>底层就更容易出现谓词和分支负担。</p>
+<h3 id="12-3-ni-yi-wei-hui-yong-dao-tensor-core-jie-guo-mei-yong-shang" tabindex="-1" id="12-3-你以为会用到-Tensor-Core，结果没用上">12.3 你以为会用到 Tensor Core，结果没用上</h3>
+<p>这类问题尤其值得看 PTX / SASS，因为它通常意味着“你的高层意图没有变成后端预期的矩阵路径”。</p>
+<h3 id="12-4-ji-cun-qi-ya-li-dao-zhi-occupancy-xia-jiang-huo-spill" tabindex="-1" id="12-4-寄存器压力导致-occupancy-下降或-spill">12.4 寄存器压力导致 occupancy 下降或 spill</h3>
+<p>这在复杂 attention kernel、fused kernel、decode kernel 里很常见。</p>
+<p>看 profile 只能告诉你“有问题”，看 PTX / SASS 往往更能告诉你“问题怎么来的”。</p>
+<h2 id="13-shi-yao-shi-hou-gai-kan-ptx-shi-yao-shi-hou-xian-profile-jiu-gou-liao" tabindex="-1" id="13-什么时候该看-PTX，什么时候先-profile-就够了">13. 什么时候该看 PTX，什么时候先 profile 就够了</h2>
+<p>一个更成熟的顺序是：</p>
+<h3 id="13-1-xian-profile-zai-jue-ding-yao-bu-yao-wang-xia-kan" tabindex="-1" id="13-1-先-profile，再决定要不要往下看">13.1 先 profile，再决定要不要往下看</h3>
+<p>不要把 PTX / SASS 当作日常第一步。更合理的顺序通常是：</p>
+<ol>
+<li>先 profile</li>
+<li>先定位最慢的 kernel</li>
+<li>再判断是否需要往编译结果这一层下钻</li>
+</ol>
+<h3 id="13-2-zhe-xie-qing-kuang-fei-chang-zhi-de-kan" tabindex="-1" id="13-2-这些情况非常值得看">13.2 这些情况非常值得看</h3>
+<ul>
+<li>某次改动后 kernel 明显变慢</li>
+<li>寄存器数异常升高</li>
+<li>occupancy 意外下降</li>
+<li>预期中的 Tensor Core 路径没出现</li>
+<li>底层访存条数和你预期差很多</li>
+<li>同一份代码在不同架构上表现差别明显</li>
+</ul>
+<h3 id="13-3-zhe-xie-qing-kuang-tong-chang-xian-bu-yong-kan" tabindex="-1" id="13-3-这些情况通常先不用看">13.3 这些情况通常先不用看</h3>
+<ul>
+<li>还没做最基本的 profile</li>
+<li>还没确认瓶颈 kernel 是谁</li>
+<li>问题更像系统层调度、I/O、通信或 batch 策略问题</li>
+</ul>
+<p>也就是说：</p>
+<blockquote>
+<p>PTX / SASS 不是第一层视角，而是当你需要证据时再往下走的一层。</p>
+</blockquote>
+<h2 id="14-zhe-yi-pian-bi-xu-ji-zhu-de-ji-ju-hua" tabindex="-1" id="14-这一篇必须记住的几句话">14. 这一篇必须记住的几句话</h2>
+<ul>
+<li>CUDA 源码不是最终执行形态，中间通常还隔着 PTX 和后端编译。</li>
+<li><code>PTX</code> 是虚拟 ISA 和中间表示，<code>SASS</code> 是某一具体 GPU 架构真正执行的机器指令。</li>
+<li>你的源码意图不等于最终生成的底层代码。</li>
+<li>高性能 CUDA 开发必须一起看源码、编译器行为和硬件执行。</li>
+<li>寄存器、spill、指令膨胀、分支和访存路径，都是底层性能问题的高频来源。</li>
+<li><code>PTX / SASS</code> 不是炫技工具，而是复杂问题的验证工具。</li>
+</ul>
+<h2 id="15-jing-jian-ban-mian-shi-biao-da" tabindex="-1" id="15-精简版面试表达">15. 精简版面试表达</h2>
+<p>如果面试官问为什么 CUDA 工程师要看 <code>PTX / SASS</code>，一个更成熟的回答可以是：</p>
+<blockquote>
+<p>因为 CUDA 源码不是最终执行形态。源码会先变成 PTX，再通过后端或驱动 JIT 变成某个具体架构上的机器码。很多性能问题，比如寄存器过多、spill、指令膨胀、访存不理想，或者没走到预期的 Tensor Core 路径，只看源码很难解释，必须看编译结果才能确认问题到底出在算法设计、编译器行为，还是底层硬件映射上。</p>
+</blockquote>
+<hr>
+<h2 id="xi-lie-dao-hang" tabindex="-1" id="系列导航">系列导航</h2>
+<ul>
+<li>导读：<a href="/posts/3f7ace4/">GPU系统拆解-00-导读：从架构认知到推理系统的学习路线</a></li>
+<li>上一篇：<a href="/posts/63789fbe/">GPU系统拆解-06-内存层次与访存主线：GPU 性能为什么常常卡在数据</a></li>
+<li>下一篇：<a href="/posts/6577c292/">GPU系统拆解-08-Tensor Core、GEMM 与 FlashAttention：AI 计算热点为什么这样组织</a></li>
+<li>延伸阅读：<a href="/posts/d6fa227a/">CUDA实践-00-系列导读与学习路线</a></li>
+<li>延伸阅读：<a href="/posts/92dc1028/">CUDA C编程权威指南：导读</a></li>
+</ul>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/b8f3cfc3/">https://smarter.xin/posts/b8f3cfc3/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/gpu/">GPU</a><a class="post-meta__tags" href="/tags/cuda/">CUDA</a><a class="post-meta__tags" href="/tags/execution-model/">执行模型</a><a class="post-meta__tags" href="/tags/kernel-development/">Kernel 开发</a></div><div class="post-share"><div class="social-share" data-image="/img/nvidia.png" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/6577c292/" title="GPU系统拆解-08-Tensor Core、GEMM 与 FlashAttention：AI 计算热点为什么这样组织"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">GPU系统拆解-08-Tensor Core、GEMM 与 FlashAttention：AI 计算热点为什么这样组织</div></div></div></a><a class="pagination-related  no-desc" href="/posts/63789fbe/" title="GPU系统拆解-06-内存层次与访存主线：GPU 性能为什么常常卡在数据"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">GPU系统拆解-06-内存层次与访存主线：GPU 性能为什么常常卡在数据</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/492fe17c/" title="GPU系统拆解-05-CUDA 执行映射：抽象模型如何落到真实硬件"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-04-05</div><div class="info-item-2">GPU系统拆解-05-CUDA 执行映射：抽象模型如何落到真实硬件</div></div></div></a><a class="pagination-related no-desc" href="/posts/b47bc812/" title="GPU系统拆解-14-从 PyTorch 到 CUDA Extension：把算子真正接入工程"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-04-05</div><div class="info-item-2">GPU系统拆解-14-从 PyTorch 到 CUDA Extension：把算子真正接入工程</div></div></div></a><a class="pagination-related no-desc" href="/posts/82dbd045/" title="PyTorch推理工程：04 CUDA、设备迁移、显存与同步"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-29</div><div class="info-item-2">PyTorch推理工程：04 CUDA、设备迁移、显存与同步</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">我就是要爬这座山<br>再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">188</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">305</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">28</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#gpu-xi-tong-chai-jie-07-ptx-sass-yu-bian-yi-lian-yi-duan-cuda-dai-ma-ru-he-bian-cheng-zhi-ling"><span class="toc-text">GPU系统拆解-07-PTX、SASS 与编译链：一段 CUDA 代码如何变成指令</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#1-xian-gei-jie-lun"><span class="toc-text">1. 先给结论</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-xian-ba-zheng-tiao-bian-yi-lian-ji-zhu"><span class="toc-text">2. 先把整条编译链记住</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#2-1-qian-duan-zai-zuo-shi-yao"><span class="toc-text">2.1 前端在做什么</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-2-ptx-zai-zheng-tiao-lian-li-de-wei-zhi"><span class="toc-text">2.2 PTX 在整条链里的位置</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-3-cubin-fatbin-jit-ying-gai-zen-yao-li-jie"><span class="toc-text">2.3 cubin、fatbin、JIT 应该怎么理解</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#3-ptx-he-sass-dao-di-fen-bie-shi-shi-yao"><span class="toc-text">3. PTX 和 SASS 到底分别是什么</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#3-1-ptx-xu-ni-isa-he-zhong-jian-ceng"><span class="toc-text">3.1 PTX：虚拟 ISA 和中间层</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-2-sass-zhen-zheng-mian-xiang-ju-ti-jia-gou-de-ji-qi-zhi-ling"><span class="toc-text">3.2 SASS：真正面向具体架构的机器指令</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#4-wei-shi-yao-ai-infra-tui-li-gong-cheng-shi-xu-yao-li-jie-ta-men"><span class="toc-text">4. 为什么 AI infra &#x2F; 推理工程师需要理解它们</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#5-cong-yuan-ma-dao-ptx-si-wei-fang-shi-wei-shi-yao-hui-bian"><span class="toc-text">5. 从源码到 PTX，思维方式为什么会变</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#6-wei-ci-fen-zhi-he-kan-si-jian-dan-de-if"><span class="toc-text">6. 谓词、分支和“看似简单的 if”</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#7-ji-cun-qi-wei-shi-yao-zong-shi-di-yi-xian-yi-ren"><span class="toc-text">7. 寄存器为什么总是第一嫌疑人</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#7-1-wei-shi-yao-ji-cun-qi-zhe-yao-zhong-yao"><span class="toc-text">7.1 为什么寄存器这么重要</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#7-2-wei-shi-yao-ji-cun-qi-you-hui-bian-cheng-wen-ti"><span class="toc-text">7.2 为什么寄存器又会变成问题</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#7-3-spill-wei-shi-yao-wei-xian"><span class="toc-text">7.3 spill 为什么危险</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#8-wei-shi-yao-yuan-ma-geng-you-ya-bu-yi-ding-ji-qi-ma-geng-gao-xiao"><span class="toc-text">8. 为什么“源码更优雅”不一定“机器码更高效”</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#9-kan-ptx-sass-shi-xian-zhao-na-xie-pi-wei-dao"><span class="toc-text">9. 看 PTX &#x2F; SASS 时，先找哪些“坏味道”</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#9-1-zhi-ling-tiao-shu-yi-chang-duo"><span class="toc-text">9.1 指令条数异常多</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#9-2-da-liang-local-memory-fang-wen"><span class="toc-text">9.2 大量 local memory 访问</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#9-3-load-store-li-du-bu-li-xiang"><span class="toc-text">9.3 load&#x2F;store 粒度不理想</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#9-4-mei-zou-dao-yu-qi-de-ju-zhen-lu-jing"><span class="toc-text">9.4 没走到预期的矩阵路径</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#9-5-fen-zhi-he-wei-ci-guo-zhong"><span class="toc-text">9.5 分支和谓词过重</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#10-cuda-bian-yi-qi-dao-di-zai-bang-ni-zuo-shi-yao"><span class="toc-text">10. CUDA 编译器到底在帮你做什么</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#11-ptx-sass-he-jia-gou-yan-jin-shi-shi-yao-guan-xi"><span class="toc-text">11. PTX &#x2F; SASS 和架构演进是什么关系</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#12-zai-tui-li-chang-jing-li-na-xie-wen-ti-zhi-de-cong-ptx-sass-jiao-du-qu-kan"><span class="toc-text">12. 在推理场景里，哪些问题值得从 PTX &#x2F; SASS 角度去看</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#12-1-xiao-kernel-hen-duo-dan-bu-zhi-shi-launch-kai-xiao-wen-ti"><span class="toc-text">12.1 小 kernel 很多，但不只是 launch 开销问题</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#12-2-bian-chang-xu-lie-hui-dai-lai-fu-za-kong-zhi-liu"><span class="toc-text">12.2 变长序列会带来复杂控制流</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#12-3-ni-yi-wei-hui-yong-dao-tensor-core-jie-guo-mei-yong-shang"><span class="toc-text">12.3 你以为会用到 Tensor Core，结果没用上</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#12-4-ji-cun-qi-ya-li-dao-zhi-occupancy-xia-jiang-huo-spill"><span class="toc-text">12.4 寄存器压力导致 occupancy 下降或 spill</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#13-shi-yao-shi-hou-gai-kan-ptx-shi-yao-shi-hou-xian-profile-jiu-gou-liao"><span class="toc-text">13. 什么时候该看 PTX，什么时候先 profile 就够了</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#13-1-xian-profile-zai-jue-ding-yao-bu-yao-wang-xia-kan"><span class="toc-text">13.1 先 profile，再决定要不要往下看</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#13-2-zhe-xie-qing-kuang-fei-chang-zhi-de-kan"><span class="toc-text">13.2 这些情况非常值得看</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#13-3-zhe-xie-qing-kuang-tong-chang-xian-bu-yong-kan"><span class="toc-text">13.3 这些情况通常先不用看</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#14-zhe-yi-pian-bi-xu-ji-zhu-de-ji-ju-hua"><span class="toc-text">14. 这一篇必须记住的几句话</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#15-jing-jian-ban-mian-shi-biao-da"><span class="toc-text">15. 精简版面试表达</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xi-lie-dao-hang"><span class="toc-text">系列导航</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/b47bc812/" title="GPU系统拆解-14-从 PyTorch 到 CUDA Extension：把算子真正接入工程"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="GPU系统拆解-14-从 PyTorch 到 CUDA Extension：把算子真正接入工程"/></a><div class="content"><a class="title" href="/posts/b47bc812/" title="GPU系统拆解-14-从 PyTorch 到 CUDA Extension：把算子真正接入工程">GPU系统拆解-14-从 PyTorch 到 CUDA Extension：把算子真正接入工程</a><time datetime="2026-04-05T07:00:00.000Z" title="发表于 2026-04-05 15:00:00">2026-04-05</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/68e6bad5/" title="GPU系统拆解-13-多 GPU 与通信：并行策略、拓扑与扩展代价"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="GPU系统拆解-13-多 GPU 与通信：并行策略、拓扑与扩展代价"/></a><div class="content"><a class="title" href="/posts/68e6bad5/" title="GPU系统拆解-13-多 GPU 与通信：并行策略、拓扑与扩展代价">GPU系统拆解-13-多 GPU 与通信：并行策略、拓扑与扩展代价</a><time datetime="2026-04-05T06:30:00.000Z" title="发表于 2026-04-05 14:30:00">2026-04-05</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/e141fe5/" title="GPU系统拆解-12-LLM 推理的 GPU 主线：Prefill、Decode、KV Cache 与系统约束"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="GPU系统拆解-12-LLM 推理的 GPU 主线：Prefill、Decode、KV Cache 与系统约束"/></a><div class="content"><a class="title" href="/posts/e141fe5/" title="GPU系统拆解-12-LLM 推理的 GPU 主线：Prefill、Decode、KV Cache 与系统约束">GPU系统拆解-12-LLM 推理的 GPU 主线：Prefill、Decode、KV Cache 与系统约束</a><time datetime="2026-04-05T06:00:00.000Z" title="发表于 2026-04-05 14:00:00">2026-04-05</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/attentionisallyouneed.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">从 Self-Attention、位置编码到 Encoder-Decoder，系统梳理 Transformer 的核心结构、设计动机与理解路径</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/d6fa227a/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-16</span><a class="blog-slider__title" href="posts/d6fa227a/" alt="">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</a><div class="blog-slider__text">从访存优化到多卡通信，一篇看清 CUDA 实践系列的结构与学习路线</div><a class="blog-slider__button" href="posts/d6fa227a/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/43c4b52e/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/agent.webp" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-24</span><a class="blog-slider__title" href="posts/43c4b52e/" alt="">从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路</a><div class="blog-slider__text">使用飞书与本地 Agent 对话，远程也要让本地 Agent 干活，当一名狠狠的资本家</div><a class="blog-slider__button" href="posts/43c4b52e/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/92dc1028/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/CUDA_C.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-02-05</span><a class="blog-slider__title" href="posts/92dc1028/" alt="">CUDA C编程权威指南-导读</a><div class="blog-slider__text">从异构并行到多 GPU 实践，串起 CUDA C 权威指南的核心学习路线</div><a class="blog-slider__button" href="posts/92dc1028/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">从全书视角出发，一篇看清 PMPP 的章节结构、核心主题与学习主线</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/aac6e27d/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Computer_System.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/aac6e27d/" alt="">深入理解计算机系统知识点总结</a><div class="blog-slider__text">从程序员视角梳理 CSAPP 的知识脉络、系统抽象与性能理解</div><a class="blog-slider__button" href="posts/aac6e27d/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">围绕类型推导、移动语义与并发，提炼现代 C++ 的核心实践</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>

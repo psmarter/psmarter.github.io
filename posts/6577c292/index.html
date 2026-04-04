@@ -1,0 +1,718 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>GPU系统拆解-08-Tensor Core、GEMM 与 FlashAttention：AI 计算热点为什么这样组织 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="GPU系统拆解-08-Tensor Core、GEMM 与 FlashAttention：AI 计算热点为什么这样组织  本文是「GPU系统拆解」系列第 08 篇。 系列导读：GPU系统拆解-00-导读：从架构认知到推理系统的学习路线 上一篇：GPU系统拆解-07-PTX、SASS 与编译链：一段 CUDA 代码如何变成指令 下一篇：GPU系统拆解-09-Profiling 与性能定位：先找到瓶颈">
+<meta property="og:type" content="article">
+<meta property="og:title" content="GPU系统拆解-08-Tensor Core、GEMM 与 FlashAttention：AI 计算热点为什么这样组织">
+<meta property="og:url" content="https://smarter.xin/posts/6577c292/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="GPU系统拆解-08-Tensor Core、GEMM 与 FlashAttention：AI 计算热点为什么这样组织  本文是「GPU系统拆解」系列第 08 篇。 系列导读：GPU系统拆解-00-导读：从架构认知到推理系统的学习路线 上一篇：GPU系统拆解-07-PTX、SASS 与编译链：一段 CUDA 代码如何变成指令 下一篇：GPU系统拆解-09-Profiling 与性能定位：先找到瓶颈">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/nvidia.png">
+<meta property="article:published_time" content="2026-04-05T04:00:00.000Z">
+<meta property="article:modified_time" content="2026-04-04T18:24:31.730Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="GPU">
+<meta property="article:tag" content="CUDA">
+<meta property="article:tag" content="FlashAttention">
+<meta property="article:tag" content="Tensor Core">
+<meta property="article:tag" content="矩阵乘法">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/nvidia.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "GPU系统拆解-08-Tensor Core、GEMM 与 FlashAttention：AI 计算热点为什么这样组织",
+  "url": "https://smarter.xin/posts/6577c292/",
+  "image": "https://smarter.xin/img/nvidia.png",
+  "datePublished": "2026-04-05T04:00:00.000Z",
+  "dateModified": "2026-04-04T18:24:31.730Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/6577c292/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'GPU系统拆解-08-Tensor Core、GEMM 与 FlashAttention：AI 计算热点为什么这样组织',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">188</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">305</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">28</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/nvidia.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">GPU系统拆解-08-Tensor Core、GEMM 与 FlashAttention：AI 计算热点为什么这样组织</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">GPU系统拆解-08-Tensor Core、GEMM 与 FlashAttention：AI 计算热点为什么这样组织</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-04-05T04:00:00.000Z" title="发表于 2026-04-05 12:00:00">2026-04-05</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-04-04T18:24:31.730Z" title="更新于 2026-04-05 02:24:31">2026-04-05</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/">AI Infra</a><i class="fas fa-angle-right post-meta-separator"></i><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/gpu/">GPU</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">3.9k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>12分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="gpu-xi-tong-chai-jie-08-tensor-core-gemm-yu-flash-attention-ai-ji-suan-re-dian-wei-shi-yao-zhe-yang-zu-zhi" tabindex="-1">GPU系统拆解-08-Tensor Core、GEMM 与 FlashAttention：AI 计算热点为什么这样组织</h1>
+<blockquote>
+<p>本文是「GPU系统拆解」系列第 08 篇。<br>
+系列导读：<a href="/posts/3f7ace4/">GPU系统拆解-00-导读：从架构认知到推理系统的学习路线</a><br>
+上一篇：<a href="/posts/b8f3cfc3/">GPU系统拆解-07-PTX、SASS 与编译链：一段 CUDA 代码如何变成指令</a><br>
+下一篇：<a href="/posts/edff4eb0/">GPU系统拆解-09-Profiling 与性能定位：先找到瓶颈，再谈优化</a></p>
+</blockquote>
+<blockquote>
+<p>这一篇要解决的是一个很核心的问题：为什么 AI 推理的主战场总是在 <code>GEMM</code>、<code>Tensor Core</code>、<code>Attention kernel</code> 这些地方。学懂这一篇之后，你再看 <code>cuBLAS</code>、<code>CUTLASS</code>、<code>FlashAttention</code>、<code>TensorRT-LLM</code>、<code>vLLM</code>，会更容易把它们放回同一条主线里理解。</p>
+</blockquote>
+<h2 id="1-xian-gei-jie-lun" tabindex="-1" id="1-先给结论">1. 先给结论</h2>
+<ul>
+<li>大模型推理的大头，通常不是 Python 或框架调度，而是 <code>GEMM</code> 和围绕它展开的数据搬运。</li>
+<li><code>Tensor Core</code> 的本质是专门做矩阵块乘加的高吞吐硬件，不是“更快的 CUDA Core”。</li>
+<li>想吃到 Tensor Core 的红利，前提是数据类型、布局、对齐和问题规模都要适合。</li>
+<li>高性能 <code>GEMM</code> 的关键不是公式，而是多层 <code>tiling</code>、数据复用和搬运-计算重叠。</li>
+<li><code>Attention</code> 虽然包含矩阵乘，但真正难的地方在于 <code>softmax</code>、中间结果管理和大量 I/O。</li>
+<li><code>FlashAttention</code> 的价值主要不是数学变了，而是它按 GPU 内存层次重组了计算顺序，减少了 HBM 读写。</li>
+<li><code>prefill</code> 更像 dense compute，<code>decode</code> 更容易暴露 <code>KV cache</code> 和带宽瓶颈。</li>
+<li><code>量化</code> 在推理里重要，不只是为了省显存，也是为了更适配低精度高吞吐硬件路径。</li>
+</ul>
+<h2 id="2-wei-shi-yao-ai-tui-li-chi-bu-kai-gemm" tabindex="-1" id="2-为什么-AI-推理离不开-GEMM">2. 为什么 AI 推理离不开 GEMM</h2>
+<p>把一个 Transformer 或 LLM 拆开看，很多最重的计算都可以写成矩阵乘。</p>
+<p>最典型的是线性层：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">Y = XW + b</span><br></pre></td></tr></table></figure>
+<p>如果：</p>
+<ul>
+<li><code>X</code> 是 <code>[M, K]</code></li>
+<li><code>W</code> 是 <code>[K, N]</code></li>
+</ul>
+<p>那么核心计算就是：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[M, K] x [K, N] = [M, N]</span><br></pre></td></tr></table></figure>
+<p>也就是标准 <code>GEMM</code>。</p>
+<p>在 LLM 里，这种结构会反复出现：</p>
+<ul>
+<li><code>Q = XWq</code></li>
+<li><code>K = XWk</code></li>
+<li><code>V = XWv</code></li>
+<li><code>O = Attn(Q, K, V)Wo</code></li>
+<li><code>MLP_up = XWup</code></li>
+<li><code>MLP_down = HWdown</code></li>
+</ul>
+<p>所以从硬件视角看，现代推理系统的主要工作其实可以概括成两件事：</p>
+<ol>
+<li>尽量让大矩阵乘走到最强计算路径</li>
+<li>尽量让数据搬运不要拖垮整体吞吐</li>
+</ol>
+<p>这也是为什么 GPU 优化经常不是“把某个 API 用熟”，而是“把算子改写成更接近 GEMM 和 tile 的形状”。</p>
+<h2 id="3-tensor-core-dao-di-shi-shi-yao" tabindex="-1" id="3-Tensor-Core-到底是什么">3. Tensor Core 到底是什么</h2>
+<p>早期 GPU 主要依赖更通用的标量或向量计算路径，也就是大家常说的 <code>CUDA Core</code> 路径。它们很通用，但对深度学习里最常见的矩阵块乘加来说，不够专门。</p>
+<p><code>Tensor Core</code> 可以先粗略理解成：</p>
+<blockquote>
+<p>专门为矩阵块乘加设计的高吞吐硬件路径。</p>
+</blockquote>
+<p>它最适合的工作，不是零散标量运算，而是这类模式：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">D = A x B + C</span><br></pre></td></tr></table></figure>
+<p>也就是一小块矩阵的乘加累积。</p>
+<p>所以它和 CUDA Core 的区别，不只是“更快”，而是设计目标不同：</p>
+<ul>
+<li>CUDA Core 强在通用性</li>
+<li>Tensor Core 强在规则、密集、可分块的矩阵计算</li>
+</ul>
+<p>这也是为什么深度学习 GPU 会越来越强调低精度矩阵吞吐，而不是只堆通用浮点能力。</p>
+<h2 id="4-xiang-yong-hao-tensor-core-xu-yao-man-zu-shi-yao-qian-ti" tabindex="-1" id="4-想用好-Tensor-Core，需要满足什么前提">4. 想用好 Tensor Core，需要满足什么前提</h2>
+<p>Tensor Core 不是“开了就快”。它对问题形状有明确偏好。</p>
+<h3 id="4-1-shu-ju-lei-xing-yao-he-gua" tabindex="-1" id="4-1-数据类型要合适">4.1 数据类型要合适</h3>
+<p>Tensor Core 通常更擅长这些类型：</p>
+<ul>
+<li><code>FP16</code></li>
+<li><code>BF16</code></li>
+<li><code>TF32</code> 的特定路径</li>
+<li><code>INT8</code></li>
+<li>更低精度的量化类型</li>
+</ul>
+<p>这背后不是“数值技巧”，而是硬件就是围绕这些低精度高吞吐路径设计的。推理里常见的混合精度和量化，本质上都是在主动贴近这条路径。</p>
+<h3 id="4-2-shu-ju-bu-ju-yao-he-gua" tabindex="-1" id="4-2-数据布局要合适">4.2 数据布局要合适</h3>
+<p>硬件喜欢规则、对齐、可分块的数据布局，不喜欢零散和碎片化访问。</p>
+<p>所以工程里经常会看到：</p>
+<ul>
+<li><code>weight packing</code></li>
+<li><code>layout transform</code></li>
+<li><code>pre-transpose</code></li>
+<li>某些维度要求按固定粒度对齐</li>
+</ul>
+<p>这不是库作者故意把事情搞复杂，而是因为硬件真的有自己的偏好。</p>
+<h3 id="4-3-wen-ti-gui-mo-ye-yao-he-gua" tabindex="-1" id="4-3-问题规模也要合适">4.3 问题规模也要合适</h3>
+<p>如果矩阵太小、batch 太小、shape 太碎，即使数学上能走 Tensor Core，实际也可能吃不满。</p>
+<p>原因通常是：</p>
+<ul>
+<li><code>kernel launch</code> 开销占比上升</li>
+<li>tile 利用率下降</li>
+<li>数据复用不足</li>
+<li>寄存器和 shared memory 的投入回报不高</li>
+</ul>
+<p>这也是为什么推理系统总在做：</p>
+<ul>
+<li><code>batching</code></li>
+<li><code>continuous batching</code></li>
+<li><code>shape bucketing</code></li>
+<li>request merging</li>
+</ul>
+<p>从硬件角度看，它们的目标很一致：把任务组织成更适合 GPU 吞吐模式的形状。</p>
+<h2 id="5-wei-shi-yao-naive-gemm-yi-ding-bu-gou-kuai" tabindex="-1" id="5-为什么-naive-GEMM-一定不够快">5. 为什么 naive GEMM 一定不够快</h2>
+<p>最朴素的矩阵乘写法通常是：每个线程负责一个输出元素，然后沿着 <code>K</code> 维循环累加。</p>
+<p>它能算对，但性能很差，问题主要有四个：</p>
+<ul>
+<li>每个线程都反复从 <code>global memory</code> 取数，远距离访问太多</li>
+<li>相邻线程使用了很多相同数据，却没有显式组织复用</li>
+<li>没有形成 <code>block -&gt; warp -&gt; instruction</code> 的分块层次</li>
+<li>完全吃不到 Tensor Core 这类专用矩阵路径</li>
+</ul>
+<p>所以 <code>naive GEMM</code> 的教学意义，不是告诉你“矩阵乘怎么写出来”，而是让你看清：</p>
+<blockquote>
+<p>高性能矩阵乘的核心，不是公式变了，而是数据组织方式彻底变了。</p>
+</blockquote>
+<h2 id="6-gao-xing-neng-gemm-de-zhen-zheng-gu-jia" tabindex="-1" id="6-高性能-GEMM-的真正骨架">6. 高性能 GEMM 的真正骨架</h2>
+<p>现代高性能 <code>GEMM</code> 的主线很稳定，本质上就是围绕数据复用建立多层 <code>tiling</code>。</p>
+<p>可以先把它想成这样一条路径：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">global memory</span><br><span class="line">  -&gt; shared memory</span><br><span class="line">  -&gt; register fragments</span><br><span class="line">  -&gt; Tensor Core / MMA</span><br><span class="line">  -&gt; accumulator registers</span><br><span class="line">  -&gt; global memory</span><br></pre></td></tr></table></figure>
+<p>这条路径背后的目标有三个：</p>
+<ol>
+<li>把远距离数据搬运次数降下来</li>
+<li>让同一块数据被更多次复用</li>
+<li>让最热的数据停留在更快的层级</li>
+</ol>
+<h3 id="6-1-wei-shi-yao-yi-ding-yao-tiling" tabindex="-1" id="6-1-为什么一定要-tiling">6.1 为什么一定要 tiling</h3>
+<p>如果不分块，<code>A</code> 和 <code>B</code> 的很多元素会被重复从显存读取。</p>
+<p>一旦引入 <code>tiling</code>：</p>
+<ul>
+<li>一个 <code>block</code> 先把 <code>A_tile</code> 和 <code>B_tile</code> 搬到 <code>shared memory</code></li>
+<li>同一块数据可以被一组线程反复使用</li>
+<li>再把更小的片段喂到寄存器和 Tensor Core</li>
+</ul>
+<p>这样显存流量和片上复用就都变得更可控。</p>
+<h3 id="6-2-bu-shi-yi-ceng-tile-er-shi-duo-ceng-tile" tabindex="-1" id="6-2-不是一层-tile，而是多层-tile">6.2 不是一层 tile，而是多层 tile</h3>
+<p>真正高性能的 <code>GEMM</code> 通常至少有三层结构：</p>
+<ul>
+<li><code>block tile</code></li>
+<li><code>warp tile</code></li>
+<li><code>mma instruction tile</code></li>
+</ul>
+<p>对应的思维方式也变了：</p>
+<ul>
+<li>不是“一个线程算一个元素”</li>
+<li>而是“一组线程协同维护一个输出 tile”</li>
+</ul>
+<p>这也是为什么后面学 <code>CUTLASS</code> 时会感觉它像一套模板化的分层映射系统。</p>
+<h3 id="6-3-shared-memory-he-ji-cun-qi-ge-zi-jie-jue-shi-yao-wen-ti" tabindex="-1" id="6-3-shared-memory-和寄存器各自解决什么问题">6.3 shared memory 和寄存器各自解决什么问题</h3>
+<p><code>shared memory</code> 的意义不只是“快”，更准确地说，它是程序员显式管理的数据复用缓冲区。</p>
+<p>它主要负责：</p>
+<ul>
+<li>让线程协作加载数据</li>
+<li>把分散的显存访问变成结构化的局部访问</li>
+<li>为后续寄存器和 Tensor Core 提供中转层</li>
+</ul>
+<p>寄存器则更像最热的数据工作区：</p>
+<ul>
+<li>保存 fragment</li>
+<li>保存累加器</li>
+<li>承接最频繁的中间结果读写</li>
+</ul>
+<p>所以高性能路径不是简单的“多用 shared memory”，而是让不同层级各司其职。</p>
+<h3 id="6-4-wei-shi-yao-ban-yun-he-ji-suan-yao-zhong-die" tabindex="-1" id="6-4-为什么搬运和计算要重叠">6.4 为什么搬运和计算要重叠</h3>
+<p>如果流程总是：</p>
+<ol>
+<li>先把数据搬完</li>
+<li>再开始算</li>
+<li>再搬下一批</li>
+<li>再继续算</li>
+</ol>
+<p>那么 GPU 大量周期都会浪费在等待上。</p>
+<p>更好的方式是双缓冲或多 stage pipeline：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">计算 tile t</span><br><span class="line">同时预取 tile t+1</span><br></pre></td></tr></table></figure>
+<p>这就是为什么从 Ampere 到 Hopper，<code>async copy</code>、<code>barrier</code>、<code>pipeline</code>、<code>TMA</code> 这些特性越来越重要。它们不是边缘优化，而是在帮你把“搬数据”和“算数据”组织成完整流水线。</p>
+<h2 id="7-wmma-mma-wgmma-ying-gai-zen-yao-li-jie" tabindex="-1" id="7-WMMA、mma、wgmma-应该怎么理解">7. WMMA、mma、wgmma 应该怎么理解</h2>
+<p>这一部分不用一开始就死背接口名，但要抓住代际演进方向。</p>
+<ul>
+<li><code>WMMA</code>：更偏高层、偏学习友好的 warp 级矩阵乘加接口</li>
+<li><code>mma</code>：更贴近底层指令路径，控制更细，性能空间更大</li>
+<li><code>wgmma</code>：更大协同粒度、更强吞吐，体现 Hopper 一代矩阵路径的进一步演进</li>
+</ul>
+<p>真正需要建立的认识只有一个：</p>
+<blockquote>
+<p>Tensor Core 编程不是静止不变的。架构升级后，最优矩阵路径也会变化。</p>
+</blockquote>
+<p>所以你不能把某一代的优化经验机械搬到所有 GPU 上。</p>
+<h2 id="8-wei-shi-yao-attention-ye-rao-bu-kai-gemm-si-wei" tabindex="-1" id="8-为什么-Attention-也绕不开-GEMM-思维">8. 为什么 Attention 也绕不开 GEMM 思维</h2>
+<p>标准 attention 的核心结构是：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">S = Q x K^T</span><br><span class="line">P = softmax(S)</span><br><span class="line">O = P x V</span><br></pre></td></tr></table></figure>
+<p>其中至少包含两个重计算阶段：</p>
+<ol>
+<li><code>Q x K^T</code></li>
+<li><code>P x V</code></li>
+</ol>
+<p>所以只要问题规模合适，attention 的大头计算也天然会靠近 GEMM 路线。</p>
+<p>但它比单纯线性层更难优化，因为中间还夹着：</p>
+<ul>
+<li><code>mask</code></li>
+<li><code>scale</code></li>
+<li><code>softmax</code></li>
+<li>layout 变化</li>
+<li>中间结果管理</li>
+<li><code>KV cache</code> 相关访问</li>
+</ul>
+<p>也就是说，attention 不是“两个干净的大 GEMM”，而是：</p>
+<blockquote>
+<p>矩阵乘 + 若干访存敏感操作 + 很重的中间态管理。</p>
+</blockquote>
+<h2 id="9-wei-shi-yao-naive-attention-hui-chi-da-yu" tabindex="-1" id="9-为什么-naive-attention-会吃大亏">9. 为什么 naive attention 会吃大亏</h2>
+<p>最直观但低效的 attention 做法是：</p>
+<ol>
+<li>读 <code>Q</code>、<code>K</code></li>
+<li>计算 <code>S = QK^T</code></li>
+<li>把整个 <code>S</code> 写回显存</li>
+<li>再读回 <code>S</code></li>
+<li>做 <code>softmax</code></li>
+<li>再写回 <code>softmax</code> 结果</li>
+<li>再读回它和 <code>V</code> 相乘</li>
+</ol>
+<p>这个流程最大的问题不是算得不对，而是 <code>I/O</code> 太重。</p>
+<p>尤其在长序列下，中间 score 矩阵会很大。问题很快就从“乘法快不快”变成“中间结果能不能承受频繁物化和搬运”。</p>
+<p>所以从 GPU 视角看，<code>naive attention</code> 的核心痛点通常是：</p>
+<blockquote>
+<p>materialize 了太多中间结果，导致 HBM 流量炸掉。</p>
+</blockquote>
+<h2 id="10-flash-attention-de-he-xin-jie-zhi-shi-shi-yao" tabindex="-1" id="10-FlashAttention-的核心价值是什么">10. FlashAttention 的核心价值是什么</h2>
+<p><code>FlashAttention</code> 最值得学习的地方，不是它用了什么“新数学”，而是它首先是一个 <code>I/O-aware</code> 算法。</p>
+<p>它真正关心的是：</p>
+<ul>
+<li>哪些中间结果必须写回 HBM</li>
+<li>哪些可以留在片上存储</li>
+<li>能不能按 tile 分块处理 <code>Q/K/V</code></li>
+<li>能不能边算边做归一化，而不是先生成完整 score 矩阵</li>
+</ul>
+<p>所以它的核心收益主要来自：</p>
+<ul>
+<li>减少 HBM 读写</li>
+<li>避免完整 materialize 大中间矩阵</li>
+<li>让 attention 的执行顺序更贴近 GPU 的内存层次</li>
+</ul>
+<p>你在这部分不必一开始就背完整的 <code>online softmax</code> 推导，但一定要记住一句话：</p>
+<blockquote>
+<p>FlashAttention 的本质不是“把 attention 公式算得更花”，而是“把 attention 重组得更符合 GPU 的内存系统”。</p>
+</blockquote>
+<h2 id="11-cong-gemm-dao-flash-attention-ben-zhi-du-shi-ji-suan-cun-chu-gong-tong-she-ji" tabindex="-1" id="11-从-GEMM-到-FlashAttention，本质都是计算-存储共同设计">11. 从 GEMM 到 FlashAttention，本质都是计算-存储共同设计</h2>
+<p>很多人学 CUDA 时容易把优化理解成“写更复杂的 kernel”。</p>
+<p>这不够准确。</p>
+<p>更本质的说法是：</p>
+<blockquote>
+<p>高性能 GPU 程序从来不是单纯的计算设计，而是计算模式和存储层次一起设计。</p>
+</blockquote>
+<p>在 <code>GEMM</code> 里，这种思路表现为：</p>
+<ul>
+<li><code>tiling</code></li>
+<li><code>shared memory staging</code></li>
+<li>register blocking</li>
+<li>Tensor Core 路径</li>
+<li>pipeline</li>
+</ul>
+<p>在 <code>Attention</code> 里，这种思路表现为：</p>
+<ul>
+<li>避免 materialize</li>
+<li>按块处理 <code>Q/K/V</code></li>
+<li>减少无意义的中间写回</li>
+<li>尽量融合后处理</li>
+</ul>
+<p>对 <code>AI infra / 推理</code> 来说，这条思路非常重要，因为它决定了你看问题时不会只盯着 FLOPS，而会一起看带宽、缓存、shape 和数据流。</p>
+<h2 id="12-wei-shi-yao-tensor-core-hen-zhong-yao-dan-you-bu-shi-quan-bu-da-an" tabindex="-1" id="12-为什么-Tensor-Core-很重要，但又不是全部答案">12. 为什么 Tensor Core 很重要，但又不是全部答案</h2>
+<p>Tensor Core 最擅长解决的是：</p>
+<ul>
+<li>大规模、规则、密集的矩阵乘加</li>
+<li>合适精度和布局下的高吞吐 dense compute</li>
+</ul>
+<p>但它不会自动帮你解决这些问题：</p>
+<ul>
+<li><code>KV cache</code> 随机读写</li>
+<li>小 batch 或碎 shape 带来的低利用率</li>
+<li><code>layernorm</code>、<code>softmax</code>、elementwise 等访存敏感算子</li>
+<li>过多的 <code>kernel launch</code></li>
+<li>中间结果物化导致的 HBM 压力</li>
+<li>多请求调度和系统层开销</li>
+</ul>
+<p>所以面试里如果只会说“推理快是因为 Tensor Core 很快”，其实不够成熟。</p>
+<p>更好的说法是：</p>
+<blockquote>
+<p>Tensor Core 对 dense matmul 很关键，但推理系统整体性能还强烈依赖带宽、缓存、KV 管理、shape 组织和调度策略。</p>
+</blockquote>
+<h2 id="13-wei-shi-yao-prefill-he-decode-de-ying-jian-te-zheng-hen-bu-yi-yang" tabindex="-1" id="13-为什么-prefill-和-decode-的硬件特征很不一样">13. 为什么 prefill 和 decode 的硬件特征很不一样</h2>
+<p>这两个阶段的差异，是后面理解 <code>vLLM</code>、<code>PagedAttention</code>、<code>TensorRT-LLM</code> 的前提。</p>
+<h3 id="13-1-prefill-geng-xiang-dense-compute" tabindex="-1" id="13-1-prefill-更像-dense-compute">13.1 prefill 更像 dense compute</h3>
+<p><code>prefill</code> 往往一次处理整段 prompt，很多计算更接近完整的大矩阵乘。</p>
+<p>它的特点通常是：</p>
+<ul>
+<li>并行度高</li>
+<li>更容易形成大 shape</li>
+<li>更容易把 Tensor Core 吃满</li>
+</ul>
+<p>所以它更接近 <code>compute-heavy</code> 的场景。</p>
+<h3 id="13-2-decode-geng-rong-yi-bao-lu-memory-system-wen-ti" tabindex="-1" id="13-2-decode-更容易暴露-memory-system-问题">13.2 decode 更容易暴露 memory system 问题</h3>
+<p><code>decode</code> 每次只生成少量 token，但要持续读取：</p>
+<ul>
+<li>模型权重</li>
+<li>历史 <code>KV cache</code></li>
+<li>当前 token 相关状态</li>
+</ul>
+<p>这会带来几个结果：</p>
+<ul>
+<li>单次有效计算粒度更小</li>
+<li>访存压力更突出</li>
+<li>shape 更碎</li>
+<li>更难把 Tensor Core 吃满</li>
+</ul>
+<p>所以 <code>decode</code> 常常不是“算不动”，而是“喂不动”。</p>
+<h2 id="14-wei-shi-yao-liang-hua-hui-he-tui-li-ying-jian-shen-du-bang-ding" tabindex="-1" id="14-为什么量化会和推理硬件深度绑定">14. 为什么量化会和推理硬件深度绑定</h2>
+<p>量化在推理里重要，不只是模型更小。</p>
+<p>从 GPU 视角看，它至少有三层价值：</p>
+<h3 id="14-1-jiang-di-dai-kuan-ya-li" tabindex="-1" id="14-1-降低带宽压力">14.1 降低带宽压力</h3>
+<p>位宽更低，意味着：</p>
+<ul>
+<li>同样带宽能搬更多数据</li>
+<li>同样显存能放更多参数</li>
+<li>cache 和片上存储的相对容量变大</li>
+</ul>
+<h3 id="14-2-geng-rong-yi-ti-gao-you-xiao-tun-tu" tabindex="-1" id="14-2-更容易提高有效吞吐">14.2 更容易提高有效吞吐</h3>
+<p>如果硬件对低精度类型有更强支持，那么单位时间内能完成的有效运算也会更高。</p>
+<h3 id="14-3-geng-gua-he-zhen-shi-bu-shu-mu-biao" tabindex="-1" id="14-3-更适合真实部署目标">14.3 更适合真实部署目标</h3>
+<p>在线推理不只看单请求延迟，还看：</p>
+<ul>
+<li>吞吐</li>
+<li>显存成本</li>
+<li>节点利用率</li>
+<li>部署成本</li>
+</ul>
+<p>这也是为什么各种 serving 系统和推理引擎都会把量化放在很核心的位置。</p>
+<h2 id="15-zhe-yi-pian-bi-xu-ji-zhu-de-ji-ju-hua" tabindex="-1" id="15-这一篇必须记住的几句话">15. 这一篇必须记住的几句话</h2>
+<ul>
+<li>AI 推理的大头，通常是 <code>GEMM</code> 和围绕它展开的数据搬运。</li>
+<li>Tensor Core 是专用矩阵块乘加路径，不是“更快一点的 CUDA Core”。</li>
+<li>高性能 GEMM 的关键是 <code>tiling</code>、复用和流水线，不是朴素逐元素思维。</li>
+<li>Attention 的难点不只是乘法，还包括 <code>softmax</code>、中间结果管理和 I/O。</li>
+<li>FlashAttention 的价值，本质上是减少 HBM 读写，让 attention 更贴近 GPU 内存层次。</li>
+<li><code>prefill</code> 更像 dense compute，<code>decode</code> 更容易暴露带宽和 <code>KV cache</code> 问题。</li>
+<li>量化的价值不只在模型变小，还在于它更适配低精度高吞吐硬件路径。</li>
+</ul>
+<h2 id="16-jing-jian-ban-mian-shi-biao-da" tabindex="-1" id="16-精简版面试表达">16. 精简版面试表达</h2>
+<p>如果面试官问为什么 AI 推理如此依赖 GPU 上的 <code>GEMM</code> 和 <code>Tensor Core</code>，一个更完整的回答可以是：</p>
+<blockquote>
+<p>因为 Transformer 里的线性层、attention 核心乘法、MLP 大头都可以归结到矩阵乘。GPU 又天然擅长规则、密集、可分块的吞吐型计算，所以高性能实现会围绕 GEMM 做多层 tiling、shared memory 和寄存器复用，并尽量走 Tensor Core 路径。但推理系统不只是 matmul，attention、KV cache、softmax 和 decode 阶段的 memory pressure 也很重，所以真正的优化必须把算力和内存系统一起看。</p>
+</blockquote>
+<hr>
+<h2 id="xi-lie-dao-hang" tabindex="-1" id="系列导航">系列导航</h2>
+<ul>
+<li>导读：<a href="/posts/3f7ace4/">GPU系统拆解-00-导读：从架构认知到推理系统的学习路线</a></li>
+<li>上一篇：<a href="/posts/b8f3cfc3/">GPU系统拆解-07-PTX、SASS 与编译链：一段 CUDA 代码如何变成指令</a></li>
+<li>下一篇：<a href="/posts/edff4eb0/">GPU系统拆解-09-Profiling 与性能定位：先找到瓶颈，再谈优化</a></li>
+<li>延伸阅读：<a href="/posts/eb522a31/">Triton-04-Matmul Autotune与PyTorch集成</a></li>
+<li>延伸阅读：<a href="/posts/78e375e8/">CUDA实践-09-张量核心与混合精度</a></li>
+</ul>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/6577c292/">https://smarter.xin/posts/6577c292/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/gpu/">GPU</a><a class="post-meta__tags" href="/tags/cuda/">CUDA</a><a class="post-meta__tags" href="/tags/flash-attention/">FlashAttention</a><a class="post-meta__tags" href="/tags/tensor-core/">Tensor Core</a><a class="post-meta__tags" href="/tags/matrix-multiplication/">矩阵乘法</a></div><div class="post-share"><div class="social-share" data-image="/img/nvidia.png" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/edff4eb0/" title="GPU系统拆解-09-Profiling 与性能定位：先找到瓶颈，再谈优化"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">GPU系统拆解-09-Profiling 与性能定位：先找到瓶颈，再谈优化</div></div></div></a><a class="pagination-related  no-desc" href="/posts/b8f3cfc3/" title="GPU系统拆解-07-PTX、SASS 与编译链：一段 CUDA 代码如何变成指令"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">GPU系统拆解-07-PTX、SASS 与编译链：一段 CUDA 代码如何变成指令</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/85cd1013/" title="GPU系统拆解-03-从 Ampere 到 Hopper：现代 CUDA 写法为什么变了"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-04-05</div><div class="info-item-2">GPU系统拆解-03-从 Ampere 到 Hopper：现代 CUDA 写法为什么变了</div></div></div></a><a class="pagination-related no-desc" href="/posts/82dbd045/" title="PyTorch推理工程：04 CUDA、设备迁移、显存与同步"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-29</div><div class="info-item-2">PyTorch推理工程：04 CUDA、设备迁移、显存与同步</div></div></div></a><a class="pagination-related no-desc" href="/posts/3f64a590/" title="GPU系统拆解-02-从 RTX 4090 出发：Ada 架构如何影响 CUDA 与推理"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-04-05</div><div class="info-item-2">GPU系统拆解-02-从 RTX 4090 出发：Ada 架构如何影响 CUDA 与推理</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">我就是要爬这座山<br>再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">188</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">305</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">28</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#gpu-xi-tong-chai-jie-08-tensor-core-gemm-yu-flash-attention-ai-ji-suan-re-dian-wei-shi-yao-zhe-yang-zu-zhi"><span class="toc-text">GPU系统拆解-08-Tensor Core、GEMM 与 FlashAttention：AI 计算热点为什么这样组织</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#1-xian-gei-jie-lun"><span class="toc-text">1. 先给结论</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-wei-shi-yao-ai-tui-li-chi-bu-kai-gemm"><span class="toc-text">2. 为什么 AI 推理离不开 GEMM</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#3-tensor-core-dao-di-shi-shi-yao"><span class="toc-text">3. Tensor Core 到底是什么</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#4-xiang-yong-hao-tensor-core-xu-yao-man-zu-shi-yao-qian-ti"><span class="toc-text">4. 想用好 Tensor Core，需要满足什么前提</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#4-1-shu-ju-lei-xing-yao-he-gua"><span class="toc-text">4.1 数据类型要合适</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-2-shu-ju-bu-ju-yao-he-gua"><span class="toc-text">4.2 数据布局要合适</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-3-wen-ti-gui-mo-ye-yao-he-gua"><span class="toc-text">4.3 问题规模也要合适</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#5-wei-shi-yao-naive-gemm-yi-ding-bu-gou-kuai"><span class="toc-text">5. 为什么 naive GEMM 一定不够快</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#6-gao-xing-neng-gemm-de-zhen-zheng-gu-jia"><span class="toc-text">6. 高性能 GEMM 的真正骨架</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#6-1-wei-shi-yao-yi-ding-yao-tiling"><span class="toc-text">6.1 为什么一定要 tiling</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-2-bu-shi-yi-ceng-tile-er-shi-duo-ceng-tile"><span class="toc-text">6.2 不是一层 tile，而是多层 tile</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-3-shared-memory-he-ji-cun-qi-ge-zi-jie-jue-shi-yao-wen-ti"><span class="toc-text">6.3 shared memory 和寄存器各自解决什么问题</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-4-wei-shi-yao-ban-yun-he-ji-suan-yao-zhong-die"><span class="toc-text">6.4 为什么搬运和计算要重叠</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#7-wmma-mma-wgmma-ying-gai-zen-yao-li-jie"><span class="toc-text">7. WMMA、mma、wgmma 应该怎么理解</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#8-wei-shi-yao-attention-ye-rao-bu-kai-gemm-si-wei"><span class="toc-text">8. 为什么 Attention 也绕不开 GEMM 思维</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#9-wei-shi-yao-naive-attention-hui-chi-da-yu"><span class="toc-text">9. 为什么 naive attention 会吃大亏</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#10-flash-attention-de-he-xin-jie-zhi-shi-shi-yao"><span class="toc-text">10. FlashAttention 的核心价值是什么</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#11-cong-gemm-dao-flash-attention-ben-zhi-du-shi-ji-suan-cun-chu-gong-tong-she-ji"><span class="toc-text">11. 从 GEMM 到 FlashAttention，本质都是计算-存储共同设计</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#12-wei-shi-yao-tensor-core-hen-zhong-yao-dan-you-bu-shi-quan-bu-da-an"><span class="toc-text">12. 为什么 Tensor Core 很重要，但又不是全部答案</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#13-wei-shi-yao-prefill-he-decode-de-ying-jian-te-zheng-hen-bu-yi-yang"><span class="toc-text">13. 为什么 prefill 和 decode 的硬件特征很不一样</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#13-1-prefill-geng-xiang-dense-compute"><span class="toc-text">13.1 prefill 更像 dense compute</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#13-2-decode-geng-rong-yi-bao-lu-memory-system-wen-ti"><span class="toc-text">13.2 decode 更容易暴露 memory system 问题</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#14-wei-shi-yao-liang-hua-hui-he-tui-li-ying-jian-shen-du-bang-ding"><span class="toc-text">14. 为什么量化会和推理硬件深度绑定</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#14-1-jiang-di-dai-kuan-ya-li"><span class="toc-text">14.1 降低带宽压力</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#14-2-geng-rong-yi-ti-gao-you-xiao-tun-tu"><span class="toc-text">14.2 更容易提高有效吞吐</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#14-3-geng-gua-he-zhen-shi-bu-shu-mu-biao"><span class="toc-text">14.3 更适合真实部署目标</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#15-zhe-yi-pian-bi-xu-ji-zhu-de-ji-ju-hua"><span class="toc-text">15. 这一篇必须记住的几句话</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#16-jing-jian-ban-mian-shi-biao-da"><span class="toc-text">16. 精简版面试表达</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xi-lie-dao-hang"><span class="toc-text">系列导航</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/b47bc812/" title="GPU系统拆解-14-从 PyTorch 到 CUDA Extension：把算子真正接入工程"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="GPU系统拆解-14-从 PyTorch 到 CUDA Extension：把算子真正接入工程"/></a><div class="content"><a class="title" href="/posts/b47bc812/" title="GPU系统拆解-14-从 PyTorch 到 CUDA Extension：把算子真正接入工程">GPU系统拆解-14-从 PyTorch 到 CUDA Extension：把算子真正接入工程</a><time datetime="2026-04-05T07:00:00.000Z" title="发表于 2026-04-05 15:00:00">2026-04-05</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/68e6bad5/" title="GPU系统拆解-13-多 GPU 与通信：并行策略、拓扑与扩展代价"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="GPU系统拆解-13-多 GPU 与通信：并行策略、拓扑与扩展代价"/></a><div class="content"><a class="title" href="/posts/68e6bad5/" title="GPU系统拆解-13-多 GPU 与通信：并行策略、拓扑与扩展代价">GPU系统拆解-13-多 GPU 与通信：并行策略、拓扑与扩展代价</a><time datetime="2026-04-05T06:30:00.000Z" title="发表于 2026-04-05 14:30:00">2026-04-05</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/e141fe5/" title="GPU系统拆解-12-LLM 推理的 GPU 主线：Prefill、Decode、KV Cache 与系统约束"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="GPU系统拆解-12-LLM 推理的 GPU 主线：Prefill、Decode、KV Cache 与系统约束"/></a><div class="content"><a class="title" href="/posts/e141fe5/" title="GPU系统拆解-12-LLM 推理的 GPU 主线：Prefill、Decode、KV Cache 与系统约束">GPU系统拆解-12-LLM 推理的 GPU 主线：Prefill、Decode、KV Cache 与系统约束</a><time datetime="2026-04-05T06:00:00.000Z" title="发表于 2026-04-05 14:00:00">2026-04-05</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/attentionisallyouneed.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">从 Self-Attention、位置编码到 Encoder-Decoder，系统梳理 Transformer 的核心结构、设计动机与理解路径</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/d6fa227a/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-16</span><a class="blog-slider__title" href="posts/d6fa227a/" alt="">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</a><div class="blog-slider__text">从访存优化到多卡通信，一篇看清 CUDA 实践系列的结构与学习路线</div><a class="blog-slider__button" href="posts/d6fa227a/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/43c4b52e/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/agent.webp" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-24</span><a class="blog-slider__title" href="posts/43c4b52e/" alt="">从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路</a><div class="blog-slider__text">使用飞书与本地 Agent 对话，远程也要让本地 Agent 干活，当一名狠狠的资本家</div><a class="blog-slider__button" href="posts/43c4b52e/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/92dc1028/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/CUDA_C.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-02-05</span><a class="blog-slider__title" href="posts/92dc1028/" alt="">CUDA C编程权威指南-导读</a><div class="blog-slider__text">从异构并行到多 GPU 实践，串起 CUDA C 权威指南的核心学习路线</div><a class="blog-slider__button" href="posts/92dc1028/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">从全书视角出发，一篇看清 PMPP 的章节结构、核心主题与学习主线</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/aac6e27d/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Computer_System.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/aac6e27d/" alt="">深入理解计算机系统知识点总结</a><div class="blog-slider__text">从程序员视角梳理 CSAPP 的知识脉络、系统抽象与性能理解</div><a class="blog-slider__button" href="posts/aac6e27d/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">围绕类型推导、移动语义与并发，提炼现代 C++ 的核心实践</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>

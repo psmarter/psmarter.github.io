@@ -1,0 +1,715 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>GPU系统拆解-12-LLM 推理的 GPU 主线：Prefill、Decode、KV Cache 与系统约束 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="GPU系统拆解-12-LLM 推理的 GPU 主线：Prefill、Decode、KV Cache 与系统约束  本文是「GPU系统拆解」系列第 12 篇。 系列导读：GPU系统拆解-00-导读：从架构认知到推理系统的学习路线 上一篇：GPU系统拆解-11-高频 Kernel 设计：从自然并行到资源权衡 下一篇：GPU系统拆解-13-多 GPU 与通信：并行策略、拓扑与扩展代价   这一篇不再泛讲">
+<meta property="og:type" content="article">
+<meta property="og:title" content="GPU系统拆解-12-LLM 推理的 GPU 主线：Prefill、Decode、KV Cache 与系统约束">
+<meta property="og:url" content="https://smarter.xin/posts/e141fe5/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="GPU系统拆解-12-LLM 推理的 GPU 主线：Prefill、Decode、KV Cache 与系统约束  本文是「GPU系统拆解」系列第 12 篇。 系列导读：GPU系统拆解-00-导读：从架构认知到推理系统的学习路线 上一篇：GPU系统拆解-11-高频 Kernel 设计：从自然并行到资源权衡 下一篇：GPU系统拆解-13-多 GPU 与通信：并行策略、拓扑与扩展代价   这一篇不再泛讲">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/nvidia.png">
+<meta property="article:published_time" content="2026-04-05T06:00:00.000Z">
+<meta property="article:modified_time" content="2026-04-04T18:24:31.730Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="KV Cache">
+<meta property="article:tag" content="GPU">
+<meta property="article:tag" content="大模型推理">
+<meta property="article:tag" content="Prefill">
+<meta property="article:tag" content="Decode">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/nvidia.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "GPU系统拆解-12-LLM 推理的 GPU 主线：Prefill、Decode、KV Cache 与系统约束",
+  "url": "https://smarter.xin/posts/e141fe5/",
+  "image": "https://smarter.xin/img/nvidia.png",
+  "datePublished": "2026-04-05T06:00:00.000Z",
+  "dateModified": "2026-04-04T18:24:31.730Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/e141fe5/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'GPU系统拆解-12-LLM 推理的 GPU 主线：Prefill、Decode、KV Cache 与系统约束',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">188</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">305</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">28</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/nvidia.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">GPU系统拆解-12-LLM 推理的 GPU 主线：Prefill、Decode、KV Cache 与系统约束</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">GPU系统拆解-12-LLM 推理的 GPU 主线：Prefill、Decode、KV Cache 与系统约束</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-04-05T06:00:00.000Z" title="发表于 2026-04-05 14:00:00">2026-04-05</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-04-04T18:24:31.730Z" title="更新于 2026-04-05 02:24:31">2026-04-05</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/">AI Infra</a><i class="fas fa-angle-right post-meta-separator"></i><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/gpu/">GPU</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">3.4k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>11分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="gpu-xi-tong-chai-jie-12-llm-tui-li-de-gpu-zhu-xian-prefill-decode-kv-cache-yu-xi-tong-yue-shu" tabindex="-1">GPU系统拆解-12-LLM 推理的 GPU 主线：Prefill、Decode、KV Cache 与系统约束</h1>
+<blockquote>
+<p>本文是「GPU系统拆解」系列第 12 篇。<br>
+系列导读：<a href="/posts/3f7ace4/">GPU系统拆解-00-导读：从架构认知到推理系统的学习路线</a><br>
+上一篇：<a href="/posts/668adbf1/">GPU系统拆解-11-高频 Kernel 设计：从自然并行到资源权衡</a><br>
+下一篇：<a href="/posts/68e6bad5/">GPU系统拆解-13-多 GPU 与通信：并行策略、拓扑与扩展代价</a></p>
+</blockquote>
+<blockquote>
+<p>这一篇不再泛讲 GPU，而是专门回答一个更接近岗位的问题：为什么 LLM 推理最后会变成一个 GPU 资源管理和系统调度问题。学完这一篇之后，你应该能把 <code>prefill</code>、<code>decode</code>、<code>KV cache</code>、<code>continuous batching</code>、<code>PagedAttention</code>、<code>TTFT / ITL / throughput</code> 串成一条完整主线。</p>
+</blockquote>
+<h2 id="1-xian-gei-jie-lun" tabindex="-1" id="1-先给结论">1. 先给结论</h2>
+<ul>
+<li>LLM 推理从 GPU 视角看，核心不是“不断算下一个 token”，而是两个不同阶段：<code>prefill</code> 和 <code>decode</code>。</li>
+<li><code>prefill</code> 更像大批量 dense compute，更容易接近 <code>compute-bound</code>。</li>
+<li><code>decode</code> 每步新增计算很少，但要反复读取历史 <code>KV cache</code>，更容易变成 <code>memory-bound</code> 和调度问题。</li>
+<li><code>KV cache</code> 不只是一个张量，而是推理系统里的核心资源对象，它会直接决定显存占用、并发上限和调度复杂度。</li>
+<li><code>continuous batching</code> 的本质不是“攒更多请求”，而是把单请求并行度不足转化成多请求并行度叠加。</li>
+<li><code>PagedAttention</code> 的本质不是新的 attention 数学，而是更灵活的 KV 内存组织方式，用来减少碎片、提高利用率并支持动态请求混跑。</li>
+<li>推理系统不能只看 <code>token/s</code>，至少还要一起看 <code>TTFT</code>、<code>ITL</code>、吞吐和显存利用率。</li>
+</ul>
+<h2 id="2-xian-jian-li-zong-tu-llm-tui-li-dao-di-zai-zuo-shi-yao" tabindex="-1" id="2-先建立总图：LLM-推理到底在做什么">2. 先建立总图：LLM 推理到底在做什么</h2>
+<p>表面上看，大模型推理只是：</p>
+<ul>
+<li>输入一段 prompt</li>
+<li>模型输出下一个 token</li>
+<li>把新 token 拼回去继续生成</li>
+</ul>
+<p>但从 GPU 和系统视角看，它其实天然分成两个阶段：</p>
+<ol>
+<li><code>prefill</code></li>
+<li><code>decode</code></li>
+</ol>
+<p>这就是理解整套推理系统的第一把钥匙。</p>
+<p>如果这一步没分清，后面很多现象都会混在一起：</p>
+<ul>
+<li>为什么有时算力像瓶颈，有时带宽像瓶颈</li>
+<li>为什么同一套优化对 prefill 和 decode 效果完全不同</li>
+<li>为什么服务系统会开始讨论 KV cache、batching 和请求调度</li>
+</ul>
+<h2 id="3-prefill-he-decode-de-ben-zhi-qu-bie" tabindex="-1" id="3-Prefill-和-Decode-的本质区别">3. Prefill 和 Decode 的本质区别</h2>
+<h3 id="3-1-prefill-shi-shi-yao" tabindex="-1" id="3-1-Prefill-是什么">3.1 Prefill 是什么</h3>
+<p><code>prefill</code> 就是把用户给的一整段 prompt 一次性过完整个模型，并为后续生成准备好每层的 K/V。</p>
+<p>它的典型特征是：</p>
+<ul>
+<li>一次处理很多 token</li>
+<li>形成较大的矩阵计算</li>
+<li>并行度高</li>
+<li>更容易把 Tensor Core 吃满</li>
+</ul>
+<p>所以从 GPU 角度看，prefill 更像：</p>
+<blockquote>
+<p>大矩阵、大并行度、相对更像 GPU 喜欢的 dense compute。</p>
+</blockquote>
+<h3 id="3-2-decode-shi-shi-yao" tabindex="-1" id="3-2-Decode-是什么">3.2 Decode 是什么</h3>
+<p><code>decode</code> 是 prefill 完成之后，模型逐 token 生成新输出的阶段。</p>
+<p>这时每一步通常只新增一个或少量 token，但要读取前面所有历史上下文对应的 K/V。</p>
+<p>它的典型特征是：</p>
+<ul>
+<li>单步新增计算量小</li>
+<li>需要频繁读取历史 KV</li>
+<li>小矩阵很多</li>
+<li>kernel 更碎</li>
+<li>更容易受带宽、缓存和 launch overhead 影响</li>
+</ul>
+<p>所以 decode 常常不是“算不动”，而是：</p>
+<blockquote>
+<p>数据喂不过来，或者系统没法把 GPU 持续喂饱。</p>
+</blockquote>
+<h2 id="4-wei-shi-yao-decode-wang-wang-geng-nan-you-hua" tabindex="-1" id="4-为什么-decode-往往更难优化">4. 为什么 decode 往往更难优化</h2>
+<p>这是 LLM 推理里最关键的系统直觉之一。</p>
+<p>很多人会想：</p>
+<blockquote>
+<p>一次只生成一个 token，计算量更小，不应该更容易优化吗？</p>
+</blockquote>
+<p>问题在于，GPU 喜欢的是：</p>
+<ul>
+<li>规则的大矩阵</li>
+<li>高并行</li>
+<li>高算术强度</li>
+</ul>
+<p>而 decode 经常更像：</p>
+<ul>
+<li>单步计算粒度小</li>
+<li>反复读取历史 KV</li>
+<li>batch 不一定大</li>
+<li>请求长度不整齐</li>
+<li>kernel 更容易碎片化</li>
+</ul>
+<p>所以 decode 经常表现出一种很典型的现象：</p>
+<ul>
+<li>GPU 看起来没有完全吃满</li>
+<li>但系统就是很难再快多少</li>
+</ul>
+<p>这说明瓶颈已经从纯算力转移到了：</p>
+<ul>
+<li>内存带宽</li>
+<li>cache 行为</li>
+<li>显存访问模式</li>
+<li>调度和 batching 策略</li>
+</ul>
+<h2 id="5-kv-cache-dao-di-shi-shi-yao" tabindex="-1" id="5-KV-Cache-到底是什么">5. KV Cache 到底是什么</h2>
+<h3 id="5-1-wei-shi-yao-yao-you-kv-cache" tabindex="-1" id="5-1-为什么要有-KV-cache">5.1 为什么要有 KV cache</h3>
+<p>在 self-attention 里，每层都会生成：</p>
+<ul>
+<li><code>Q</code></li>
+<li><code>K</code></li>
+<li><code>V</code></li>
+</ul>
+<p>如果每生成一个新 token，都重新计算历史所有 token 的 K/V，代价会极高。</p>
+<p>所以系统会把历史 token 在每层对应的 K/V 存下来，后续直接复用。这就是 <code>KV cache</code>。</p>
+<h3 id="5-2-ta-bao-cun-liao-shi-yao" tabindex="-1" id="5-2-它保存了什么">5.2 它保存了什么</h3>
+<p>如果模型有：</p>
+<ul>
+<li><code>L</code> 层</li>
+<li><code>H</code> 个头</li>
+<li><code>head_dim = D</code></li>
+<li>当前序列长度是 <code>T</code></li>
+</ul>
+<p>那么每层都要保存类似：</p>
+<ul>
+<li><code>K: [T, H, D]</code></li>
+<li><code>V: [T, H, D]</code></li>
+</ul>
+<p>整模型就会保存所有层的历史 K/V。</p>
+<h3 id="5-3-wei-shi-yao-ta-shi-xian-cun-da-hu" tabindex="-1" id="5-3-为什么它是显存大户">5.3 为什么它是显存大户</h3>
+<p>很多人一开始以为推理显存主要就是模型权重。</p>
+<p>这只对一半。</p>
+<p>在真实服务里：</p>
+<ul>
+<li>权重是静态占用</li>
+<li>KV cache 是随上下文长度和并发动态增长的占用</li>
+</ul>
+<p>所以在线推理系统很多时候不是先被算力打爆，而是先被：</p>
+<ul>
+<li>显存容量</li>
+<li>KV cache 占用</li>
+<li>KV cache 管理策略</li>
+</ul>
+<p>打爆。</p>
+<h2 id="6-wei-shi-yao-kv-cache-hui-bian-cheng-xi-tong-she-ji-wen-ti" tabindex="-1" id="6-为什么-KV-cache-会变成系统设计问题">6. 为什么 KV cache 会变成系统设计问题</h2>
+<p>如果只是单机 demo，KV cache 看起来只是个 tensor。</p>
+<p>但在真实 serving 系统里，它会立刻引出一串系统问题：</p>
+<ul>
+<li>怎么分配</li>
+<li>怎么复用</li>
+<li>怎么回收</li>
+<li>怎么减少碎片</li>
+<li>怎么支持不同长度请求混跑</li>
+<li>怎么让 attention kernel 读取更高效</li>
+</ul>
+<p>所以 KV cache 不只是“模型里的缓存”，而是：</p>
+<blockquote>
+<p>推理系统里的核心资源对象。</p>
+</blockquote>
+<p>这也是为什么很多推理系统优化，本质上是在做 KV 资源管理。</p>
+<h2 id="7-wei-shi-yao-decode-jie-duan-de-attention-yue-lai-yue-xiang-shu-ju-ban-yun-wen-ti" tabindex="-1" id="7-为什么-decode-阶段的-attention-越来越像“数据搬运问题”">7. 为什么 decode 阶段的 attention 越来越像“数据搬运问题”</h2>
+<p>数学上，attention 可以写成：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">softmax(QK^T / sqrt(d))V</span><br></pre></td></tr></table></figure>
+<p>但在 decode 阶段，从系统视角看，它更像：</p>
+<ul>
+<li>Q 只对应当前新 token</li>
+<li>K/V 来自历史缓存</li>
+<li>需要跨层、跨头、大量读取</li>
+<li>请求长度和 batch 结构还在动态变化</li>
+</ul>
+<p>这意味着 attention 在 decode 阶段很容易变成：</p>
+<blockquote>
+<p>大量必须高效完成的 KV 读取，加上相对有限的新增计算。</p>
+</blockquote>
+<p>所以它越来越像 I/O 问题，而不只是 FLOPs 问题。</p>
+<p>这也是为什么 <code>FlashAttention</code> 给人的最大启发，不是新公式，而是：</p>
+<blockquote>
+<p>attention 优化首先是内存系统和数据流优化。</p>
+</blockquote>
+<h2 id="8-wei-shi-yao-continuous-batching-hui-cheng-wei-tui-li-xi-tong-he-xin-she-ji" tabindex="-1" id="8-为什么-continuous-batching-会成为推理系统核心设计">8. 为什么 continuous batching 会成为推理系统核心设计</h2>
+<h3 id="8-1-chuan-tong-jing-tai-batch-you-shi-yao-wen-ti" tabindex="-1" id="8-1-传统静态-batch-有什么问题">8.1 传统静态 batch 有什么问题</h3>
+<p>如果沿用传统静态 batch 思路：</p>
+<ul>
+<li>收集一批请求</li>
+<li>一起做推理</li>
+<li>整批结束后再换下一批</li>
+</ul>
+<p>在 LLM 场景里很容易出问题，因为请求之间的：</p>
+<ul>
+<li>prompt 长度不同</li>
+<li>输出长度不同</li>
+<li>完成时间不同</li>
+</ul>
+<p>这会导致两个典型问题：</p>
+<ul>
+<li>短请求被长请求拖住</li>
+<li>batch 内活跃请求数会随着请求陆续完成而下降</li>
+</ul>
+<h3 id="8-2-continuous-batching-de-ben-zhi-shi-shi-yao" tabindex="-1" id="8-2-Continuous-batching-的本质是什么">8.2 Continuous batching 的本质是什么</h3>
+<p><code>continuous batching</code> 的核心不是“多攒一点请求”，而是：</p>
+<blockquote>
+<p>在生成过程中持续把新请求插入，把已完成请求移出，让 batch 始终保持流动。</p>
+</blockquote>
+<p>所以它要解决的不是 batch 本身，而是：</p>
+<ul>
+<li>连续进入</li>
+<li>连续退出</li>
+<li>连续调度</li>
+<li>连续复用资源</li>
+</ul>
+<h3 id="8-3-ta-wei-shi-yao-te-bie-gua-he-gpu" tabindex="-1" id="8-3-它为什么特别适合-GPU">8.3 它为什么特别适合 GPU</h3>
+<p>因为 decode 单请求并行度通常不足。只有把很多请求在时间上重叠起来，才能把 GPU 更持续地喂饱。</p>
+<p>所以 continuous batching 的本质是在做这件事：</p>
+<blockquote>
+<p>用系统调度把单请求并行度不足，转化成多请求并行度叠加。</p>
+</blockquote>
+<p>这就是它为什么会成为现代推理服务的核心设计之一。</p>
+<h2 id="9-wei-shi-yao-hui-chu-xian-paged-attention" tabindex="-1" id="9-为什么会出现-PagedAttention">9. 为什么会出现 PagedAttention</h2>
+<h3 id="9-1-wen-ti-bei-jing-kv-cache-hen-rong-yi-sui-pian-hua" tabindex="-1" id="9-1-问题背景：KV-cache-很容易碎片化">9.1 问题背景：KV cache 很容易碎片化</h3>
+<p>如果每个请求都连续分配一大块 KV cache，会很快遇到这些问题：</p>
+<ul>
+<li>请求长度不可预测</li>
+<li>有的很短，有的很长</li>
+<li>有的提前结束，有的持续很久</li>
+<li>回收后留下很多洞</li>
+</ul>
+<p>这和操作系统里的动态内存分配问题很像：表面上还有空闲空间，但物理上很碎，不好继续用。</p>
+<h3 id="9-2-paged-attention-de-he-xin-si-xiang" tabindex="-1" id="9-2-PagedAttention-的核心思想">9.2 PagedAttention 的核心思想</h3>
+<p><code>PagedAttention</code> 借鉴的是分页思想：</p>
+<blockquote>
+<p>不要求一个请求的 KV 在物理上完全连续，而是把 KV 切成块，再通过映射关系组织起来。</p>
+</blockquote>
+<p>它的核心收益有三个：</p>
+<ol>
+<li>降低显存碎片</li>
+<li>提高 KV 分配和回收灵活性</li>
+<li>支持动态请求混跑</li>
+</ol>
+<p>所以它不是在改 attention 的数学本体，而是在改：</p>
+<blockquote>
+<p>attention 访问 KV 的物理组织方式。</p>
+</blockquote>
+<h3 id="9-3-wei-shi-yao-ta-te-bie-gua-he-zai-xian-tui-li-xi-tong" tabindex="-1" id="9-3-为什么它特别适合在线推理系统">9.3 为什么它特别适合在线推理系统</h3>
+<p>因为在线服务里的请求行为天然是动态的：</p>
+<ul>
+<li>到达时间随机</li>
+<li>prompt 长度不同</li>
+<li>生成长度不可知</li>
+<li>完成时间不同</li>
+</ul>
+<p>如果还坚持“每请求一整块连续大缓存”的思路，很快会被碎片和分配效率拖垮。</p>
+<h2 id="10-wei-shi-yao-prefill-decode-fen-chi-yue-lai-yue-zhong-yao" tabindex="-1" id="10-为什么-prefill-decode-分离越来越重要">10. 为什么 prefill / decode 分离越来越重要</h2>
+<h3 id="10-1-liang-ge-jie-duan-xi-huan-de-zi-yuan-wan-quan-bu-tong" tabindex="-1" id="10-1-两个阶段喜欢的资源完全不同">10.1 两个阶段喜欢的资源完全不同</h3>
+<p>前面已经有结论：</p>
+<ul>
+<li>prefill 更偏 compute-bound</li>
+<li>decode 更偏 memory-bound</li>
+</ul>
+<p>这意味着它们喜欢的资源模式不同。</p>
+<p><code>prefill</code> 更喜欢：</p>
+<ul>
+<li>大矩阵</li>
+<li>Tensor Core 吞吐</li>
+<li>大批量 dense compute</li>
+</ul>
+<p><code>decode</code> 更喜欢：</p>
+<ul>
+<li>高带宽</li>
+<li>低延迟调度</li>
+<li>更高效的 KV 读取</li>
+<li>更稳定的 batch 和 cache 管理</li>
+</ul>
+<h3 id="10-2-zhe-wei-shi-yao-zai-da-han-li-you-yi-yi" tabindex="-1" id="10-2-这为什么在大厂里有意义">10.2 这为什么在大厂里有意义</h3>
+<p>如果把 prefill 和 decode 混在同一个资源池里，常见问题是：</p>
+<ul>
+<li>大 prompt 请求压制 decode</li>
+<li>首 token 延迟和单 token 延迟互相干扰</li>
+<li>GPU 在两种不同资源诉求之间来回摆动</li>
+</ul>
+<p>所以分离的意义不是炫技，而是为了：</p>
+<ul>
+<li>更好做 SLA 管理</li>
+<li>更稳定控制 <code>TTFT</code> 和 <code>ITL</code></li>
+<li>让资源类型和负载特征更匹配</li>
+</ul>
+<h2 id="11-wei-shi-yao-tui-li-xing-neng-bu-neng-zhi-kan-token-s" tabindex="-1" id="11-为什么推理性能不能只看-token-s">11. 为什么推理性能不能只看 token/s</h2>
+<p>很多人评价推理系统时，只看吞吐量 <code>token/s</code>。这远远不够。</p>
+<p>至少还要一起看这几个指标：</p>
+<h3 id="11-1-ttft" tabindex="-1" id="11-1-TTFT">11.1 TTFT</h3>
+<p><code>TTFT</code> 是 <code>Time to First Token</code>，也就是从请求到收到第一个 token 的时间。</p>
+<p>它更容易受这些东西影响：</p>
+<ul>
+<li>prefill</li>
+<li>排队</li>
+<li>调度</li>
+<li>系统流水</li>
+</ul>
+<h3 id="11-2-itl" tabindex="-1" id="11-2-ITL">11.2 ITL</h3>
+<p><code>ITL</code> 是 <code>Inter-Token Latency</code>，也就是相邻两个生成 token 的间隔。</p>
+<p>它更能反映 decode 阶段的真实体验。</p>
+<h3 id="11-3-throughput" tabindex="-1" id="11-3-Throughput">11.3 Throughput</h3>
+<p>吞吐量更偏整体系统能力，但高吞吐不等于单请求体验就好。</p>
+<h3 id="11-4-wei-shi-yao-zhe-xie-zhi-biao-jing-chang-hu-xiang-chong-tu" tabindex="-1" id="11-4-为什么这些指标经常互相冲突">11.4 为什么这些指标经常互相冲突</h3>
+<p>因为系统优化往往是 trade-off：</p>
+<ul>
+<li>batch 更大，吞吐更高</li>
+<li>但 <code>TTFT</code> 可能变差</li>
+<li>continuous batching 提高整体利用率</li>
+<li>但过度追求吞吐，可能让尾延迟变差</li>
+</ul>
+<p>所以推理系统不是“把 GPU 利用率拉满”这么简单，而是要在：</p>
+<ul>
+<li>吞吐</li>
+<li>延迟</li>
+<li>显存</li>
+<li>稳定性</li>
+</ul>
+<p>之间做平衡。</p>
+<h2 id="12-yong-4090-xue-zhe-xie-you-mei-you-jie-zhi" tabindex="-1" id="12-用-4090-学这些，有没有价值">12. 用 4090 学这些，有没有价值</h2>
+<p>有，而且很有价值。</p>
+<p>虽然 4090 不是典型数据中心卡，但你在它上面仍然可以学懂这条主线里的大部分核心问题：</p>
+<ul>
+<li>prefill / decode 的差异</li>
+<li>decode 为什么更像 memory problem</li>
+<li>KV cache 为什么会成为核心资源</li>
+<li>continuous batching 为什么有效</li>
+<li>PagedAttention 为什么合理</li>
+<li>attention 为什么会越来越像 I/O 优化问题</li>
+</ul>
+<p>你暂时学不到的，主要是这些更数据中心化的部分：</p>
+<ul>
+<li>多 GPU 大规模并行的真实通信代价</li>
+<li>NVLink / NVSwitch 级别的系统互连</li>
+<li>超大显存资源池和线上高并发调度细节</li>
+</ul>
+<p>但单卡 4090 完全足够学懂方法论。</p>
+<h2 id="13-zhe-yi-pian-bi-xu-ji-zhu-de-ji-ju-hua" tabindex="-1" id="13-这一篇必须记住的几句话">13. 这一篇必须记住的几句话</h2>
+<ul>
+<li>LLM 推理天然分成 <code>prefill</code> 和 <code>decode</code>，两者瓶颈结构不同。</li>
+<li><code>prefill</code> 更像 dense compute，<code>decode</code> 更像 memory + scheduling problem。</li>
+<li><code>KV cache</code> 不只是缓存，而是推理系统里的核心资源对象。</li>
+<li><code>continuous batching</code> 的本质是把单请求并行度不足转成多请求并行度叠加。</li>
+<li><code>PagedAttention</code> 的本质是更灵活的 KV 内存组织方式，用来减少碎片并支持动态请求混跑。</li>
+<li>推理系统不能只看 <code>token/s</code>，还要一起看 <code>TTFT</code>、<code>ITL</code> 和显存利用率。</li>
+</ul>
+<h2 id="14-jing-jian-ban-mian-shi-biao-da" tabindex="-1" id="14-精简版面试表达">14. 精简版面试表达</h2>
+<p>如果面试官问你怎么理解 LLM 推理系统里的 GPU 问题，可以这样答：</p>
+<blockquote>
+<p>我会先把推理分成 prefill 和 decode。Prefill 一次处理整段 prompt，更像大矩阵 dense compute，更容易接近 compute-bound；decode 每步只新增少量计算，但要持续读取历史 KV cache，所以更容易受带宽、缓存和调度影响。也正因为这样，KV cache 会从一个模型内部缓存，变成推理系统里的核心资源对象。为了提高利用率，系统会用 continuous batching 把多请求在时间上叠起来；为了减少 KV 碎片和提高分配灵活性，又会引入像 PagedAttention 这样的分页式组织方式。真正的推理优化不是只盯 FLOPS，而是一起看算力、内存系统、batching、调度和服务指标。</p>
+</blockquote>
+<hr>
+<h2 id="xi-lie-dao-hang" tabindex="-1" id="系列导航">系列导航</h2>
+<ul>
+<li>导读：<a href="/posts/3f7ace4/">GPU系统拆解-00-导读：从架构认知到推理系统的学习路线</a></li>
+<li>上一篇：<a href="/posts/668adbf1/">GPU系统拆解-11-高频 Kernel 设计：从自然并行到资源权衡</a></li>
+<li>下一篇：<a href="/posts/68e6bad5/">GPU系统拆解-13-多 GPU 与通信：并行策略、拓扑与扩展代价</a></li>
+<li>延伸阅读：<a href="/posts/fbab2bc4/">AI-Infra学习之旅-PagedAttention解析</a></li>
+<li>延伸阅读：<a href="/posts/e62b6df0/">vLLM系统拆解-02-Prefill、Decode与KV Cache：理解vLLM之前的推理基础</a></li>
+<li>延伸阅读：<a href="/posts/e67da5b6/">vLLM系统拆解-05-KV Cache与PagedAttention：核心不是Attention公式，而是存放方式</a></li>
+</ul>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/e141fe5/">https://smarter.xin/posts/e141fe5/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/kv-cache/">KV Cache</a><a class="post-meta__tags" href="/tags/gpu/">GPU</a><a class="post-meta__tags" href="/tags/llm-inference/">大模型推理</a><a class="post-meta__tags" href="/tags/prefill/">Prefill</a><a class="post-meta__tags" href="/tags/decode/">Decode</a></div><div class="post-share"><div class="social-share" data-image="/img/nvidia.png" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/68e6bad5/" title="GPU系统拆解-13-多 GPU 与通信：并行策略、拓扑与扩展代价"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">GPU系统拆解-13-多 GPU 与通信：并行策略、拓扑与扩展代价</div></div></div></a><a class="pagination-related  no-desc" href="/posts/668adbf1/" title="GPU系统拆解-11-高频 Kernel 设计：从自然并行到资源权衡"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">GPU系统拆解-11-高频 Kernel 设计：从自然并行到资源权衡</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/e62b6df0/" title="vLLM系统拆解-02-Prefill、Decode与KV Cache：理解vLLM之前的推理基础"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/vllm.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-04-02</div><div class="info-item-2">vLLM系统拆解-02-Prefill、Decode与KV Cache：理解vLLM之前的推理基础</div></div></div></a><a class="pagination-related no-desc" href="/posts/fb17598c/" title="PyTorch推理工程：08 批处理、KV Cache 与 Serving 视角"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-29</div><div class="info-item-2">PyTorch推理工程：08 批处理、KV Cache 与 Serving 视角</div></div></div></a><a class="pagination-related no-desc" href="/posts/d3059af7/" title="AI Infra学习之旅-从模型执行到推理系统的桥接"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/attentionisallyouneed.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-27</div><div class="info-item-2">AI Infra学习之旅-从模型执行到推理系统的桥接</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">我就是要爬这座山<br>再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">188</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">305</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">28</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#gpu-xi-tong-chai-jie-12-llm-tui-li-de-gpu-zhu-xian-prefill-decode-kv-cache-yu-xi-tong-yue-shu"><span class="toc-text">GPU系统拆解-12-LLM 推理的 GPU 主线：Prefill、Decode、KV Cache 与系统约束</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#1-xian-gei-jie-lun"><span class="toc-text">1. 先给结论</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-xian-jian-li-zong-tu-llm-tui-li-dao-di-zai-zuo-shi-yao"><span class="toc-text">2. 先建立总图：LLM 推理到底在做什么</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#3-prefill-he-decode-de-ben-zhi-qu-bie"><span class="toc-text">3. Prefill 和 Decode 的本质区别</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#3-1-prefill-shi-shi-yao"><span class="toc-text">3.1 Prefill 是什么</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-2-decode-shi-shi-yao"><span class="toc-text">3.2 Decode 是什么</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#4-wei-shi-yao-decode-wang-wang-geng-nan-you-hua"><span class="toc-text">4. 为什么 decode 往往更难优化</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#5-kv-cache-dao-di-shi-shi-yao"><span class="toc-text">5. KV Cache 到底是什么</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#5-1-wei-shi-yao-yao-you-kv-cache"><span class="toc-text">5.1 为什么要有 KV cache</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-2-ta-bao-cun-liao-shi-yao"><span class="toc-text">5.2 它保存了什么</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-3-wei-shi-yao-ta-shi-xian-cun-da-hu"><span class="toc-text">5.3 为什么它是显存大户</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#6-wei-shi-yao-kv-cache-hui-bian-cheng-xi-tong-she-ji-wen-ti"><span class="toc-text">6. 为什么 KV cache 会变成系统设计问题</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#7-wei-shi-yao-decode-jie-duan-de-attention-yue-lai-yue-xiang-shu-ju-ban-yun-wen-ti"><span class="toc-text">7. 为什么 decode 阶段的 attention 越来越像“数据搬运问题”</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#8-wei-shi-yao-continuous-batching-hui-cheng-wei-tui-li-xi-tong-he-xin-she-ji"><span class="toc-text">8. 为什么 continuous batching 会成为推理系统核心设计</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#8-1-chuan-tong-jing-tai-batch-you-shi-yao-wen-ti"><span class="toc-text">8.1 传统静态 batch 有什么问题</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#8-2-continuous-batching-de-ben-zhi-shi-shi-yao"><span class="toc-text">8.2 Continuous batching 的本质是什么</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#8-3-ta-wei-shi-yao-te-bie-gua-he-gpu"><span class="toc-text">8.3 它为什么特别适合 GPU</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#9-wei-shi-yao-hui-chu-xian-paged-attention"><span class="toc-text">9. 为什么会出现 PagedAttention</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#9-1-wen-ti-bei-jing-kv-cache-hen-rong-yi-sui-pian-hua"><span class="toc-text">9.1 问题背景：KV cache 很容易碎片化</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#9-2-paged-attention-de-he-xin-si-xiang"><span class="toc-text">9.2 PagedAttention 的核心思想</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#9-3-wei-shi-yao-ta-te-bie-gua-he-zai-xian-tui-li-xi-tong"><span class="toc-text">9.3 为什么它特别适合在线推理系统</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#10-wei-shi-yao-prefill-decode-fen-chi-yue-lai-yue-zhong-yao"><span class="toc-text">10. 为什么 prefill &#x2F; decode 分离越来越重要</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#10-1-liang-ge-jie-duan-xi-huan-de-zi-yuan-wan-quan-bu-tong"><span class="toc-text">10.1 两个阶段喜欢的资源完全不同</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#10-2-zhe-wei-shi-yao-zai-da-han-li-you-yi-yi"><span class="toc-text">10.2 这为什么在大厂里有意义</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#11-wei-shi-yao-tui-li-xing-neng-bu-neng-zhi-kan-token-s"><span class="toc-text">11. 为什么推理性能不能只看 token&#x2F;s</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#11-1-ttft"><span class="toc-text">11.1 TTFT</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#11-2-itl"><span class="toc-text">11.2 ITL</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#11-3-throughput"><span class="toc-text">11.3 Throughput</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#11-4-wei-shi-yao-zhe-xie-zhi-biao-jing-chang-hu-xiang-chong-tu"><span class="toc-text">11.4 为什么这些指标经常互相冲突</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#12-yong-4090-xue-zhe-xie-you-mei-you-jie-zhi"><span class="toc-text">12. 用 4090 学这些，有没有价值</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#13-zhe-yi-pian-bi-xu-ji-zhu-de-ji-ju-hua"><span class="toc-text">13. 这一篇必须记住的几句话</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#14-jing-jian-ban-mian-shi-biao-da"><span class="toc-text">14. 精简版面试表达</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xi-lie-dao-hang"><span class="toc-text">系列导航</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/b47bc812/" title="GPU系统拆解-14-从 PyTorch 到 CUDA Extension：把算子真正接入工程"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="GPU系统拆解-14-从 PyTorch 到 CUDA Extension：把算子真正接入工程"/></a><div class="content"><a class="title" href="/posts/b47bc812/" title="GPU系统拆解-14-从 PyTorch 到 CUDA Extension：把算子真正接入工程">GPU系统拆解-14-从 PyTorch 到 CUDA Extension：把算子真正接入工程</a><time datetime="2026-04-05T07:00:00.000Z" title="发表于 2026-04-05 15:00:00">2026-04-05</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/68e6bad5/" title="GPU系统拆解-13-多 GPU 与通信：并行策略、拓扑与扩展代价"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="GPU系统拆解-13-多 GPU 与通信：并行策略、拓扑与扩展代价"/></a><div class="content"><a class="title" href="/posts/68e6bad5/" title="GPU系统拆解-13-多 GPU 与通信：并行策略、拓扑与扩展代价">GPU系统拆解-13-多 GPU 与通信：并行策略、拓扑与扩展代价</a><time datetime="2026-04-05T06:30:00.000Z" title="发表于 2026-04-05 14:30:00">2026-04-05</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/e141fe5/" title="GPU系统拆解-12-LLM 推理的 GPU 主线：Prefill、Decode、KV Cache 与系统约束"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="GPU系统拆解-12-LLM 推理的 GPU 主线：Prefill、Decode、KV Cache 与系统约束"/></a><div class="content"><a class="title" href="/posts/e141fe5/" title="GPU系统拆解-12-LLM 推理的 GPU 主线：Prefill、Decode、KV Cache 与系统约束">GPU系统拆解-12-LLM 推理的 GPU 主线：Prefill、Decode、KV Cache 与系统约束</a><time datetime="2026-04-05T06:00:00.000Z" title="发表于 2026-04-05 14:00:00">2026-04-05</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/attentionisallyouneed.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">从 Self-Attention、位置编码到 Encoder-Decoder，系统梳理 Transformer 的核心结构、设计动机与理解路径</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/d6fa227a/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-16</span><a class="blog-slider__title" href="posts/d6fa227a/" alt="">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</a><div class="blog-slider__text">从访存优化到多卡通信，一篇看清 CUDA 实践系列的结构与学习路线</div><a class="blog-slider__button" href="posts/d6fa227a/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/43c4b52e/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/agent.webp" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-24</span><a class="blog-slider__title" href="posts/43c4b52e/" alt="">从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路</a><div class="blog-slider__text">使用飞书与本地 Agent 对话，远程也要让本地 Agent 干活，当一名狠狠的资本家</div><a class="blog-slider__button" href="posts/43c4b52e/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/92dc1028/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/CUDA_C.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-02-05</span><a class="blog-slider__title" href="posts/92dc1028/" alt="">CUDA C编程权威指南-导读</a><div class="blog-slider__text">从异构并行到多 GPU 实践，串起 CUDA C 权威指南的核心学习路线</div><a class="blog-slider__button" href="posts/92dc1028/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">从全书视角出发，一篇看清 PMPP 的章节结构、核心主题与学习主线</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/aac6e27d/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Computer_System.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/aac6e27d/" alt="">深入理解计算机系统知识点总结</a><div class="blog-slider__text">从程序员视角梳理 CSAPP 的知识脉络、系统抽象与性能理解</div><a class="blog-slider__button" href="posts/aac6e27d/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">围绕类型推导、移动语义与并发，提炼现代 C++ 的核心实践</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>
