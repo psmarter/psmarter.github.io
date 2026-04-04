@@ -1,0 +1,619 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>CUDA系统拆解-18-NCCL、多GPU与通信隐藏：规模扩展怎么不被通信拖垮 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="CUDA系统拆解-18-NCCL、多GPU与通信隐藏：规模扩展怎么不被通信拖垮  本文是「CUDA系统拆解」系列第 18 篇。 系列导读：CUDA系统拆解-00-导读：从编程模型到 AI 推理系统的学习路线 上一篇：CUDA系统拆解-17-vLLM、TensorRT-LLM 与 Continuous Batching：CUDA 为什么最终连到推理系统  1. 这篇解决什么问题 这一篇讲的是：当系统">
+<meta property="og:type" content="article">
+<meta property="og:title" content="CUDA系统拆解-18-NCCL、多GPU与通信隐藏：规模扩展怎么不被通信拖垮">
+<meta property="og:url" content="https://smarter.xin/posts/15f00dc3/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="CUDA系统拆解-18-NCCL、多GPU与通信隐藏：规模扩展怎么不被通信拖垮  本文是「CUDA系统拆解」系列第 18 篇。 系列导读：CUDA系统拆解-00-导读：从编程模型到 AI 推理系统的学习路线 上一篇：CUDA系统拆解-17-vLLM、TensorRT-LLM 与 Continuous Batching：CUDA 为什么最终连到推理系统  1. 这篇解决什么问题 这一篇讲的是：当系统">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/Nvidia_CUDA_Logo.jpg">
+<meta property="article:published_time" content="2026-04-06T09:00:00.000Z">
+<meta property="article:modified_time" content="2026-04-04T19:11:49.729Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="CUDA">
+<meta property="article:tag" content="Pipeline">
+<meta property="article:tag" content="NCCL">
+<meta property="article:tag" content="NVLink">
+<meta property="article:tag" content="多GPU">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/Nvidia_CUDA_Logo.jpg"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "CUDA系统拆解-18-NCCL、多GPU与通信隐藏：规模扩展怎么不被通信拖垮",
+  "url": "https://smarter.xin/posts/15f00dc3/",
+  "image": "https://smarter.xin/img/Nvidia_CUDA_Logo.jpg",
+  "datePublished": "2026-04-06T09:00:00.000Z",
+  "dateModified": "2026-04-04T19:11:49.729Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/15f00dc3/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'CUDA系统拆解-18-NCCL、多GPU与通信隐藏：规模扩展怎么不被通信拖垮',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">207</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">307</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">29</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/Nvidia_CUDA_Logo.jpg);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">CUDA系统拆解-18-NCCL、多GPU与通信隐藏：规模扩展怎么不被通信拖垮</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">CUDA系统拆解-18-NCCL、多GPU与通信隐藏：规模扩展怎么不被通信拖垮</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-04-06T09:00:00.000Z" title="发表于 2026-04-06 17:00:00">2026-04-06</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-04-04T19:11:49.729Z" title="更新于 2026-04-05 03:11:49">2026-04-05</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/">AI Infra</a><i class="fas fa-angle-right post-meta-separator"></i><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/cuda/">CUDA</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">2.9k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>9分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="cuda-xi-tong-chai-jie-18-nccl-duo-gpu-yu-tong-xin-yin-cang-gui-mo-kuo-zhan-zen-yao-bu-bei-tong-xin-tuo-kua" tabindex="-1">CUDA系统拆解-18-NCCL、多GPU与通信隐藏：规模扩展怎么不被通信拖垮</h1>
+<blockquote>
+<p>本文是「CUDA系统拆解」系列第 18 篇。<br>
+系列导读：<a href="/posts/d134963b/">CUDA系统拆解-00-导读：从编程模型到 AI 推理系统的学习路线</a><br>
+上一篇：<a href="/posts/47afb486/">CUDA系统拆解-17-vLLM、TensorRT-LLM 与 Continuous Batching：CUDA 为什么最终连到推理系统</a></p>
+</blockquote>
+<h2 id="1-zhe-pian-jie-jue-shi-yao-wen-ti" tabindex="-1" id="1-这篇解决什么问题">1. 这篇解决什么问题</h2>
+<p>这一篇讲的是：当系统从单 GPU 走向多 GPU 之后，性能问题为什么会突然变成“通信问题”。</p>
+<p>核心要回答 5 件事：</p>
+<ul>
+<li>多 GPU 新增的核心矛盾到底是什么。</li>
+<li><code>NCCL</code> 到底处在什么位置，为什么它几乎是 NVIDIA 多 GPU 系统的默认基础设施。</li>
+<li><code>Broadcast</code>、<code>AllReduce</code>、<code>AllGather</code>、<code>ReduceScatter</code> 这些 collective 为什么重要。</li>
+<li>为什么 <code>ring</code>、拓扑感知和链路选择会直接影响扩展效率。</li>
+<li>为什么 <code>overlap</code>、<code>pipeline</code>、通信隐藏常常决定大模型系统最终能跑多快。</li>
+</ul>
+<p>如果这篇只记住一句话，那就是：</p>
+<p><strong>单卡优化主要在回答“数据怎么在一张卡里少搬”，多卡优化主要在回答“数据怎么在多张卡之间尽量少搬、尽量晚搬、尽量边搬边算”。</strong></p>
+<h2 id="2-xian-ji-zhu-de-he-xin-jie-lun" tabindex="-1" id="2-先记住的核心结论">2. 先记住的核心结论</h2>
+<ul>
+<li>多 GPU 引入的新核心矛盾通常不是“算力不够”，而是“跨卡通信太贵”。</li>
+<li><code>NCCL</code> 是 NVIDIA 的高性能 GPU collective communication 库，重点不是只提供 API，而是把拓扑感知、通信算法和 CUDA 执行模型结合起来。</li>
+<li><code>Broadcast</code>、<code>AllReduce</code>、<code>AllGather</code>、<code>ReduceScatter</code> 是多 GPU 系统里最常见的 collective，分别对应不同的数据分发、聚合和收集需求。</li>
+<li><code>AllReduce</code> 是最经典的多 GPU 同步原语之一，因为它代表了“大家先规约，再都拿到最终结果”这类高频需求。</li>
+<li><code>ring</code> 常见是因为它对大消息传输带宽利用率很好；但并不存在永远最优的单一算法，拓扑和消息规模会影响选择。</li>
+<li><code>overlap</code> 的本质是让通信时间和计算时间重叠，尽量把等待藏进已有计算里，而不是让通信成本真的消失。</li>
+<li><code>pipeline</code> 的本质是分阶段并行；<code>bubble</code> 是流水线没被填满带来的空闲。</li>
+<li>在大模型训练和推理里，很多最终性能差距都来自通信组织质量，而不是单个 kernel 的峰值。</li>
+</ul>
+<h2 id="3-zheng-wen-jiang-jie" tabindex="-1" id="3-正文讲解">3. 正文讲解</h2>
+<h3 id="3-1-duo-gpu-de-ben-zhi-mao-dun-shi-shi-yao" tabindex="-1" id="3-1-多-GPU-的本质矛盾是什么">3.1 多 GPU 的本质矛盾是什么</h3>
+<p>一张 GPU 上，性能问题主要集中在：</p>
+<ul>
+<li>算子组织</li>
+<li>访存层级</li>
+<li>launch 开销</li>
+<li>同步和调度</li>
+</ul>
+<p>到了多 GPU，问题突然多出一层：</p>
+<p><strong>每张卡本地算得很快，但卡和卡之间交换数据很慢。</strong></p>
+<p>这就是多 GPU 最核心的新矛盾。</p>
+<p>从代价层级看，可以粗略理解成：</p>
+<ul>
+<li>registers / shared memory 最快</li>
+<li>本地 HBM 也很快</li>
+<li>同机其他 GPU 更慢</li>
+<li>跨机 GPU 更慢</li>
+</ul>
+<p>所以多 GPU 优化和单 GPU 优化在逻辑上其实是一脉相承的：</p>
+<ul>
+<li>单 GPU：尽量少访问慢层级</li>
+<li>多 GPU：尽量少做跨卡交换</li>
+</ul>
+<h3 id="3-2-nccl-dao-di-shi-shi-yao" tabindex="-1" id="3-2-NCCL-到底是什么">3.2 NCCL 到底是什么</h3>
+<p><code>NCCL</code> 是 NVIDIA 提供的高性能 GPU collective communication 库。它要解决的不是“怎么写一个 kernel”，而是“多张 GPU 怎么高效交换数据”。</p>
+<p>它最重要的价值不只是接口，而是三件事：</p>
+<ul>
+<li>提供常见 collective communication 原语</li>
+<li>感知硬件拓扑并选择更合适的通信路径</li>
+<li>和 CUDA stream、异步执行模型配合，方便做 overlap</li>
+</ul>
+<p>所以理解 <code>NCCL</code> 时，不要把它只看成“多卡 API 集合”。更准确地说，它是 GPU 世界里的通信执行基础设施。</p>
+<h3 id="3-3-shi-yao-shi-collective-communication" tabindex="-1" id="3-3-什么是-collective-communication">3.3 什么是 collective communication</h3>
+<p>所谓 collective，可以先理解成：</p>
+<p><strong>一组 GPU 按某种固定规则一起交换和重组数据。</strong></p>
+<p>最常见的几类是：</p>
+<p><code>Broadcast</code></p>
+<ul>
+<li>一个 GPU 把数据发给所有 GPU</li>
+<li>常见于参数分发、初始化、共享配置同步</li>
+</ul>
+<p><code>AllReduce</code></p>
+<ul>
+<li>每个 GPU 各有一份数据</li>
+<li>先按元素规约，比如 <code>sum</code></li>
+<li>再把最终结果发回所有 GPU</li>
+<li>这是最经典的 collective 之一</li>
+</ul>
+<p><code>AllGather</code></p>
+<ul>
+<li>每个 GPU 提供自己的一块数据</li>
+<li>所有 GPU 最终都拿到拼接后的完整结果</li>
+<li>常见于张量并行后的结果收集</li>
+</ul>
+<p><code>ReduceScatter</code></p>
+<ul>
+<li>先做规约</li>
+<li>再把规约后的结果分块散给不同 GPU</li>
+<li>很适合那些不需要所有 GPU 都拿完整结果的场景</li>
+</ul>
+<p>这些 collective 之所以重要，是因为多 GPU 系统几乎总要在“本地算一部分”和“全局拼结果”之间来回切换。</p>
+<h3 id="3-4-wei-shi-yao-all-reduce-zhe-yao-zhong-yao" tabindex="-1" id="3-4-为什么-AllReduce-这么重要">3.4 为什么 AllReduce 这么重要</h3>
+<p>如果只记一个 collective，那通常先记 <code>AllReduce</code>。</p>
+<p>原因很简单：它代表了多 GPU 协作里最经典的一类需求。</p>
+<p>它同时做两件事：</p>
+<ul>
+<li>聚合</li>
+<li>分发</li>
+</ul>
+<p>所以它经常很贵，也经常是扩展瓶颈。<br>
+训练里它典型对应梯度同步；推理里在某些张量并行和中间结果合并路径上，也会遇到类似问题。</p>
+<p>面试里如果问“为什么多卡不线性加速”，一个高频原因就是：<br>
+<strong>本地计算虽然分摊了，但每一层或每一步都可能新增 collective 成本。</strong></p>
+<h3 id="3-5-wei-shi-yao-ring-zhe-yao-chang-jian" tabindex="-1" id="3-5-为什么-ring-这么常见">3.5 为什么 ring 这么常见</h3>
+<p><code>ring</code> 是最常见的 collective 实现直觉之一，尤其适合大消息场景。</p>
+<p>直观上可以理解成：</p>
+<ul>
+<li>GPU 组成一个环</li>
+<li>每轮每张卡只和相邻卡交换一块数据</li>
+<li>数据一边转、一边规约或收集</li>
+</ul>
+<p>它的优势主要是：</p>
+<ul>
+<li>链路利用比较均衡</li>
+<li>更容易把所有链路都忙起来</li>
+<li>对大消息时的带宽利用通常不错</li>
+</ul>
+<p>但不要把它神化成唯一正确答案。<br>
+真实系统里还会有：</p>
+<ul>
+<li>tree</li>
+<li>hierarchical</li>
+<li>拓扑感知的混合策略</li>
+</ul>
+<p>选择和这些因素有关：</p>
+<ul>
+<li>消息大小</li>
+<li>GPU 数量</li>
+<li>NVLink / PCIe / IB 拓扑</li>
+<li>单机还是跨机</li>
+</ul>
+<p>所以 <code>NCCL</code> 的强点之一，就在于它不是死板地用一种算法，而是会结合拓扑和场景做更合理的选择。</p>
+<h3 id="3-6-wei-shi-yao-tuo-bu-gan-zhi-fei-chang-guan-jian" tabindex="-1" id="3-6-为什么拓扑感知非常关键">3.6 为什么拓扑感知非常关键</h3>
+<p>多 GPU 性能不只取决于“用了几张卡”，还取决于“这些卡之间到底怎么连”。</p>
+<p>例如：</p>
+<ul>
+<li>有的 GPU 之间有 NVLink</li>
+<li>有的只能走 PCIe</li>
+<li>跨机要走 IB 或其他网络</li>
+<li>某些链路可能共享交换资源</li>
+</ul>
+<p>如果通信路径选得不好，就会出现：</p>
+<ul>
+<li>热点链路</li>
+<li>带宽利用不均</li>
+<li>某些 GPU 长时间等待</li>
+</ul>
+<p>所以 <code>NCCL</code> 的价值很大一部分在于：<br>
+<strong>它在做 topology-aware 的通信组织，而不是只在做“把字节发出去”。</strong></p>
+<h3 id="3-7-overlap-pipeline-tong-xin-yin-cang-shi-shi-yao-yi-si" tabindex="-1" id="3-7-overlap、pipeline、通信隐藏是什么意思">3.7 overlap、pipeline、通信隐藏是什么意思</h3>
+<p>这几个词经常一起出现，但不是一回事。</p>
+<p><code>overlap</code></p>
+<ul>
+<li>指通信和计算重叠</li>
+<li>理想目标是让总时间更接近 <code>max(计算时间, 通信时间)</code>，而不是两者简单相加</li>
+</ul>
+<p><code>pipeline</code></p>
+<ul>
+<li>指把系统拆成多个阶段，让不同阶段并行推进</li>
+<li>常见于 pipeline parallel，也常见于更一般的数据流分阶段组织</li>
+</ul>
+<p><code>communication hiding</code></p>
+<ul>
+<li>指尽量把通信等待藏进已有的计算时间里</li>
+<li>它依赖 overlap，但不等于“通信成本不存在”</li>
+</ul>
+<p>这三者的重要性在于：<br>
+在多 GPU 系统里，最怕的不是“有通信”，而是“通信裸露在关键路径上，所有卡都在等”。</p>
+<h3 id="3-8-pipeline-bubble-shi-shi-yao" tabindex="-1" id="3-8-pipeline-bubble-是什么">3.8 pipeline bubble 是什么</h3>
+<p>一旦谈 pipeline，就绕不开 <code>bubble</code>。</p>
+<p><code>bubble</code> 可以理解成：</p>
+<ul>
+<li>流水线没有被填满时产生的空闲</li>
+<li>或者不同 stage 不平衡导致的等待</li>
+</ul>
+<p>典型来源包括：</p>
+<ul>
+<li>stage 切分不均衡</li>
+<li>micro-batch 太少</li>
+<li>某些阶段明显更慢</li>
+</ul>
+<p>所以 pipeline 的关键不只是“分阶段”，还包括：</p>
+<ul>
+<li>阶段怎么切</li>
+<li>每阶段负载是否均衡</li>
+<li>是否有足够多的 micro-batch 来填满流水线</li>
+</ul>
+<h3 id="3-9-wei-shi-yao-duo-gpu-chang-chang-bu-xian-xing-jia-su" tabindex="-1" id="3-9-为什么多-GPU-常常不线性加速">3.9 为什么多 GPU 常常不线性加速</h3>
+<p>这是最常见的系统问题之一。</p>
+<p>多卡扩展不线性的典型原因包括：</p>
+<ul>
+<li>通信占比上升</li>
+<li>通信无法被完全隐藏</li>
+<li>切分过细，导致本地计算太碎</li>
+<li>launch 和同步开销比例上升</li>
+<li>拓扑不理想</li>
+<li>负载不均衡</li>
+</ul>
+<p>所以多 GPU 扩展效率的本质问题是：</p>
+<p><strong>卡虽然变多了，但“等待”的部分也变多了。</strong></p>
+<h3 id="3-10-he-bing-xing-ce-lue-de-guan-xi" tabindex="-1" id="3-10-和并行策略的关系">3.10 和并行策略的关系</h3>
+<p>通信模式不是独立存在的，它通常由并行切分方式决定。</p>
+<p>常见直觉是：</p>
+<ul>
+<li><code>data parallel</code> 更容易出现梯度同步类通信</li>
+<li><code>tensor parallel</code> 经常需要 <code>AllGather</code>、<code>ReduceScatter</code>、<code>AllReduce</code></li>
+<li><code>pipeline parallel</code> 更强调相邻 stage 之间的传递和流水线组织</li>
+<li><code>expert parallel / MoE</code> 会更敏感于 token 分发和跨设备交换</li>
+</ul>
+<p>这意味着真正分析一个多 GPU 系统时，不应该先问“用了什么 collective”，而应该先问：</p>
+<ul>
+<li>模型怎么切</li>
+<li>数据怎么切</li>
+<li>每一步的通信到底发生在哪里</li>
+</ul>
+<h2 id="4-he-ai-tui-li-de-guan-xi" tabindex="-1" id="4-和-AI-推理的关系">4. 和 AI 推理的关系</h2>
+<p>对大模型推理来说，这一篇非常关键，因为推理尤其容易暴露通信问题。</p>
+<p>原因之一是 decode 阶段往往本地计算时间短：</p>
+<ul>
+<li>每步新增计算量小</li>
+<li>kernel 更碎</li>
+<li>launch 更频繁</li>
+<li>于是通信更难被隐藏</li>
+</ul>
+<p>所以在大模型推理里，很多工程动作最终都在围绕同一个目标：</p>
+<ul>
+<li>减少每步必须做的跨卡同步</li>
+<li>尽量让通信和计算重叠</li>
+<li>让切分、调度、KV locality 和通信路径尽量一致</li>
+</ul>
+<p>这也是为什么 AI infra / 推理岗位会非常看重你对 <code>NCCL</code>、<code>collective</code>、<code>overlap</code>、<code>pipeline bubble</code> 的理解。它们直接决定多卡系统能不能真正跑出吞吐。</p>
+<h2 id="5-chang-jian-wu-qu" tabindex="-1" id="5-常见误区">5. 常见误区</h2>
+<ul>
+<li><code>NCCL</code> 不只是“多卡 API 库”，它的真正价值在于 topology-aware 通信和与 CUDA 执行模型的集成。</li>
+<li><code>overlap</code> 不是让通信成本消失，而是尽量把通信等待藏进已有计算里。</li>
+<li><code>ring</code> 不是永远最优，只是它在很多大消息场景下带宽利用很好。</li>
+<li>多 GPU 不线性加速不一定是 kernel 太慢，很多时候是通信、同步或负载不均衡在拖后腿。</li>
+<li>pipeline 不等于自动高效；如果 stage 切分差或 bubble 大，流水线本身也会浪费很多时间。</li>
+</ul>
+<h2 id="6-fu-xi-zi-ce" tabindex="-1" id="6-复习自测">6. 复习自测</h2>
+<ul>
+<li>为什么说多 GPU 新增的核心矛盾通常是通信成本，而不是单纯算力不足？</li>
+<li><code>NCCL</code> 解决的核心问题是什么？为什么不能只把它理解成一组 API？</li>
+<li><code>Broadcast</code>、<code>AllReduce</code>、<code>AllGather</code>、<code>ReduceScatter</code> 各自更适合哪类数据流场景？</li>
+<li>为什么 <code>AllReduce</code> 经常成为多 GPU 扩展瓶颈？</li>
+<li><code>ring</code> 为什么常见？它的优势和局限分别是什么？</li>
+<li>为什么拓扑感知会直接影响多 GPU 性能？</li>
+<li><code>overlap</code>、<code>pipeline</code>、<code>communication hiding</code>、<code>bubble</code> 分别在讲什么？</li>
+<li>为什么 decode 阶段的多 GPU 推理往往比 prefill 更容易暴露通信问题？</li>
+</ul>
+<hr>
+<h2 id="xi-lie-dao-hang" tabindex="-1" id="系列导航">系列导航</h2>
+<ul>
+<li>导读：<a href="/posts/d134963b/">CUDA系统拆解-00-导读：从编程模型到 AI 推理系统的学习路线</a></li>
+<li>上一篇：<a href="/posts/47afb486/">CUDA系统拆解-17-vLLM、TensorRT-LLM 与 Continuous Batching：CUDA 为什么最终连到推理系统</a></li>
+<li>延伸阅读：<a href="/posts/68e6bad5/">GPU系统拆解-13-多 GPU 与通信：并行策略、拓扑与扩展代价</a></li>
+<li>延伸阅读：<a href="/posts/b599e19f/">CUDA实践-15-多卡通信与全归约</a></li>
+<li>延伸阅读：<a href="/posts/9ce7b444/">vLLM系统拆解-10-分布式部署：TP、PP、DP、EP各解决什么问题</a></li>
+</ul>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/15f00dc3/">https://smarter.xin/posts/15f00dc3/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/cuda/">CUDA</a><a class="post-meta__tags" href="/tags/pipeline/">Pipeline</a><a class="post-meta__tags" href="/tags/nccl/">NCCL</a><a class="post-meta__tags" href="/tags/nvlink/">NVLink</a><a class="post-meta__tags" href="/tags/multi-gpu/">多GPU</a></div><div class="post-share"><div class="social-share" data-image="/img/Nvidia_CUDA_Logo.jpg" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related full-width no-desc" href="/posts/47afb486/" title="CUDA系统拆解-17-vLLM、TensorRT-LLM 与 Continuous Batching：CUDA 为什么最终连到推理系统"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">CUDA系统拆解-17-vLLM、TensorRT-LLM 与 Continuous Batching：CUDA 为什么最终连到推理系统</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/b599e19f/" title="CUDA-Practice：15 从 Parameter Server 到 Ring AllReduce——多卡通信与全归约"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-12</div><div class="info-item-2">CUDA-Practice：15 从 Parameter Server 到 Ring AllReduce——多卡通信与全归约</div></div></div></a><a class="pagination-related no-desc" href="/posts/68e6bad5/" title="GPU系统拆解-13-多 GPU 与通信：并行策略、拓扑与扩展代价"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nvidia.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-04-05</div><div class="info-item-2">GPU系统拆解-13-多 GPU 与通信：并行策略、拓扑与扩展代价</div></div></div></a><a class="pagination-related no-desc" href="/posts/b1c0c6a3/" title="CUDA-Practice：08 多流、图执行与扩展开发——掩盖传输与发射开销"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-12</div><div class="info-item-2">CUDA-Practice：08 多流、图执行与扩展开发——掩盖传输与发射开销</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">我就是要爬这座山<br>再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">207</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">307</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">29</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#cuda-xi-tong-chai-jie-18-nccl-duo-gpu-yu-tong-xin-yin-cang-gui-mo-kuo-zhan-zen-yao-bu-bei-tong-xin-tuo-kua"><span class="toc-text">CUDA系统拆解-18-NCCL、多GPU与通信隐藏：规模扩展怎么不被通信拖垮</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#1-zhe-pian-jie-jue-shi-yao-wen-ti"><span class="toc-text">1. 这篇解决什么问题</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-xian-ji-zhu-de-he-xin-jie-lun"><span class="toc-text">2. 先记住的核心结论</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#3-zheng-wen-jiang-jie"><span class="toc-text">3. 正文讲解</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#3-1-duo-gpu-de-ben-zhi-mao-dun-shi-shi-yao"><span class="toc-text">3.1 多 GPU 的本质矛盾是什么</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-2-nccl-dao-di-shi-shi-yao"><span class="toc-text">3.2 NCCL 到底是什么</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-3-shi-yao-shi-collective-communication"><span class="toc-text">3.3 什么是 collective communication</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-4-wei-shi-yao-all-reduce-zhe-yao-zhong-yao"><span class="toc-text">3.4 为什么 AllReduce 这么重要</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-5-wei-shi-yao-ring-zhe-yao-chang-jian"><span class="toc-text">3.5 为什么 ring 这么常见</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-6-wei-shi-yao-tuo-bu-gan-zhi-fei-chang-guan-jian"><span class="toc-text">3.6 为什么拓扑感知非常关键</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-7-overlap-pipeline-tong-xin-yin-cang-shi-shi-yao-yi-si"><span class="toc-text">3.7 overlap、pipeline、通信隐藏是什么意思</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-8-pipeline-bubble-shi-shi-yao"><span class="toc-text">3.8 pipeline bubble 是什么</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-9-wei-shi-yao-duo-gpu-chang-chang-bu-xian-xing-jia-su"><span class="toc-text">3.9 为什么多 GPU 常常不线性加速</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-10-he-bing-xing-ce-lue-de-guan-xi"><span class="toc-text">3.10 和并行策略的关系</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#4-he-ai-tui-li-de-guan-xi"><span class="toc-text">4. 和 AI 推理的关系</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#5-chang-jian-wu-qu"><span class="toc-text">5. 常见误区</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#6-fu-xi-zi-ce"><span class="toc-text">6. 复习自测</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xi-lie-dao-hang"><span class="toc-text">系列导航</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/15f00dc3/" title="CUDA系统拆解-18-NCCL、多GPU与通信隐藏：规模扩展怎么不被通信拖垮"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA系统拆解-18-NCCL、多GPU与通信隐藏：规模扩展怎么不被通信拖垮"/></a><div class="content"><a class="title" href="/posts/15f00dc3/" title="CUDA系统拆解-18-NCCL、多GPU与通信隐藏：规模扩展怎么不被通信拖垮">CUDA系统拆解-18-NCCL、多GPU与通信隐藏：规模扩展怎么不被通信拖垮</a><time datetime="2026-04-06T09:00:00.000Z" title="发表于 2026-04-06 17:00:00">2026-04-06</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/47afb486/" title="CUDA系统拆解-17-vLLM、TensorRT-LLM 与 Continuous Batching：CUDA 为什么最终连到推理系统"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA系统拆解-17-vLLM、TensorRT-LLM 与 Continuous Batching：CUDA 为什么最终连到推理系统"/></a><div class="content"><a class="title" href="/posts/47afb486/" title="CUDA系统拆解-17-vLLM、TensorRT-LLM 与 Continuous Batching：CUDA 为什么最终连到推理系统">CUDA系统拆解-17-vLLM、TensorRT-LLM 与 Continuous Batching：CUDA 为什么最终连到推理系统</a><time datetime="2026-04-06T08:30:00.000Z" title="发表于 2026-04-06 16:30:00">2026-04-06</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/7061c0d7/" title="CUDA系统拆解-16-CUTLASS、Triton、cuBLAS 与 FlashAttention：高性能实现都在做什么"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA系统拆解-16-CUTLASS、Triton、cuBLAS 与 FlashAttention：高性能实现都在做什么"/></a><div class="content"><a class="title" href="/posts/7061c0d7/" title="CUDA系统拆解-16-CUTLASS、Triton、cuBLAS 与 FlashAttention：高性能实现都在做什么">CUDA系统拆解-16-CUTLASS、Triton、cuBLAS 与 FlashAttention：高性能实现都在做什么</a><time datetime="2026-04-06T08:00:00.000Z" title="发表于 2026-04-06 16:00:00">2026-04-06</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/attentionisallyouneed.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">从 Self-Attention、位置编码到 Encoder-Decoder，系统梳理 Transformer 的核心结构、设计动机与理解路径</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/d6fa227a/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-16</span><a class="blog-slider__title" href="posts/d6fa227a/" alt="">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</a><div class="blog-slider__text">从访存优化到多卡通信，一篇看清 CUDA 实践系列的结构与学习路线</div><a class="blog-slider__button" href="posts/d6fa227a/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/43c4b52e/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/agent.webp" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-24</span><a class="blog-slider__title" href="posts/43c4b52e/" alt="">从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路</a><div class="blog-slider__text">使用飞书与本地 Agent 对话，远程也要让本地 Agent 干活，当一名狠狠的资本家</div><a class="blog-slider__button" href="posts/43c4b52e/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/92dc1028/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/CUDA_C.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-02-05</span><a class="blog-slider__title" href="posts/92dc1028/" alt="">CUDA C编程权威指南-导读</a><div class="blog-slider__text">从异构并行到多 GPU 实践，串起 CUDA C 权威指南的核心学习路线</div><a class="blog-slider__button" href="posts/92dc1028/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">从全书视角出发，一篇看清 PMPP 的章节结构、核心主题与学习主线</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/aac6e27d/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Computer_System.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/aac6e27d/" alt="">深入理解计算机系统知识点总结</a><div class="blog-slider__text">从程序员视角梳理 CSAPP 的知识脉络、系统抽象与性能理解</div><a class="blog-slider__button" href="posts/aac6e27d/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">围绕类型推导、移动语义与并发，提炼现代 C++ 的核心实践</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>

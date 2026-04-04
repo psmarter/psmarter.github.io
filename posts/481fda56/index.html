@@ -1,0 +1,553 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>CUDA系统拆解-09-Streams、异步拷贝与Overlap：如何把拷贝和计算叠起来 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="CUDA系统拆解-09-Streams、异步拷贝与Overlap：如何把拷贝和计算叠起来  本文是「CUDA系统拆解」系列第 09 篇。 系列导读：CUDA系统拆解-00-导读：从编程模型到 AI 推理系统的学习路线 上一篇：CUDA系统拆解-08-Occupancy、寄存器压力与Launch参数：调优不是把占用率拉满 下一篇：CUDA系统拆解-10-Profiling、调试与瓶颈定位：先找到根因">
+<meta property="og:type" content="article">
+<meta property="og:title" content="CUDA系统拆解-09-Streams、异步拷贝与Overlap：如何把拷贝和计算叠起来">
+<meta property="og:url" content="https://smarter.xin/posts/481fda56/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="CUDA系统拆解-09-Streams、异步拷贝与Overlap：如何把拷贝和计算叠起来  本文是「CUDA系统拆解」系列第 09 篇。 系列导读：CUDA系统拆解-00-导读：从编程模型到 AI 推理系统的学习路线 上一篇：CUDA系统拆解-08-Occupancy、寄存器压力与Launch参数：调优不是把占用率拉满 下一篇：CUDA系统拆解-10-Profiling、调试与瓶颈定位：先找到根因">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/Nvidia_CUDA_Logo.jpg">
+<meta property="article:published_time" content="2026-04-06T04:30:00.000Z">
+<meta property="article:modified_time" content="2026-04-04T19:11:49.729Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="CUDA">
+<meta property="article:tag" content="性能优化">
+<meta property="article:tag" content="Multi-Stream">
+<meta property="article:tag" content="Async Copy">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/Nvidia_CUDA_Logo.jpg"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "CUDA系统拆解-09-Streams、异步拷贝与Overlap：如何把拷贝和计算叠起来",
+  "url": "https://smarter.xin/posts/481fda56/",
+  "image": "https://smarter.xin/img/Nvidia_CUDA_Logo.jpg",
+  "datePublished": "2026-04-06T04:30:00.000Z",
+  "dateModified": "2026-04-04T19:11:49.729Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/481fda56/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'CUDA系统拆解-09-Streams、异步拷贝与Overlap：如何把拷贝和计算叠起来',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">207</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">307</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">29</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/Nvidia_CUDA_Logo.jpg);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">CUDA系统拆解-09-Streams、异步拷贝与Overlap：如何把拷贝和计算叠起来</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">CUDA系统拆解-09-Streams、异步拷贝与Overlap：如何把拷贝和计算叠起来</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-04-06T04:30:00.000Z" title="发表于 2026-04-06 12:30:00">2026-04-06</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-04-04T19:11:49.729Z" title="更新于 2026-04-05 03:11:49">2026-04-05</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/">AI Infra</a><i class="fas fa-angle-right post-meta-separator"></i><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/cuda/">CUDA</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">2.4k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>7分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="cuda-xi-tong-chai-jie-09-streams-yi-bu-kao-bei-yu-overlap-ru-he-ba-kao-bei-he-ji-suan-die-qi-lai" tabindex="-1">CUDA系统拆解-09-Streams、异步拷贝与Overlap：如何把拷贝和计算叠起来</h1>
+<blockquote>
+<p>本文是「CUDA系统拆解」系列第 09 篇。<br>
+系列导读：<a href="/posts/d134963b/">CUDA系统拆解-00-导读：从编程模型到 AI 推理系统的学习路线</a><br>
+上一篇：<a href="/posts/cae09a20/">CUDA系统拆解-08-Occupancy、寄存器压力与Launch参数：调优不是把占用率拉满</a><br>
+下一篇：<a href="/posts/55daa93f/">CUDA系统拆解-10-Profiling、调试与瓶颈定位：先找到根因再谈优化</a></p>
+</blockquote>
+<h2 id="1-zhe-pian-jie-jue-shi-yao-wen-ti" tabindex="-1" id="1-这篇解决什么问题">1. 这篇解决什么问题</h2>
+<p>这一篇要讲清 5 件事：</p>
+<ul>
+<li>为什么 CUDA 程序不能只盯着“一个 kernel 算得快不快”，还要关心整条执行流水。</li>
+<li><code>stream</code> 到底是什么，它和“主机端异步返回”是什么关系。</li>
+<li>为什么“主机端看起来异步”不等于“设备端真的并发执行”。</li>
+<li><code>pinned memory</code> 为什么会影响异步拷贝和计算重叠。</li>
+<li><code>overlap</code> 到底在什么条件下才成立，以及它为什么在小 batch 和 <code>decode</code> 场景更重要。</li>
+</ul>
+<p>如果这篇只记住一句话，那就是：</p>
+<p><strong>异步执行的目标不是把 API 写成异步，而是把拷贝、launch 和计算组织成真正能重叠的设备端流水。</strong></p>
+<h2 id="2-xian-ji-zhu-de-he-xin-jie-lun" tabindex="-1" id="2-先记住的核心结论">2. 先记住的核心结论</h2>
+<ul>
+<li><code>stream</code> 可以理解成设备端的一条有序执行队列；同一个 stream 内通常按提交顺序执行，不同 stream 才有机会并发。</li>
+<li>主机端函数“提前返回”只说明 CPU 没被阻塞，不说明 GPU 上的拷贝和 kernel 一定并发。</li>
+<li>默认 <code>stream</code> 往往带来更强的顺序语义，如果所有操作都丢进默认 stream，就很难形成真正的 overlap。</li>
+<li><code>pinned memory</code> 是页锁定内存。它更适合做高效 DMA 拷贝，也是很多异步 H2D / D2H 和重叠执行成立的前提。</li>
+<li><code>overlap</code> 通常需要同时满足：不同 stream、异步 API、合适的硬件能力、合适的内存类型，以及没有额外同步把流水打断。</li>
+<li>在大算子很重的场景里，launch 和流水组织问题可能被算力掩盖；在小 batch、短序列、<code>decode</code> 这类场景里，它们会更容易暴露出来。</li>
+</ul>
+<h2 id="3-zheng-wen-jiang-jie" tabindex="-1" id="3-正文讲解">3. 正文讲解</h2>
+<h3 id="3-1-wei-shi-yao-xu-yao-yi-bu-zhi-xing" tabindex="-1" id="3-1-为什么需要异步执行">3.1 为什么需要异步执行</h3>
+<p>最朴素的 CUDA 执行方式是：</p>
+<ol>
+<li>把数据从主机拷到设备</li>
+<li>launch 一个 kernel</li>
+<li>等它跑完</li>
+<li>再把结果拷回主机</li>
+</ol>
+<p>这种方式逻辑简单，但资源利用率通常不高。原因是：</p>
+<ul>
+<li>CPU 在很多时刻只是等待</li>
+<li>PCIe / NVLink 拷贝和 GPU 计算没有尽量重叠</li>
+<li>多个小任务之间容易出现空洞</li>
+</ul>
+<p>所以异步执行的目标不是“代码看起来高级一点”，而是尽量把：</p>
+<ul>
+<li>主机准备下一批工作</li>
+<li>H2D / D2H 拷贝</li>
+<li>kernel 执行</li>
+</ul>
+<p>组织成一条连续流水，减少设备空转和主机等待。</p>
+<h3 id="3-2-stream-dao-di-shi-shi-yao" tabindex="-1" id="3-2-stream-到底是什么">3.2 stream 到底是什么</h3>
+<p>理解 <code>stream</code> 时，最稳的口径是：</p>
+<p><strong>stream 是设备端的一条有序工作队列。</strong></p>
+<p>你往一个 stream 里提交的操作，例如：</p>
+<ul>
+<li>H2D 拷贝</li>
+<li>kernel launch</li>
+<li>D2H 拷贝</li>
+</ul>
+<p>通常会按顺序排队。于是：</p>
+<ul>
+<li>同一个 stream 更强调顺序性</li>
+<li>不同 stream 才有机会被设备调度成并发</li>
+</ul>
+<p>这里要特别区分两件事：</p>
+<ul>
+<li>主机端 API 是否阻塞</li>
+<li>设备端任务是否并发</li>
+</ul>
+<p>例如，一个异步 API 可能很快就返回给 CPU，但 GPU 端仍然只是把任务排进某条 stream，最后是否并发，还要看设备端队列关系和资源条件。</p>
+<h3 id="3-3-mo-ren-stream-he-pu-tong-stream-de-qu-bie" tabindex="-1" id="3-3-默认-stream-和普通-stream-的区别">3.3 默认 stream 和普通 stream 的区别</h3>
+<p>很多初学者以为“用了异步 API 就天然并发”，问题常常出在默认 <code>stream</code> 上。</p>
+<p>默认 <code>stream</code> 的直觉可以理解成：它常常带着更强的顺序语义。<br>
+如果所有拷贝和 kernel 都放在同一条默认 stream 里，那么即使主机端调用是异步的，设备端通常也还是顺序推进。</p>
+<p>所以判断有没有 overlap，不能只看代码里有没有：</p>
+<ul>
+<li><code>cudaMemcpyAsync</code></li>
+<li>异步 launch</li>
+</ul>
+<p>还要看：</p>
+<ul>
+<li>是否真的分到了不同 stream</li>
+<li>中间是否插入了同步</li>
+<li>默认 stream 语义是否把事情重新串行化了</li>
+</ul>
+<h3 id="3-4-wei-shi-yao-zhu-ji-yi-bu-bu-deng-yu-she-bei-duan-bing-fa" tabindex="-1" id="3-4-为什么主机异步不等于设备端并发">3.4 为什么主机异步不等于设备端并发</h3>
+<p>这是这一篇最容易踩坑的地方。</p>
+<p>“主机异步”只说明：</p>
+<ul>
+<li>CPU 提交任务后不用原地等</li>
+<li>CPU 可以继续做别的事</li>
+</ul>
+<p>但设备端是否并发，还要继续问：</p>
+<ul>
+<li>这些任务是否在不同 stream</li>
+<li>GPU 是否有 copy engine 和计算资源可同时工作</li>
+<li>数据拷贝是否真的是异步可执行的</li>
+<li>是否有 <code>cudaDeviceSynchronize</code>、事件等待、默认 stream 依赖把队列卡住</li>
+</ul>
+<p>所以更准确的说法是：</p>
+<p><strong>异步是主机视角的接口行为，并发是设备视角的执行结果。两者相关，但不等价。</strong></p>
+<h3 id="3-5-pinned-memory-wei-shi-yao-zhong-yao" tabindex="-1" id="3-5-pinned-memory-为什么重要">3.5 pinned memory 为什么重要</h3>
+<p><code>pinned memory</code> 指的是页锁定内存，也叫 page-locked memory。它和普通 pageable host memory 的关键区别在于：</p>
+<ul>
+<li>普通主机内存可能被操作系统换页</li>
+<li><code>pinned memory</code> 不会被随意换出</li>
+<li>设备做 DMA 传输时更容易直接、高效地访问它</li>
+</ul>
+<p>这对 CUDA 有两个直接意义：</p>
+<ol>
+<li>主机到设备、设备到主机的拷贝效率通常更好</li>
+<li>很多真正想做异步拷贝和 overlap 的场景，会更依赖 <code>pinned memory</code></li>
+</ol>
+<p>可以把它理解成：<br>
+如果 host memory 本身不适合直接做高效异步搬运，那么所谓“异步拷贝”在设备端很可能达不到你预期的重叠效果。</p>
+<p>所以 <code>pinned memory</code> 的意义不只是“快一点”，而是它经常是异步数据通路能否真正成立的一块地基。</p>
+<h3 id="3-6-overlap-zai-shi-yao-tiao-jian-xia-cai-cheng-li" tabindex="-1" id="3-6-overlap-在什么条件下才成立">3.6 overlap 在什么条件下才成立</h3>
+<p>想让拷贝和计算重叠，通常要同时满足几类条件：</p>
+<ul>
+<li>使用异步 API，而不是阻塞式拷贝</li>
+<li>工作被放到合适的多个 stream，而不是全都塞进同一条队列</li>
+<li>host memory 类型合适，常见就是使用 <code>pinned memory</code></li>
+<li>GPU 具有相应的并发执行能力，例如 copy engine 与计算单元能协同</li>
+<li>没有额外同步把流水切断</li>
+</ul>
+<p>也就是说，真正的 overlap 是一条链路条件同时满足后的结果。<br>
+只满足其中一个条件，通常不够。</p>
+<p>这也是为什么很多人代码里已经写了 <code>cudaMemcpyAsync</code>，实际 profile 一看仍然几乎全串行。问题不是“异步 API 没用”，而是整条流水没有真的被搭起来。</p>
+<h3 id="3-7-overlap-de-gong-cheng-yi-yi" tabindex="-1" id="3-7-overlap-的工程意义">3.7 overlap 的工程意义</h3>
+<p><code>overlap</code> 的价值，本质上是在隐藏不能消掉的时间：</p>
+<ul>
+<li>H2D / D2H 拷贝时间</li>
+<li>kernel launch 间隙</li>
+<li>多阶段流水之间的等待</li>
+</ul>
+<p>如果一段计算本身非常重，例如一个大 GEMM 跑很久，那么这些开销有时会被淹没。<br>
+但如果任务变碎，问题就会变明显：</p>
+<ul>
+<li>batch 很小</li>
+<li>请求很多但每个都短</li>
+<li><code>decode</code> 每步计算量小</li>
+<li>一轮里要频繁 launch 多个小 kernel</li>
+</ul>
+<p>这时瓶颈可能不再只是某个 kernel 的 FLOPs，而是：</p>
+<ul>
+<li>launch overhead</li>
+<li>stream 组织</li>
+<li>拷贝和计算有没有重叠</li>
+<li>CPU 和 GPU 是否形成稳定流水</li>
+</ul>
+<p>所以在 AI 推理里，异步执行和 overlap 往往不是“高级优化项”，而是系统吞吐和尾延迟能不能做好的基础条件。</p>
+<h2 id="4-he-ai-tui-li-de-guan-xi" tabindex="-1" id="4-和-AI-推理的关系">4. 和 AI 推理的关系</h2>
+<p>这一篇和推理系统的关系非常直接。</p>
+<p>很多在线推理场景并不是“大 batch 大矩阵一路轰过去”，而是：</p>
+<ul>
+<li>动态请求持续到达</li>
+<li>batch 经常变化</li>
+<li>小 kernel 很多</li>
+<li><code>decode</code> 单步计算偏小</li>
+<li>主机端调度、数据准备和设备端执行要持续配合</li>
+</ul>
+<p>所以推理系统里常见的问题，最后都能翻译回这一篇：</p>
+<ul>
+<li>为什么小 batch 吞吐上不去</li>
+<li>为什么 GPU 利用率不稳定</li>
+<li>为什么 <code>decode</code> 阶段 launch 开销特别显眼</li>
+<li>为什么有些系统要非常重视 stream、事件、异步 H2D、pinned buffer 和流水组织</li>
+</ul>
+<p>换句话说，大模型推理不只是“kernel 快”，还要“整机流水顺”。</p>
+<h2 id="5-chang-jian-wu-qu" tabindex="-1" id="5-常见误区">5. 常见误区</h2>
+<ul>
+<li>用了异步 API，不代表 GPU 端就一定并发。</li>
+<li><code>stream</code> 不是 CPU 线程，也不是“随便分个标签”；它的本质是设备端队列关系。</li>
+<li>默认 <code>stream</code> 往往会带来更强顺序语义，容易把你以为的并发重新串起来。</li>
+<li><code>pinned memory</code> 不只是更快的 host memory，它经常决定异步拷贝和 overlap 能不能真正成立。</li>
+<li>overlap 不是单点优化，而是拷贝、队列、硬件能力和同步策略共同作用的结果。</li>
+</ul>
+<h2 id="6-fu-xi-zi-ce" tabindex="-1" id="6-复习自测">6. 复习自测</h2>
+<ul>
+<li>为什么说 <code>stream</code> 更适合理解成设备端的有序执行队列？</li>
+<li>为什么“主机端异步返回”不等于“设备端并发执行”？</li>
+<li>默认 <code>stream</code> 为什么容易让程序重新串行化？</li>
+<li><code>pinned memory</code> 对异步拷贝和 overlap 的价值到底是什么？</li>
+<li>overlap 通常需要满足哪些条件？</li>
+<li>为什么小 batch 和 <code>decode</code> 场景更容易暴露 launch overhead 和流水组织问题？</li>
+</ul>
+<hr>
+<h2 id="xi-lie-dao-hang" tabindex="-1" id="系列导航">系列导航</h2>
+<ul>
+<li>导读：<a href="/posts/d134963b/">CUDA系统拆解-00-导读：从编程模型到 AI 推理系统的学习路线</a></li>
+<li>上一篇：<a href="/posts/cae09a20/">CUDA系统拆解-08-Occupancy、寄存器压力与Launch参数：调优不是把占用率拉满</a></li>
+<li>下一篇：<a href="/posts/55daa93f/">CUDA系统拆解-10-Profiling、调试与瓶颈定位：先找到根因再谈优化</a></li>
+<li>延伸阅读：<a href="/posts/b1c0c6a3/">CUDA实践-08-多流图执行与扩展开发</a></li>
+<li>延伸阅读：<a href="/posts/82dbd045/">PyTorch推理工程-04-CUDA与显存同步</a></li>
+</ul>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/481fda56/">https://smarter.xin/posts/481fda56/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/cuda/">CUDA</a><a class="post-meta__tags" href="/tags/performance-optimization/">性能优化</a><a class="post-meta__tags" href="/tags/multi-stream/">Multi-Stream</a><a class="post-meta__tags" href="/tags/async-copy/">Async Copy</a></div><div class="post-share"><div class="social-share" data-image="/img/Nvidia_CUDA_Logo.jpg" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/55daa93f/" title="CUDA系统拆解-10-Profiling、调试与瓶颈定位：先找到根因再谈优化"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">CUDA系统拆解-10-Profiling、调试与瓶颈定位：先找到根因再谈优化</div></div></div></a><a class="pagination-related  no-desc" href="/posts/cae09a20/" title="CUDA系统拆解-08-Occupancy、寄存器压力与Launch参数：调优不是把占用率拉满"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">CUDA系统拆解-08-Occupancy、寄存器压力与Launch参数：调优不是把占用率拉满</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/d6fa227a/" title="CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-16</div><div class="info-item-2">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</div></div></div></a><a class="pagination-related no-desc" href="/posts/b1c0c6a3/" title="CUDA-Practice：08 多流、图执行与扩展开发——掩盖传输与发射开销"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-12</div><div class="info-item-2">CUDA-Practice：08 多流、图执行与扩展开发——掩盖传输与发射开销</div></div></div></a><a class="pagination-related no-desc" href="/posts/5b6f891d/" title="CUDA-Practice：10 访存优化与共享内存冲突——合并访存、Bank 冲突与异步流水线"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-12</div><div class="info-item-2">CUDA-Practice：10 访存优化与共享内存冲突——合并访存、Bank 冲突与异步流水线</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">我就是要爬这座山<br>再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">207</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">307</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">29</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#cuda-xi-tong-chai-jie-09-streams-yi-bu-kao-bei-yu-overlap-ru-he-ba-kao-bei-he-ji-suan-die-qi-lai"><span class="toc-text">CUDA系统拆解-09-Streams、异步拷贝与Overlap：如何把拷贝和计算叠起来</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#1-zhe-pian-jie-jue-shi-yao-wen-ti"><span class="toc-text">1. 这篇解决什么问题</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-xian-ji-zhu-de-he-xin-jie-lun"><span class="toc-text">2. 先记住的核心结论</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#3-zheng-wen-jiang-jie"><span class="toc-text">3. 正文讲解</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#3-1-wei-shi-yao-xu-yao-yi-bu-zhi-xing"><span class="toc-text">3.1 为什么需要异步执行</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-2-stream-dao-di-shi-shi-yao"><span class="toc-text">3.2 stream 到底是什么</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-3-mo-ren-stream-he-pu-tong-stream-de-qu-bie"><span class="toc-text">3.3 默认 stream 和普通 stream 的区别</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-4-wei-shi-yao-zhu-ji-yi-bu-bu-deng-yu-she-bei-duan-bing-fa"><span class="toc-text">3.4 为什么主机异步不等于设备端并发</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-5-pinned-memory-wei-shi-yao-zhong-yao"><span class="toc-text">3.5 pinned memory 为什么重要</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-6-overlap-zai-shi-yao-tiao-jian-xia-cai-cheng-li"><span class="toc-text">3.6 overlap 在什么条件下才成立</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-7-overlap-de-gong-cheng-yi-yi"><span class="toc-text">3.7 overlap 的工程意义</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#4-he-ai-tui-li-de-guan-xi"><span class="toc-text">4. 和 AI 推理的关系</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#5-chang-jian-wu-qu"><span class="toc-text">5. 常见误区</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#6-fu-xi-zi-ce"><span class="toc-text">6. 复习自测</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xi-lie-dao-hang"><span class="toc-text">系列导航</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/15f00dc3/" title="CUDA系统拆解-18-NCCL、多GPU与通信隐藏：规模扩展怎么不被通信拖垮"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA系统拆解-18-NCCL、多GPU与通信隐藏：规模扩展怎么不被通信拖垮"/></a><div class="content"><a class="title" href="/posts/15f00dc3/" title="CUDA系统拆解-18-NCCL、多GPU与通信隐藏：规模扩展怎么不被通信拖垮">CUDA系统拆解-18-NCCL、多GPU与通信隐藏：规模扩展怎么不被通信拖垮</a><time datetime="2026-04-06T09:00:00.000Z" title="发表于 2026-04-06 17:00:00">2026-04-06</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/47afb486/" title="CUDA系统拆解-17-vLLM、TensorRT-LLM 与 Continuous Batching：CUDA 为什么最终连到推理系统"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA系统拆解-17-vLLM、TensorRT-LLM 与 Continuous Batching：CUDA 为什么最终连到推理系统"/></a><div class="content"><a class="title" href="/posts/47afb486/" title="CUDA系统拆解-17-vLLM、TensorRT-LLM 与 Continuous Batching：CUDA 为什么最终连到推理系统">CUDA系统拆解-17-vLLM、TensorRT-LLM 与 Continuous Batching：CUDA 为什么最终连到推理系统</a><time datetime="2026-04-06T08:30:00.000Z" title="发表于 2026-04-06 16:30:00">2026-04-06</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/7061c0d7/" title="CUDA系统拆解-16-CUTLASS、Triton、cuBLAS 与 FlashAttention：高性能实现都在做什么"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA系统拆解-16-CUTLASS、Triton、cuBLAS 与 FlashAttention：高性能实现都在做什么"/></a><div class="content"><a class="title" href="/posts/7061c0d7/" title="CUDA系统拆解-16-CUTLASS、Triton、cuBLAS 与 FlashAttention：高性能实现都在做什么">CUDA系统拆解-16-CUTLASS、Triton、cuBLAS 与 FlashAttention：高性能实现都在做什么</a><time datetime="2026-04-06T08:00:00.000Z" title="发表于 2026-04-06 16:00:00">2026-04-06</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/attentionisallyouneed.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">从 Self-Attention、位置编码到 Encoder-Decoder，系统梳理 Transformer 的核心结构、设计动机与理解路径</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/d6fa227a/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-16</span><a class="blog-slider__title" href="posts/d6fa227a/" alt="">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</a><div class="blog-slider__text">从访存优化到多卡通信，一篇看清 CUDA 实践系列的结构与学习路线</div><a class="blog-slider__button" href="posts/d6fa227a/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/43c4b52e/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/agent.webp" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-24</span><a class="blog-slider__title" href="posts/43c4b52e/" alt="">从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路</a><div class="blog-slider__text">使用飞书与本地 Agent 对话，远程也要让本地 Agent 干活，当一名狠狠的资本家</div><a class="blog-slider__button" href="posts/43c4b52e/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/92dc1028/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/CUDA_C.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-02-05</span><a class="blog-slider__title" href="posts/92dc1028/" alt="">CUDA C编程权威指南-导读</a><div class="blog-slider__text">从异构并行到多 GPU 实践，串起 CUDA C 权威指南的核心学习路线</div><a class="blog-slider__button" href="posts/92dc1028/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">从全书视角出发，一篇看清 PMPP 的章节结构、核心主题与学习主线</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/aac6e27d/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Computer_System.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/aac6e27d/" alt="">深入理解计算机系统知识点总结</a><div class="blog-slider__text">从程序员视角梳理 CSAPP 的知识脉络、系统抽象与性能理解</div><a class="blog-slider__button" href="posts/aac6e27d/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">围绕类型推导、移动语义与并发，提炼现代 C++ 的核心实践</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>

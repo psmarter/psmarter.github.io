@@ -1,0 +1,706 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>CUDA系统拆解-12-面试总复盘：怎么把 CUDA 能力连接到 AI 推理 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="CUDA系统拆解-12-面试总复盘：怎么把 CUDA 能力连接到 AI 推理  本文是「CUDA系统拆解」系列第 12 篇。 系列导读：CUDA系统拆解-00-导读：从编程模型到 AI 推理系统的学习路线 上一篇：CUDA系统拆解-11-经典CUDA算子模式：elementwise、reduction、reorder 与 blocked compute 下一篇：CUDA系统拆解-13-面试强化专题">
+<meta property="og:type" content="article">
+<meta property="og:title" content="CUDA系统拆解-12-面试总复盘：怎么把 CUDA 能力连接到 AI 推理">
+<meta property="og:url" content="https://smarter.xin/posts/18814acd/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="CUDA系统拆解-12-面试总复盘：怎么把 CUDA 能力连接到 AI 推理  本文是「CUDA系统拆解」系列第 12 篇。 系列导读：CUDA系统拆解-00-导读：从编程模型到 AI 推理系统的学习路线 上一篇：CUDA系统拆解-11-经典CUDA算子模式：elementwise、reduction、reorder 与 blocked compute 下一篇：CUDA系统拆解-13-面试强化专题">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/Nvidia_CUDA_Logo.jpg">
+<meta property="article:published_time" content="2026-04-06T06:00:00.000Z">
+<meta property="article:modified_time" content="2026-04-04T19:11:49.729Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="AI Infrastructure">
+<meta property="article:tag" content="大模型推理">
+<meta property="article:tag" content="CUDA">
+<meta property="article:tag" content="面试">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/Nvidia_CUDA_Logo.jpg"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "CUDA系统拆解-12-面试总复盘：怎么把 CUDA 能力连接到 AI 推理",
+  "url": "https://smarter.xin/posts/18814acd/",
+  "image": "https://smarter.xin/img/Nvidia_CUDA_Logo.jpg",
+  "datePublished": "2026-04-06T06:00:00.000Z",
+  "dateModified": "2026-04-04T19:11:49.729Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/18814acd/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'CUDA系统拆解-12-面试总复盘：怎么把 CUDA 能力连接到 AI 推理',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">207</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">307</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">29</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/Nvidia_CUDA_Logo.jpg);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">CUDA系统拆解-12-面试总复盘：怎么把 CUDA 能力连接到 AI 推理</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">CUDA系统拆解-12-面试总复盘：怎么把 CUDA 能力连接到 AI 推理</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-04-06T06:00:00.000Z" title="发表于 2026-04-06 14:00:00">2026-04-06</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-04-04T19:11:49.729Z" title="更新于 2026-04-05 03:11:49">2026-04-05</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/">AI Infra</a><i class="fas fa-angle-right post-meta-separator"></i><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/cuda/">CUDA</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">3.4k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>10分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="cuda-xi-tong-chai-jie-12-mian-shi-zong-fu-pan-zen-yao-ba-cuda-neng-li-lian-jie-dao-ai-tui-li" tabindex="-1">CUDA系统拆解-12-面试总复盘：怎么把 CUDA 能力连接到 AI 推理</h1>
+<blockquote>
+<p>本文是「CUDA系统拆解」系列第 12 篇。<br>
+系列导读：<a href="/posts/d134963b/">CUDA系统拆解-00-导读：从编程模型到 AI 推理系统的学习路线</a><br>
+上一篇：<a href="/posts/c824c712/">CUDA系统拆解-11-经典CUDA算子模式：elementwise、reduction、reorder 与 blocked compute</a><br>
+下一篇：<a href="/posts/939f5917/">CUDA系统拆解-13-面试强化专题：PTX、Tensor Core、CUTLASS 与 Triton 怎么讲</a></p>
+</blockquote>
+<h2 id="1-zhe-pian-jie-jue-shi-yao-wen-ti" tabindex="-1" id="1-这篇解决什么问题">1. 这篇解决什么问题</h2>
+<ul>
+<li>学到这里，你到底应该具备哪些能力。</li>
+<li>为什么 AI 推理岗位会反复问 CUDA。</li>
+<li>怎样把前面学过的内容整理成 <code>算子层 / 执行层 / 系统层</code> 三层框架。</li>
+<li>看到一个慢算子、一个 kernel、一个框架设计时，怎样把它还原成 CUDA 问题。</li>
+<li>面试里怎样把 <code>occupancy</code>、<code>coalescing</code>、<code>fusion</code>、<code>graph</code>、<code>batching</code> 讲成一套完整的系统理解。</li>
+</ul>
+<h2 id="2-xian-ji-zhu-de-he-xin-jie-lun" tabindex="-1" id="2-先记住的核心结论">2. 先记住的核心结论</h2>
+<ul>
+<li>AI 推理优化的本质，不只是“算得快”，而是“算和搬，以及调度和资源管理一起做好”。</li>
+<li>CUDA 在推理岗位里重要，不是因为大家都要求你手写复杂 kernel，而是因为大量系统问题最后都能还原成 CUDA 的代价模型。</li>
+<li>一套成熟的理解框架可以分成三层：<code>算子层</code>、<code>执行层</code>、<code>系统层</code>。</li>
+<li>看到慢算子时，要能还原成：线程怎么分工、数据怎么流动、同步和 launch 开销在哪里、GPU 为什么没吃满。</li>
+<li>面试真正想听的不是 API 名字，而是你能不能说清楚：为什么这样设计、快在哪里、代价在哪里、边界在哪里。</li>
+<li>高水平回答一定带 trade-off，而不是只有结论。</li>
+</ul>
+<h2 id="3-zheng-wen-jiang-jie" tabindex="-1" id="3-正文讲解">3. 正文讲解</h2>
+<h3 id="3-1-xue-dao-zhe-li-ying-gai-ju-bei-na-xie-neng-li" tabindex="-1" id="3-1-学到这里应该具备哪些能力">3.1 学到这里应该具备哪些能力</h3>
+<p>如果前面 11 篇你真的吃进去了，现在应该不只是“知道一些 CUDA 名词”，而是至少具备下面几种能力。</p>
+<p>第一，看到一个 kernel，能快速判断它在干什么。</p>
+<p>也就是能回答：</p>
+<ul>
+<li>一个线程负责什么</li>
+<li>一个 block 为什么这样切</li>
+<li>它更像 <code>elementwise</code>、<code>reduction</code>、<code>reorder</code> 还是 <code>blocked compute</code></li>
+<li>主要瓶颈更像带宽、同步、算力还是 launch</li>
+</ul>
+<p>第二，看到一个慢算子，能大致猜到问题可能在哪。</p>
+<p>例如：</p>
+<ul>
+<li>reduction 慢，可能是同步和局部合并路径不好</li>
+<li>transpose 慢，可能是访存模式和 <code>bank conflict</code></li>
+<li>GEMM 慢，可能是 tile、复用或资源平衡不好</li>
+<li>decode 慢，可能是 kernel 太碎、launch 太重、memory latency 太明显</li>
+</ul>
+<p>第三，看到一个推理框架设计，能把它拆成底层代价问题。</p>
+<p>例如：</p>
+<ul>
+<li>continuous batching 在解决 GPU 吃不满</li>
+<li>fusion 在减少 global memory traffic 和 launch overhead</li>
+<li>paged attention 在做 KV cache 的内存组织和复用管理</li>
+<li>CUDA Graph 在减少 CPU 反复 launch 的开销</li>
+</ul>
+<p>如果你已经能做到这三点，说明你学到的不是“概念列表”，而是分析框架。</p>
+<h3 id="3-2-wei-shi-yao-ai-tui-li-gang-wei-hui-wen-cuda" tabindex="-1" id="3-2-为什么-AI-推理岗位会问-CUDA">3.2 为什么 AI 推理岗位会问 CUDA</h3>
+<p>很多人会误以为：</p>
+<blockquote>
+<p>我做的是推理系统，不是专职内核工程，为什么还要学 CUDA？</p>
+</blockquote>
+<p>原因很简单：推理系统的大量核心问题，最后都能落到 CUDA。</p>
+<p>推理系统关心的通常是：</p>
+<ul>
+<li>更低延迟</li>
+<li>更高吞吐</li>
+<li>更高 GPU 利用率</li>
+<li>更低显存占用</li>
+<li>更稳定的多请求并发</li>
+</ul>
+<p>而这些目标背后，本质上都对应一些 CUDA 问题：</p>
+<ul>
+<li>延迟为什么高：kernel 慢、launch 太碎、同步太多、调度有空泡</li>
+<li>吞吐为什么上不去：GPU 没吃满、batch 不规整、copy / compute 没 overlap</li>
+<li>显存为什么吃紧：activation、workspace、KV cache 和 allocator 策略</li>
+<li>GPU 利用率为什么不高：occupancy、stream 编排、request 调度、kernel 粒度</li>
+</ul>
+<p>所以面试官问 CUDA，不是在确认你会不会 <code>cudaMalloc</code>，而是在确认：</p>
+<blockquote>
+<p>你能不能把推理系统问题还原成底层执行和资源问题。</p>
+</blockquote>
+<h3 id="3-3-yi-tao-cheng-shou-de-san-ceng-kuang-jia" tabindex="-1" id="3-3-一套成熟的三层框架">3.3 一套成熟的三层框架</h3>
+<p>我建议把前面的 CUDA 知识收束成三层。</p>
+<p><code>算子层</code></p>
+<ul>
+<li>关注单个算子怎么实现、为什么快、为什么慢</li>
+<li>关键词通常是：线程映射、访存模式、shared memory、reduction、tiling、fusion</li>
+</ul>
+<p>典型问题：</p>
+<ul>
+<li>GEMM 为什么适合 tile 化</li>
+<li>softmax 为什么是 reduction + elementwise</li>
+<li>LayerNorm 为什么常常 <code>memory-bound</code></li>
+<li>attention 为什么经常受 KV cache 访问和中间数据流影响</li>
+</ul>
+<p><code>执行层</code></p>
+<ul>
+<li>关注多个 kernel 和数据传输怎样组织</li>
+<li>关键词通常是：stream、异步拷贝、pinned memory、overlap、launch overhead、CUDA Graph</li>
+</ul>
+<p>典型问题：</p>
+<ul>
+<li>为什么默认 stream 会把流水拉直</li>
+<li>为什么 decode 场景更容易暴露 launch 开销</li>
+<li>为什么 graph capture 对稳定重复路径有价值</li>
+</ul>
+<p><code>系统层</code></p>
+<ul>
+<li>关注请求调度、显存管理、并发策略、多 GPU 协作</li>
+<li>关键词通常是：continuous batching、KV cache、paged attention、memory pool、通信重叠</li>
+</ul>
+<p>典型问题：</p>
+<ul>
+<li>为什么 continuous batching 能提高吞吐</li>
+<li>为什么 KV cache 是推理系统里的核心状态</li>
+<li>为什么 paged attention 的关键是管理灵活性和访问代价之间的平衡</li>
+</ul>
+<p>这三层最大的价值在于：</p>
+<blockquote>
+<p>你可以把系统层问题一路拆到执行层，再拆到算子层。</p>
+</blockquote>
+<h3 id="3-4-suan-zi-ceng-kan-dao-man-suan-zi-shi-ru-he-huan-yuan-cheng-cuda-wen-ti" tabindex="-1" id="3-4-算子层：看到慢算子时如何还原成-CUDA-问题">3.4 算子层：看到慢算子时如何还原成 CUDA 问题</h3>
+<p>算子层的核心不是公式，而是代价模型。</p>
+<p>以后看到一个算子，先问：</p>
+<ul>
+<li>它是 <code>elementwise</code>、<code>reduction</code>、<code>reorder</code> 还是 <code>blocked compute</code></li>
+<li>它更像 <code>memory-bound</code> 还是 <code>compute-bound</code></li>
+<li>中间结果主要留在寄存器、<code>shared memory</code> 还是频繁回写 <code>global memory</code></li>
+</ul>
+<p>几个最典型的推理映射：</p>
+<p>Linear / MLP</p>
+<ul>
+<li>核心是 GEMM</li>
+<li>真正关键的是 tile、复用、shared memory、寄存器和 tensor core 路径</li>
+</ul>
+<p>softmax / LayerNorm / RMSNorm</p>
+<ul>
+<li>本质是 reduction + elementwise</li>
+<li>常见问题是中间结果回写多、同步多、launch 太碎</li>
+</ul>
+<p>attention</p>
+<ul>
+<li>本质是 GEMM-like 计算、reduction、reorder 和内存管理的组合</li>
+<li>真正难点常在数据流和 KV cache 访问，而不只是公式</li>
+</ul>
+<p>所以当面试官问你一个算子为什么慢时，不要只说“复杂度高”，而要说：</p>
+<ul>
+<li>它在哪一层受限</li>
+<li>是算得慢还是搬得慢</li>
+<li>是复用不够还是 launch 太碎</li>
+</ul>
+<h3 id="3-5-zhi-xing-ceng-wei-shi-yao-hen-duo-wen-ti-bu-shi-kernel-ben-shen-man" tabindex="-1" id="3-5-执行层：为什么很多问题不是-kernel-本身慢">3.5 执行层：为什么很多问题不是 kernel 本身慢</h3>
+<p>到了执行层，你要建立一个很重要的意识：</p>
+<blockquote>
+<p>很多推理性能问题，不是单个 kernel 本身差，而是整条执行流水组织得差。</p>
+</blockquote>
+<p>几个最典型的执行层因素：</p>
+<p>stream</p>
+<ul>
+<li>本质是设备端的有序任务队列</li>
+<li>它决定哪些工作必须排队，哪些工作有潜在并发机会</li>
+</ul>
+<p>异步拷贝和 pinned memory</p>
+<ul>
+<li>不是为了 API 好看</li>
+<li>而是为了让 H2D / D2H 与计算更容易 overlap</li>
+</ul>
+<p>launch overhead</p>
+<ul>
+<li>在 prefill 这种大算子场景里往往不明显</li>
+<li>在 decode、小 batch、小 kernel 场景里会被迅速放大</li>
+</ul>
+<p>CUDA Graph</p>
+<ul>
+<li>本质是在减少 CPU 反复提交稳定路径的成本</li>
+<li>适合稳定重复的执行图，不适合无限动态的一切场景</li>
+</ul>
+<p>所以执行层最核心的提问方式是：</p>
+<ul>
+<li>GPU 是慢在算，还是慢在等</li>
+<li>时间花在 compute、copy、sync，还是 host 调度</li>
+<li>overlap 到底成立了没有</li>
+</ul>
+<h3 id="3-6-xi-tong-ceng-wei-shi-yao-tui-li-xi-tong-she-ji-ben-zhi-shang-shi-zi-yuan-guan-li" tabindex="-1" id="3-6-系统层：为什么推理系统设计本质上是资源管理">3.6 系统层：为什么推理系统设计本质上是资源管理</h3>
+<p>到了系统层，很多话题表面看已经不像 CUDA，但底层逻辑还是一样。</p>
+<p>最典型的是 KV cache。</p>
+<p>KV cache 的本质是：</p>
+<ul>
+<li>用显存换计算</li>
+<li>让 decode 不必重复算历史 token</li>
+</ul>
+<p>但这立刻会引出系统级问题：</p>
+<ul>
+<li>显存怎么管</li>
+<li>请求进进出出时怎么避免碎片</li>
+<li>长上下文下怎么让访问仍可接受</li>
+</ul>
+<p>paged attention 的重要性也在这里。<br>
+它真正解决的不是“分页”这个词，而是：</p>
+<blockquote>
+<p>在动态请求和长上下文场景下，让 KV cache 更可管理、更可复用、更可扩展。</p>
+</blockquote>
+<p>再比如 continuous batching。</p>
+<p>它表面上是调度策略，底层本质却是：</p>
+<ul>
+<li>让 batch 不至于过稀</li>
+<li>让 GPU 一直有比较规整的活可做</li>
+<li>缓解 decode 阶段小步长、小并行度带来的资源浪费</li>
+</ul>
+<p>所以系统层真正关心的是：</p>
+<ul>
+<li>工作怎么持续喂给 GPU</li>
+<li>显存和缓存怎么被长期管理</li>
+<li>通信、计算、copy、调度如何重叠</li>
+</ul>
+<h3 id="3-7-zen-yang-ba-code-occupancy-code-code-coalescing-code-code-fusion-code-code-graph-code-code-batching-code-lian-dao-tui-li-xi-tong" tabindex="-1" id="3-7-怎样把-occupancy、coalescing、fusion、graph、batching-连到推理系统">3.7 怎样把 <code>occupancy</code>、<code>coalescing</code>、<code>fusion</code>、<code>graph</code>、<code>batching</code> 连到推理系统</h3>
+<p>这一段是面试里最容易形成完整表达的地方。</p>
+<p><code>occupancy</code></p>
+<ul>
+<li>不是性能分数</li>
+<li>在推理里它更像“延迟隐藏能力”的一个窗口</li>
+<li>decode、小 batch、小 kernel 时更容易显得不够</li>
+</ul>
+<p><code>coalescing</code></p>
+<ul>
+<li>不只是访存概念</li>
+<li>它会直接影响 KV cache 访问、layout transform、attention 读取效率</li>
+</ul>
+<p><code>fusion</code></p>
+<ul>
+<li>不只是减少 kernel 数量</li>
+<li>更重要的是减少中间结果写回 <code>global memory</code> 的次数</li>
+<li>在 LayerNorm、softmax、bias、activation 一类链式算子里尤其关键</li>
+</ul>
+<p><code>graph</code></p>
+<ul>
+<li>不只是“优化 launch”</li>
+<li>它在推理里真正有价值的场景是重复、稳定、可 capture 的路径</li>
+</ul>
+<p><code>batching</code></p>
+<ul>
+<li>不只是把请求凑一起</li>
+<li>本质是在系统层维持更好的 GPU 利用率和执行规整性</li>
+</ul>
+<p>如果把它们串起来，你就会发现：</p>
+<blockquote>
+<p>推理优化本质上是在同时管理并行度、访存效率、执行流水和系统动态性。</p>
+</blockquote>
+<p>这就是面试里最值得讲出来的“整体观”。</p>
+<h3 id="3-8-mian-shi-hui-da-wei-shi-yao-bu-neng-ting-liu-zai-api-ceng" tabindex="-1" id="3-8-面试回答为什么不能停留在-API-层">3.8 面试回答为什么不能停留在 API 层</h3>
+<p>很多人的回答最大的问题是：</p>
+<ul>
+<li>会报术语</li>
+<li>会背定义</li>
+<li>但没有代价模型</li>
+</ul>
+<p>例如别人问：</p>
+<ul>
+<li>为什么 fusion 能快</li>
+<li>为什么 decode 难优化</li>
+<li>为什么 paged attention 重要</li>
+</ul>
+<p>如果你只回答：</p>
+<ul>
+<li>“因为减少 kernel 数量”</li>
+<li>“因为 decode 更复杂”</li>
+<li>“因为 paged attention 更适合长序列”</li>
+</ul>
+<p>这种回答信息密度太低。</p>
+<p>更好的回答必须包含三件事：</p>
+<p>第一，它在解决什么问题。</p>
+<p>第二，底层为什么会快或更稳。</p>
+<p>第三，它的代价和边界是什么。</p>
+<p>这就是为什么我一直强调：</p>
+<blockquote>
+<p>面试回答重点应是代价模型和系统理解，而不是背 API。</p>
+</blockquote>
+<h3 id="3-9-yi-ge-tong-yong-de-hui-da-mo-ban" tabindex="-1" id="3-9-一个通用的回答模板">3.9 一个通用的回答模板</h3>
+<p>以后你遇到任何 CUDA × 推理问题，都可以用下面这个模板组织：</p>
+<p>第一步：先说它在解决什么问题。</p>
+<p>例如：</p>
+<ul>
+<li>fusion 在解决中间结果频繁回写和 kernel 过碎</li>
+<li>continuous batching 在解决动态请求下 GPU 吃不满</li>
+<li>paged attention 在解决 KV cache 管理和碎片</li>
+</ul>
+<p>第二步：再说底层为什么有效。</p>
+<p>例如：</p>
+<ul>
+<li>减少 global memory traffic</li>
+<li>提高数据复用</li>
+<li>减少 launch overhead</li>
+<li>让 overlap 更容易成立</li>
+</ul>
+<p>第三步：说收益。</p>
+<ul>
+<li>更高吞吐</li>
+<li>更低延迟</li>
+<li>更稳的 GPU 利用率</li>
+<li>更低显存压力</li>
+</ul>
+<p>第四步：说代价或边界。</p>
+<ul>
+<li>寄存器压力上升</li>
+<li>动态 shape 更难做</li>
+<li>实现复杂度更高</li>
+<li>管理更复杂</li>
+</ul>
+<p>这套模板非常适合面试，因为它天然带工程感。</p>
+<h2 id="4-he-ai-tui-li-de-guan-xi" tabindex="-1" id="4-和-AI-推理的关系">4. 和 AI 推理的关系</h2>
+<p>这一篇本身就是在把 CUDA 和 AI 推理直接连起来。</p>
+<p>如果只用一句话概括：</p>
+<blockquote>
+<p>AI 推理中的很多高性能设计，表面上是在做系统、算子和调度，底层本质上都可以还原为 CUDA 的三个核心问题：线程如何组织、数据如何流动、延迟如何隐藏。</p>
+</blockquote>
+<p>更具体一点：</p>
+<ul>
+<li>prefill 更像大算子吞吐问题</li>
+<li>decode 更像小步长、强动态、memory latency 和调度问题</li>
+<li>attention 是最好的桥梁，因为它同时包含 GEMM、reduction、重排、KV cache 和系统调度代价</li>
+<li>高水平推理优化，本质上是跨越算子层、执行层、系统层一起做 trade-off</li>
+</ul>
+<h2 id="5-chang-jian-wu-qu" tabindex="-1" id="5-常见误区">5. 常见误区</h2>
+<ul>
+<li>推理岗位不需要学 CUDA。不是，很多系统问题最后都能还原成 CUDA 代价模型。</li>
+<li>学 CUDA 就是为了手写复杂 kernel。不是，更重要的是能读懂底层代价和系统边界。</li>
+<li>面试只要会讲几个 API。不是，真正想听的是“为什么这样设计”。</li>
+<li>fusion、graph、batching 是系统技巧，和 CUDA 没关系。不是，它们本质上都在管理执行和数据流。</li>
+<li>occupancy 高、GPU 利用率高，就说明系统没问题。不是，QPS、首 token 延迟和 steady-state token latency 还取决于很多执行层和系统层因素。</li>
+<li>paged attention 只是一个框架名词。不是，它背后是典型的显存管理与访问代价权衡。</li>
+</ul>
+<h2 id="6-fu-xi-zi-ce" tabindex="-1" id="6-复习自测">6. 复习自测</h2>
+<ul>
+<li>学到这里，你应该具备哪些能力？</li>
+<li>为什么 AI 推理岗位会反复问 CUDA？</li>
+<li>怎样用 <code>算子层 / 执行层 / 系统层</code> 三层框架去理解推理系统？</li>
+<li>看到一个慢算子时，怎样把它还原成 CUDA 问题？</li>
+<li>怎样把 <code>occupancy</code>、<code>coalescing</code>、<code>fusion</code>、<code>graph</code>、<code>batching</code> 连成一套系统理解？</li>
+<li>为什么面试回答重点应该是代价模型和 trade-off，而不是背定义？</li>
+<li>prefill 和 decode 的瓶颈差异应该怎样讲？</li>
+<li>为什么说很多推理创新，本质上都是更懂 GPU 代价模型？</li>
+</ul>
+<hr>
+<h2 id="xi-lie-dao-hang" tabindex="-1" id="系列导航">系列导航</h2>
+<ul>
+<li>导读：<a href="/posts/d134963b/">CUDA系统拆解-00-导读：从编程模型到 AI 推理系统的学习路线</a></li>
+<li>上一篇：<a href="/posts/c824c712/">CUDA系统拆解-11-经典CUDA算子模式：elementwise、reduction、reorder 与 blocked compute</a></li>
+<li>下一篇：<a href="/posts/939f5917/">CUDA系统拆解-13-面试强化专题：PTX、Tensor Core、CUTLASS 与 Triton 怎么讲</a></li>
+<li>延伸阅读：<a href="/posts/821fc7ff/">GPU系统拆解-10-面试表达与系统思维：怎么把 GPU 理解讲成工程判断</a></li>
+<li>延伸阅读：<a href="/posts/c3e99548/">vLLM系统拆解-11-面试题精讲：从概念到系统设计如何讲清楚为什么</a></li>
+</ul>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/18814acd/">https://smarter.xin/posts/18814acd/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/ai-infrastructure/">AI Infrastructure</a><a class="post-meta__tags" href="/tags/llm-inference/">大模型推理</a><a class="post-meta__tags" href="/tags/cuda/">CUDA</a><a class="post-meta__tags" href="/tags/interview/">面试</a></div><div class="post-share"><div class="social-share" data-image="/img/Nvidia_CUDA_Logo.jpg" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/939f5917/" title="CUDA系统拆解-13-面试强化专题：PTX、Tensor Core、CUTLASS 与 Triton 怎么讲"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">CUDA系统拆解-13-面试强化专题：PTX、Tensor Core、CUTLASS 与 Triton 怎么讲</div></div></div></a><a class="pagination-related  no-desc" href="/posts/c824c712/" title="CUDA系统拆解-11-经典CUDA算子模式：elementwise、reduction、reorder 与 blocked compute"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">CUDA系统拆解-11-经典CUDA算子模式：elementwise、reduction、reorder 与 blocked compute</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/b21cbc80/" title="AI Infra学习之旅-第一个vLLM程序"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/AI-Infra.png" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2025-12-31</div><div class="info-item-2">AI Infra学习之旅-第一个vLLM程序</div></div></div></a><a class="pagination-related no-desc" href="/posts/d134963b/" title="CUDA系统拆解-00-导读：从编程模型到 AI 推理系统的学习路线"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-04-06</div><div class="info-item-2">CUDA系统拆解-00-导读：从编程模型到 AI 推理系统的学习路线</div></div></div></a><a class="pagination-related no-desc" href="/posts/cf7051aa/" title="CUDA系统拆解-01-CUDA为什么存在：从计算负载到编程模型"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-04-06</div><div class="info-item-2">CUDA系统拆解-01-CUDA为什么存在：从计算负载到编程模型</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">我就是要爬这座山<br>再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">207</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">307</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">29</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#cuda-xi-tong-chai-jie-12-mian-shi-zong-fu-pan-zen-yao-ba-cuda-neng-li-lian-jie-dao-ai-tui-li"><span class="toc-text">CUDA系统拆解-12-面试总复盘：怎么把 CUDA 能力连接到 AI 推理</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#1-zhe-pian-jie-jue-shi-yao-wen-ti"><span class="toc-text">1. 这篇解决什么问题</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-xian-ji-zhu-de-he-xin-jie-lun"><span class="toc-text">2. 先记住的核心结论</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#3-zheng-wen-jiang-jie"><span class="toc-text">3. 正文讲解</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#3-1-xue-dao-zhe-li-ying-gai-ju-bei-na-xie-neng-li"><span class="toc-text">3.1 学到这里应该具备哪些能力</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-2-wei-shi-yao-ai-tui-li-gang-wei-hui-wen-cuda"><span class="toc-text">3.2 为什么 AI 推理岗位会问 CUDA</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-3-yi-tao-cheng-shou-de-san-ceng-kuang-jia"><span class="toc-text">3.3 一套成熟的三层框架</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-4-suan-zi-ceng-kan-dao-man-suan-zi-shi-ru-he-huan-yuan-cheng-cuda-wen-ti"><span class="toc-text">3.4 算子层：看到慢算子时如何还原成 CUDA 问题</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-5-zhi-xing-ceng-wei-shi-yao-hen-duo-wen-ti-bu-shi-kernel-ben-shen-man"><span class="toc-text">3.5 执行层：为什么很多问题不是 kernel 本身慢</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-6-xi-tong-ceng-wei-shi-yao-tui-li-xi-tong-she-ji-ben-zhi-shang-shi-zi-yuan-guan-li"><span class="toc-text">3.6 系统层：为什么推理系统设计本质上是资源管理</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-7-zen-yang-ba-code-occupancy-code-code-coalescing-code-code-fusion-code-code-graph-code-code-batching-code-lian-dao-tui-li-xi-tong"><span class="toc-text">3.7 怎样把 occupancy、coalescing、fusion、graph、batching 连到推理系统</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-8-mian-shi-hui-da-wei-shi-yao-bu-neng-ting-liu-zai-api-ceng"><span class="toc-text">3.8 面试回答为什么不能停留在 API 层</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-9-yi-ge-tong-yong-de-hui-da-mo-ban"><span class="toc-text">3.9 一个通用的回答模板</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#4-he-ai-tui-li-de-guan-xi"><span class="toc-text">4. 和 AI 推理的关系</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#5-chang-jian-wu-qu"><span class="toc-text">5. 常见误区</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#6-fu-xi-zi-ce"><span class="toc-text">6. 复习自测</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xi-lie-dao-hang"><span class="toc-text">系列导航</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/15f00dc3/" title="CUDA系统拆解-18-NCCL、多GPU与通信隐藏：规模扩展怎么不被通信拖垮"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA系统拆解-18-NCCL、多GPU与通信隐藏：规模扩展怎么不被通信拖垮"/></a><div class="content"><a class="title" href="/posts/15f00dc3/" title="CUDA系统拆解-18-NCCL、多GPU与通信隐藏：规模扩展怎么不被通信拖垮">CUDA系统拆解-18-NCCL、多GPU与通信隐藏：规模扩展怎么不被通信拖垮</a><time datetime="2026-04-06T09:00:00.000Z" title="发表于 2026-04-06 17:00:00">2026-04-06</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/47afb486/" title="CUDA系统拆解-17-vLLM、TensorRT-LLM 与 Continuous Batching：CUDA 为什么最终连到推理系统"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA系统拆解-17-vLLM、TensorRT-LLM 与 Continuous Batching：CUDA 为什么最终连到推理系统"/></a><div class="content"><a class="title" href="/posts/47afb486/" title="CUDA系统拆解-17-vLLM、TensorRT-LLM 与 Continuous Batching：CUDA 为什么最终连到推理系统">CUDA系统拆解-17-vLLM、TensorRT-LLM 与 Continuous Batching：CUDA 为什么最终连到推理系统</a><time datetime="2026-04-06T08:30:00.000Z" title="发表于 2026-04-06 16:30:00">2026-04-06</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/7061c0d7/" title="CUDA系统拆解-16-CUTLASS、Triton、cuBLAS 与 FlashAttention：高性能实现都在做什么"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA系统拆解-16-CUTLASS、Triton、cuBLAS 与 FlashAttention：高性能实现都在做什么"/></a><div class="content"><a class="title" href="/posts/7061c0d7/" title="CUDA系统拆解-16-CUTLASS、Triton、cuBLAS 与 FlashAttention：高性能实现都在做什么">CUDA系统拆解-16-CUTLASS、Triton、cuBLAS 与 FlashAttention：高性能实现都在做什么</a><time datetime="2026-04-06T08:00:00.000Z" title="发表于 2026-04-06 16:00:00">2026-04-06</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/attentionisallyouneed.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">从 Self-Attention、位置编码到 Encoder-Decoder，系统梳理 Transformer 的核心结构、设计动机与理解路径</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/d6fa227a/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-16</span><a class="blog-slider__title" href="posts/d6fa227a/" alt="">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</a><div class="blog-slider__text">从访存优化到多卡通信，一篇看清 CUDA 实践系列的结构与学习路线</div><a class="blog-slider__button" href="posts/d6fa227a/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/43c4b52e/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/agent.webp" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-24</span><a class="blog-slider__title" href="posts/43c4b52e/" alt="">从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路</a><div class="blog-slider__text">使用飞书与本地 Agent 对话，远程也要让本地 Agent 干活，当一名狠狠的资本家</div><a class="blog-slider__button" href="posts/43c4b52e/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/92dc1028/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/CUDA_C.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-02-05</span><a class="blog-slider__title" href="posts/92dc1028/" alt="">CUDA C编程权威指南-导读</a><div class="blog-slider__text">从异构并行到多 GPU 实践，串起 CUDA C 权威指南的核心学习路线</div><a class="blog-slider__button" href="posts/92dc1028/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">从全书视角出发，一篇看清 PMPP 的章节结构、核心主题与学习主线</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/aac6e27d/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Computer_System.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/aac6e27d/" alt="">深入理解计算机系统知识点总结</a><div class="blog-slider__text">从程序员视角梳理 CSAPP 的知识脉络、系统抽象与性能理解</div><a class="blog-slider__button" href="posts/aac6e27d/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">围绕类型推导、移动语义与并发，提炼现代 C++ 的核心实践</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>

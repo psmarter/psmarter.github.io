@@ -1,0 +1,729 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>CUDA系统拆解-08-Occupancy、寄存器压力与Launch参数：调优不是把占用率拉满 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="CUDA系统拆解-08-Occupancy、寄存器压力与Launch参数：调优不是把占用率拉满  本文是「CUDA系统拆解」系列第 08 篇。 系列导读：CUDA系统拆解-00-导读：从编程模型到 AI 推理系统的学习路线 上一篇：CUDA系统拆解-07-同步、原子操作与内存一致性：并发正确性怎么保证 下一篇：CUDA系统拆解-09-Streams、异步拷贝与Overlap：如何把拷贝和计算叠起来">
+<meta property="og:type" content="article">
+<meta property="og:title" content="CUDA系统拆解-08-Occupancy、寄存器压力与Launch参数：调优不是把占用率拉满">
+<meta property="og:url" content="https://smarter.xin/posts/cae09a20/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="CUDA系统拆解-08-Occupancy、寄存器压力与Launch参数：调优不是把占用率拉满  本文是「CUDA系统拆解」系列第 08 篇。 系列导读：CUDA系统拆解-00-导读：从编程模型到 AI 推理系统的学习路线 上一篇：CUDA系统拆解-07-同步、原子操作与内存一致性：并发正确性怎么保证 下一篇：CUDA系统拆解-09-Streams、异步拷贝与Overlap：如何把拷贝和计算叠起来">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/Nvidia_CUDA_Logo.jpg">
+<meta property="article:published_time" content="2026-04-06T04:00:00.000Z">
+<meta property="article:modified_time" content="2026-04-04T19:11:49.729Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="CUDA">
+<meta property="article:tag" content="性能优化">
+<meta property="article:tag" content="Occupancy">
+<meta property="article:tag" content="占用率">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/Nvidia_CUDA_Logo.jpg"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "CUDA系统拆解-08-Occupancy、寄存器压力与Launch参数：调优不是把占用率拉满",
+  "url": "https://smarter.xin/posts/cae09a20/",
+  "image": "https://smarter.xin/img/Nvidia_CUDA_Logo.jpg",
+  "datePublished": "2026-04-06T04:00:00.000Z",
+  "dateModified": "2026-04-04T19:11:49.729Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/cae09a20/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'CUDA系统拆解-08-Occupancy、寄存器压力与Launch参数：调优不是把占用率拉满',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">207</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">307</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">29</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/Nvidia_CUDA_Logo.jpg);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">CUDA系统拆解-08-Occupancy、寄存器压力与Launch参数：调优不是把占用率拉满</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">CUDA系统拆解-08-Occupancy、寄存器压力与Launch参数：调优不是把占用率拉满</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-04-06T04:00:00.000Z" title="发表于 2026-04-06 12:00:00">2026-04-06</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-04-04T19:11:49.729Z" title="更新于 2026-04-05 03:11:49">2026-04-05</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/">AI Infra</a><i class="fas fa-angle-right post-meta-separator"></i><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/cuda/">CUDA</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">3.4k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>10分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="cuda-xi-tong-chai-jie-08-occupancy-ji-cun-qi-ya-li-yu-launch-can-shu-diao-you-bu-shi-ba-zhan-yong-lu-la-man" tabindex="-1">CUDA系统拆解-08-Occupancy、寄存器压力与Launch参数：调优不是把占用率拉满</h1>
+<blockquote>
+<p>本文是「CUDA系统拆解」系列第 08 篇。<br>
+系列导读：<a href="/posts/d134963b/">CUDA系统拆解-00-导读：从编程模型到 AI 推理系统的学习路线</a><br>
+上一篇：<a href="/posts/416851d9/">CUDA系统拆解-07-同步、原子操作与内存一致性：并发正确性怎么保证</a><br>
+下一篇：<a href="/posts/481fda56/">CUDA系统拆解-09-Streams、异步拷贝与Overlap：如何把拷贝和计算叠起来</a></p>
+</blockquote>
+<h2 id="1-zhe-pian-jie-jue-shi-yao-wen-ti" tabindex="-1" id="1-这篇解决什么问题">1. 这篇解决什么问题</h2>
+<ul>
+<li><code>occupancy</code> 到底是什么，它为什么重要。</li>
+<li>为什么 <code>occupancy</code> 高不等于最终性能高。</li>
+<li>一个 SM 上到底是被哪些资源限制住的。</li>
+<li><code>block size</code> 为什么会影响并发度、调度粒度和资源切分方式。</li>
+<li>什么是 <code>register pressure</code>，为什么会引出 <code>spilling</code>。</li>
+<li>Launch 参数调优为什么本质上是在平衡多个约束，而不是套固定公式。</li>
+</ul>
+<h2 id="2-xian-ji-zhu-de-he-xin-jie-lun" tabindex="-1" id="2-先记住的核心结论">2. 先记住的核心结论</h2>
+<ul>
+<li><code>occupancy</code> 指的是一个 SM 上活跃 warp 数相对于该 SM 最大可支持活跃 warp 数的比例。</li>
+<li><code>occupancy</code> 的意义主要是帮助隐藏延迟，而不是直接代表性能。</li>
+<li>限制 <code>occupancy</code> 的常见资源包括：线程数、warp 数、block 数、寄存器总量、<code>shared memory</code> 总量。</li>
+<li><code>block size</code> 不只是线程数设置，它还决定了资源分配粒度、warp 数量和调度灵活性。</li>
+<li><code>register pressure</code> 高会压低并发，严重时会触发 <code>spilling</code>，让本该在寄存器里的数据掉到更慢的路径。</li>
+<li>Launch 调优的本质是平衡：更多活跃 warp，还是更强的数据复用与单线程效率。</li>
+</ul>
+<h2 id="3-zheng-wen-jiang-jie" tabindex="-1" id="3-正文讲解">3. 正文讲解</h2>
+<h3 id="3-1-xian-ba-he-xin-wen-ti-shuo-tou-yi-ge-sm-shang-dao-di-neng-gua-duo-shao-huo" tabindex="-1" id="3-1-先把核心问题说透：一个-SM-上到底能挂多少活">3.1 先把核心问题说透：一个 SM 上到底能挂多少活</h3>
+<p>到了这一篇，你应该把关注点从“线程怎么写”转到“资源怎么被占满”。</p>
+<p>同一个 kernel launch 之后：</p>
+<ul>
+<li>thread 组成 block</li>
+<li>block 被分配到 SM</li>
+<li>block 再拆成多个 warp</li>
+</ul>
+<p>所以这一篇真正要回答的问题是：</p>
+<blockquote>
+<p>一个 SM 上，在同一时刻到底能同时驻留多少 block、多少 warp、多少 thread？</p>
+</blockquote>
+<p>这个问题之所以重要，是因为它直接影响两件事：</p>
+<ul>
+<li>有没有足够多的 warp 可以轮换执行，用来隐藏延迟</li>
+<li>每个线程和每个 block 是否还能拿到足够多的寄存器、<code>shared memory</code> 和局部工作空间</li>
+</ul>
+<p><code>occupancy</code> 就是在描述这个大背景。</p>
+<h3 id="3-2-code-occupancy-code-de-han-yi-he-ju-xian" tabindex="-1" id="3-2-occupancy-的含义和局限">3.2 <code>occupancy</code> 的含义和局限</h3>
+<p>最直白的定义是：</p>
+<blockquote>
+<p><code>occupancy = 活跃 warps 数 / SM 最大可支持 warps 数</code></p>
+</blockquote>
+<p>它本质上反映的是：</p>
+<ul>
+<li>一个 SM 上当前有多少 warp 处于可调度状态</li>
+<li>GPU 有没有足够多的候选 warp 去隐藏等待</li>
+</ul>
+<p>为什么这件事有意义？<br>
+因为 GPU 的强项不是把单线程做到极致快，而是：</p>
+<ul>
+<li>某个 warp 在等 global memory</li>
+<li>调度器马上切去跑另一个 ready warp</li>
+<li>用足够多的活跃 warp 覆盖掉等待时间</li>
+</ul>
+<p>所以 <code>occupancy</code> 重要，是因为它和延迟隐藏能力直接相关。</p>
+<p>但一定要立刻记住：</p>
+<blockquote>
+<p><code>occupancy</code> 不是性能分数。</p>
+</blockquote>
+<p>它的局限在于：</p>
+<ul>
+<li><code>occupancy</code> 高，不代表访存就一定高效</li>
+<li><code>occupancy</code> 高，不代表寄存器复用就一定好</li>
+<li><code>occupancy</code> 高，不代表指令吞吐、tensor core 利用率、数据复用就一定更强</li>
+</ul>
+<p>所以更准确地说：</p>
+<blockquote>
+<p><code>occupancy</code> 是“隐藏延迟的能力指标”，不是“最终性能指标”。</p>
+</blockquote>
+<h3 id="3-3-wei-shi-yao-code-occupancy-code-tai-di-tong-chang-bu-xing-dan-gao-ye-bu-yi-ding-geng-kuai" tabindex="-1" id="3-3-为什么-occupancy-太低通常不行，但高也不一定更快">3.3 为什么 <code>occupancy</code> 太低通常不行，但高也不一定更快</h3>
+<p>如果 <code>occupancy</code> 很低，常见问题是：</p>
+<ul>
+<li>某些 warp 一旦 stall</li>
+<li>SM 上没有足够多的其他 warp 可以补位</li>
+<li>管线更容易空转</li>
+</ul>
+<p>这时提高 <code>occupancy</code> 往往有帮助。</p>
+<p>但为什么它不是越高越好？<br>
+因为提高 <code>occupancy</code> 往往不是免费的。你通常要付出某些代价，例如：</p>
+<ul>
+<li>减少每线程寄存器</li>
+<li>减少 <code>shared memory</code> 缓冲</li>
+<li>让 tile 变小</li>
+<li>降低数据复用</li>
+<li>降低单线程或单 block 的工作效率</li>
+</ul>
+<p>于是就会出现一种典型情况：</p>
+<ul>
+<li><code>occupancy</code> 提高了</li>
+<li>但每个线程“变瘦了”</li>
+<li>访存更多了，复用更差了</li>
+<li>总性能反而下降</li>
+</ul>
+<p>所以成熟的判断不是“能不能把 occupancy 拉满”，而是：</p>
+<blockquote>
+<p>现在的瓶颈到底是活跃 warp 不够，还是别的资源已经更关键。</p>
+</blockquote>
+<h3 id="3-4-sm-zi-yuan-ru-he-xian-zhi-bing-fa" tabindex="-1" id="3-4-SM-资源如何限制并发">3.4 SM 资源如何限制并发</h3>
+<p>一个 SM 上能同时驻留多少 block / warp，不是你想开多少就能开多少，而是受多种资源共同限制。</p>
+<p>最常见的限制项包括：</p>
+<ul>
+<li>每个 SM 支持的最大线程数</li>
+<li>每个 SM 支持的最大 warp 数</li>
+<li>每个 SM 支持的最大 block 数</li>
+<li>每个 SM 的寄存器总量</li>
+<li>每个 SM 的 <code>shared memory</code> 总量</li>
+</ul>
+<p>这意味着：</p>
+<ul>
+<li>即使线程上限还没满，只要寄存器不够，新 block 也上不去</li>
+<li>即使寄存器还有剩余，只要 <code>shared memory</code> 不够，也挂不下更多 block</li>
+<li>即使资源看似都还有一点，只要 block slot 用完，也会被卡住</li>
+</ul>
+<p>所以你可以把可驻留 block 数理解成一个“多重门槛共同取最小值”的结果。</p>
+<h3 id="3-5-code-block-size-code-wei-shi-yao-ying-xiang-zi-yuan-li-yong-he-diao-du-li-du" tabindex="-1" id="3-5-block-size-为什么影响资源利用和调度粒度">3.5 <code>block size</code> 为什么影响资源利用和调度粒度</h3>
+<p>很多人把 <code>block size</code> 理解成“每个 block 开多少线程”。这当然没错，但太浅了。</p>
+<p>它更深一层的作用是：</p>
+<ul>
+<li>决定每个 block 有多少 warp</li>
+<li>决定资源按多大粒度被切分给 block</li>
+<li>决定一个 block 自己吃掉多少寄存器和 <code>shared memory</code></li>
+</ul>
+<p>比如：</p>
+<ul>
+<li><code>block size = 128</code>，意味着一个 block 有 4 个 warp</li>
+<li><code>block size = 256</code>，意味着一个 block 有 8 个 warp</li>
+</ul>
+<p>这不只是线程翻倍，而是：</p>
+<ul>
+<li>block 的寄存器需求可能翻倍</li>
+<li>block 的调度粒度变大</li>
+<li>一个 SM 上可同时驻留的 block 数可能下降</li>
+</ul>
+<p>所以 <code>block size</code> 调优本质上是在权衡：</p>
+<ul>
+<li>并行度</li>
+<li>资源切分粒度</li>
+<li>block 内协作需求</li>
+<li>调度灵活性</li>
+</ul>
+<p>这也是为什么 <code>block size</code> 不是越大越好，也不是越小越好。</p>
+<h3 id="3-6-shi-yao-shi-code-register-pressure-code" tabindex="-1" id="3-6-什么是-register-pressure">3.6 什么是 <code>register pressure</code></h3>
+<p>寄存器是按线程分配的。<br>
+如果一个 kernel 每线程需要很多寄存器，那么：</p>
+<ul>
+<li>单线程局部计算可能更舒服</li>
+<li>但整个 block 的寄存器消耗会很高</li>
+<li>一个 SM 上能并行驻留的线程和 block 就会减少</li>
+</ul>
+<p>这就是 <code>register pressure</code>。</p>
+<p>它的本质可以理解成：</p>
+<blockquote>
+<p>这个 kernel 对寄存器的需求太高，已经开始明显挤压并发资源。</p>
+</blockquote>
+<p>常见来源包括：</p>
+<ul>
+<li>临时变量很多</li>
+<li>live range 很长</li>
+<li>展开过多</li>
+<li>fusion 后中间值变多</li>
+<li>一个线程承担了过多局部状态</li>
+</ul>
+<p>所以寄存器不是越多越好。<br>
+它和 <code>occupancy</code> 常常天然冲突。</p>
+<h3 id="3-7-shi-yao-shi-code-spilling-code-ta-wei-shi-yao-hui-shang-xing-neng" tabindex="-1" id="3-7-什么是-spilling，它为什么会伤性能">3.7 什么是 <code>spilling</code>，它为什么会伤性能</h3>
+<p>当寄存器压力继续升高，超过编译器或硬件能高效承受的范围时，就会发生 <code>spilling</code>。</p>
+<p>也就是：</p>
+<ul>
+<li>本来想放在寄存器里的数据</li>
+<li>被迫溢出到更慢的内存路径</li>
+</ul>
+<p>这时问题就变成了双重打击：</p>
+<ul>
+<li>并发下降，因为寄存器压力高</li>
+<li>单线程也变慢，因为部分数据已经不在寄存器里了</li>
+</ul>
+<p>所以 <code>spilling</code> 的后果通常很明显：</p>
+<ul>
+<li>更多访问开销</li>
+<li>更差的延迟隐藏</li>
+<li>更差的整体吞吐</li>
+</ul>
+<p>这也是为什么很多“看起来没什么问题”的 kernel，只是因为寄存器数暴涨，就会突然慢很多。</p>
+<h3 id="3-8-code-shared-memory-code-wei-shi-yao-ye-hui-ya-di-code-occupancy-code" tabindex="-1" id="3-8-shared-memory-为什么也会压低-occupancy">3.8 <code>shared memory</code> 为什么也会压低 <code>occupancy</code></h3>
+<p>前面你已经学过，<code>shared memory</code> 能带来：</p>
+<ul>
+<li>数据复用</li>
+<li>访存重排</li>
+<li>block 内协作</li>
+</ul>
+<p>但它也是按 block 分配的。<br>
+这意味着一个 block 用得越多，一个 SM 上能同时挂的 block 数通常就越少。</p>
+<p>所以 <code>shared memory</code> 的好处和代价永远是一起出现的：</p>
+<p>好处：</p>
+<ul>
+<li>更少的 global memory 访问</li>
+<li>更高的数据复用</li>
+<li>更规则的数据流</li>
+</ul>
+<p>代价：</p>
+<ul>
+<li>可能降低并发 block 数</li>
+<li>降低 <code>occupancy</code></li>
+<li>增加同步和管理开销</li>
+</ul>
+<p>这再次说明：</p>
+<blockquote>
+<p>所有优化本质上都是 trade-off，不存在白拿的性能。</p>
+</blockquote>
+<h3 id="3-9-launch-can-shu-diao-you-de-ping-heng-luo-ji" tabindex="-1" id="3-9-Launch-参数调优的平衡逻辑">3.9 Launch 参数调优的平衡逻辑</h3>
+<p>现在把前面几件事收束起来。</p>
+<p>你调 launch 参数时，真正做的不是“找一个固定最优数字”，而是在平衡下面这些约束：</p>
+<ul>
+<li>是否有足够多的活跃 warp 去隐藏延迟</li>
+<li>每线程寄存器够不够</li>
+<li>block 的 <code>shared memory</code> 开销大不大</li>
+<li>block 内协作是否需要更大粒度</li>
+<li>tile 大小是否还能维持足够数据复用</li>
+<li>问题规模是否足够大，能否填满设备</li>
+</ul>
+<p>所以 launch 调优的成熟理解应该是：</p>
+<blockquote>
+<p>不是单独追求更高 occupancy，而是在并发能力、数据复用、同步结构和资源消耗之间找到平衡点。</p>
+</blockquote>
+<h3 id="3-10-block-size-dao-di-zen-yao-xuan" tabindex="-1" id="3-10-block-size-到底怎么选">3.10 block size 到底怎么选</h3>
+<p>没有万能答案，但有一套很实用的起点。</p>
+<p>通常先从 warp 的整数倍开始试，比如：</p>
+<ul>
+<li><code>64</code></li>
+<li><code>128</code></li>
+<li><code>256</code></li>
+<li><code>512</code></li>
+</ul>
+<p>为什么这样做？</p>
+<ul>
+<li>避免大量不完整 warp</li>
+<li>更贴近硬件调度粒度</li>
+<li>更容易得到合理的初始 <code>occupancy</code></li>
+</ul>
+<p>很多普通 kernel，默认会从 <code>128</code> 或 <code>256</code> 作为 baseline 开始。<br>
+但如果 kernel：</p>
+<ul>
+<li><code>shared memory</code> 很重</li>
+<li>寄存器很多</li>
+<li>需要复杂 block 内协作</li>
+<li>tile 很大</li>
+</ul>
+<p>那 block size 往往要更保守。</p>
+<p>所以真正的判断方式永远是：</p>
+<ul>
+<li>先拿一个合理 baseline</li>
+<li>再用 profiler 看资源使用和瓶颈</li>
+<li>再决定是该追更多并发，还是保更强复用</li>
+</ul>
+<h3 id="3-11-wei-shi-yao-gao-xing-neng-kernel-wang-wang-bu-zhui-zui-gao-code-occupancy-code" tabindex="-1" id="3-11-为什么高性能-kernel-往往不追最高-occupancy">3.11 为什么高性能 kernel 往往不追最高 <code>occupancy</code></h3>
+<p>这点在 GEMM、attention、fused kernel 里特别常见。</p>
+<p>这类 kernel 通常会刻意使用：</p>
+<ul>
+<li>更多寄存器</li>
+<li>更多 <code>shared memory</code></li>
+<li>更复杂的 tile</li>
+<li>更重的 pipeline</li>
+</ul>
+<p>原因是它们追求的不是“挂更多线程”，而是：</p>
+<blockquote>
+<p>让每个 block、每个 warp 干得更值。</p>
+</blockquote>
+<p>这时即使 <code>occupancy</code> 不是最高，性能也可能非常好，因为：</p>
+<ul>
+<li>数据复用更强</li>
+<li>global memory 流量更少</li>
+<li>单个 warp 的有效工作量更大</li>
+</ul>
+<p>所以以后看到高性能 kernel 的 <code>occupancy</code> 没到 100%，不要本能地认为它有问题。先看瓶颈是不是本来就不在这里。</p>
+<h3 id="3-12-yi-ge-shi-yong-de-diao-you-liu-cheng" tabindex="-1" id="3-12-一个实用的调优流程">3.12 一个实用的调优流程</h3>
+<p>这篇最实用的部分，是把调优思路固定下来。</p>
+<p>第一步，先拿 baseline：</p>
+<ul>
+<li>当前 block size</li>
+<li><code>registers / thread</code></li>
+<li><code>shared memory / block</code></li>
+<li>理论和实际 <code>occupancy</code></li>
+<li>kernel 时间</li>
+</ul>
+<p>第二步，判断瓶颈：</p>
+<ul>
+<li>如果明显是带宽瓶颈，不要只盯着 <code>occupancy</code></li>
+<li>如果 stall 很重且活跃 warp 不够，再重点看并发问题</li>
+</ul>
+<p>第三步，扫几个 block size：</p>
+<ul>
+<li><code>64</code></li>
+<li><code>128</code></li>
+<li><code>256</code></li>
+<li><code>512</code></li>
+</ul>
+<p>观察：</p>
+<ul>
+<li>时间怎么变</li>
+<li><code>occupancy</code> 怎么变</li>
+<li>寄存器和 <code>shared memory</code> 开销怎么变</li>
+</ul>
+<p>第四步，看寄存器压力和 spilling：</p>
+<ul>
+<li>是否临时变量太多</li>
+<li>是否 live range 太长</li>
+<li>是否某些展开或 fusion 把寄存器压爆了</li>
+</ul>
+<p>第五步，再看 <code>shared memory</code> 是否值得：</p>
+<ul>
+<li>它换来了多少复用</li>
+<li>降低了多少 global memory traffic</li>
+<li>是否值得为此付出更低并发</li>
+</ul>
+<p>这套流程比“拍脑袋改 256”稳得多。</p>
+<h2 id="4-he-ai-tui-li-de-guan-xi" tabindex="-1" id="4-和-AI-推理的关系">4. 和 AI 推理的关系</h2>
+<p>这篇和 AI 推理的关系非常强，因为推理 kernel 经常在“更高并发”和“更强复用”之间拉扯。</p>
+<p>几个典型场景：</p>
+<ul>
+<li>fused kernel：常减少 global memory traffic，但也会显著增加寄存器压力</li>
+<li>GEMM / attention：经常依赖更大的 tile、更多 <code>shared memory</code> 和寄存器片段，不一定追求最高 <code>occupancy</code></li>
+<li>decode 小 batch 场景：工作量本来就偏小，更容易出现设备填不满的问题</li>
+<li>FlashAttention 一类 IO-aware 实现：经常是在主动接受某些资源压力，以换取更好的数据流</li>
+</ul>
+<p>所以推理优化里常见的真实问题不是：</p>
+<ul>
+<li>“怎样把 occupancy 拉到最高”</li>
+</ul>
+<p>而是：</p>
+<ul>
+<li>现在更缺的是活跃 warp，还是更缺数据复用</li>
+<li>fusion 带来的寄存器成本是否值得</li>
+<li>当前 kernel 更像 <code>memory-bound</code> 还是 <code>compute-bound</code></li>
+</ul>
+<h2 id="5-chang-jian-wu-qu" tabindex="-1" id="5-常见误区">5. 常见误区</h2>
+<ul>
+<li><code>occupancy</code> 越高越好。不是，它只是延迟隐藏能力指标。</li>
+<li>看到 <code>occupancy</code> 低就一定要降寄存器。不是，可能会破坏复用和单线程效率。</li>
+<li><code>block size</code> 固定写 <code>256</code> 就够了。不是，不同 kernel 的最优配置可能完全不同。</li>
+<li>只要线程数很多就一定快。不是，还要看寄存器、<code>shared memory</code>、访存和同步结构。</li>
+<li><code>spilling</code> 只是编译器小问题。不是，它经常直接带来明显性能损失。</li>
+<li>launch 调优就是试几个数字。不是，真正要调的是整个资源平衡结构。</li>
+</ul>
+<h2 id="6-fu-xi-zi-ce" tabindex="-1" id="6-复习自测">6. 复习自测</h2>
+<ul>
+<li><code>occupancy</code> 的定义是什么，它为什么重要？</li>
+<li>为什么 <code>occupancy</code> 不等于最终性能？</li>
+<li>哪些资源会限制一个 SM 上的并发？</li>
+<li><code>block size</code> 为什么会影响资源利用和调度粒度？</li>
+<li>什么是 <code>register pressure</code>，它为什么会压低性能？</li>
+<li><code>spilling</code> 到底意味着什么，为什么会伤性能？</li>
+<li>为什么很多高性能 GEMM / attention kernel 不追求最高 <code>occupancy</code>？</li>
+<li>Launch 参数调优为什么本质上是在平衡多个约束？</li>
+</ul>
+<hr>
+<h2 id="xi-lie-dao-hang" tabindex="-1" id="系列导航">系列导航</h2>
+<ul>
+<li>导读：<a href="/posts/d134963b/">CUDA系统拆解-00-导读：从编程模型到 AI 推理系统的学习路线</a></li>
+<li>上一篇：<a href="/posts/416851d9/">CUDA系统拆解-07-同步、原子操作与内存一致性：并发正确性怎么保证</a></li>
+<li>下一篇：<a href="/posts/481fda56/">CUDA系统拆解-09-Streams、异步拷贝与Overlap：如何把拷贝和计算叠起来</a></li>
+<li>延伸阅读：<a href="/posts/edff4eb0/">GPU系统拆解-09-Profiling 与性能定位：先找到瓶颈，再谈优化</a></li>
+<li>延伸阅读：<a href="/posts/803b94d6/">CUDA实践-13-性能分析屋顶线与占用率</a></li>
+</ul>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/cae09a20/">https://smarter.xin/posts/cae09a20/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/cuda/">CUDA</a><a class="post-meta__tags" href="/tags/performance-optimization/">性能优化</a><a class="post-meta__tags" href="/tags/occupancy-en/">Occupancy</a><a class="post-meta__tags" href="/tags/occupancy/">占用率</a></div><div class="post-share"><div class="social-share" data-image="/img/Nvidia_CUDA_Logo.jpg" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/481fda56/" title="CUDA系统拆解-09-Streams、异步拷贝与Overlap：如何把拷贝和计算叠起来"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">CUDA系统拆解-09-Streams、异步拷贝与Overlap：如何把拷贝和计算叠起来</div></div></div></a><a class="pagination-related  no-desc" href="/posts/416851d9/" title="CUDA系统拆解-07-同步、原子操作与内存一致性：并发正确性怎么保证"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">CUDA系统拆解-07-同步、原子操作与内存一致性：并发正确性怎么保证</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/d6fa227a/" title="CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-16</div><div class="info-item-2">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</div></div></div></a><a class="pagination-related no-desc" href="/posts/803b94d6/" title="CUDA-Practice：13 从 Roofline 到 Nsight——性能天花板与占用率辨虚实"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-11</div><div class="info-item-2">CUDA-Practice：13 从 Roofline 到 Nsight——性能天花板与占用率辨虚实</div></div></div></a><a class="pagination-related no-desc" href="/posts/82dbd045/" title="PyTorch推理工程：04 CUDA、设备迁移、显存与同步"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/pytorch.avif" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-03-29</div><div class="info-item-2">PyTorch推理工程：04 CUDA、设备迁移、显存与同步</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">我就是要爬这座山<br>再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">207</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">307</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">29</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#cuda-xi-tong-chai-jie-08-occupancy-ji-cun-qi-ya-li-yu-launch-can-shu-diao-you-bu-shi-ba-zhan-yong-lu-la-man"><span class="toc-text">CUDA系统拆解-08-Occupancy、寄存器压力与Launch参数：调优不是把占用率拉满</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#1-zhe-pian-jie-jue-shi-yao-wen-ti"><span class="toc-text">1. 这篇解决什么问题</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-xian-ji-zhu-de-he-xin-jie-lun"><span class="toc-text">2. 先记住的核心结论</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#3-zheng-wen-jiang-jie"><span class="toc-text">3. 正文讲解</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#3-1-xian-ba-he-xin-wen-ti-shuo-tou-yi-ge-sm-shang-dao-di-neng-gua-duo-shao-huo"><span class="toc-text">3.1 先把核心问题说透：一个 SM 上到底能挂多少活</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-2-code-occupancy-code-de-han-yi-he-ju-xian"><span class="toc-text">3.2 occupancy 的含义和局限</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-3-wei-shi-yao-code-occupancy-code-tai-di-tong-chang-bu-xing-dan-gao-ye-bu-yi-ding-geng-kuai"><span class="toc-text">3.3 为什么 occupancy 太低通常不行，但高也不一定更快</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-4-sm-zi-yuan-ru-he-xian-zhi-bing-fa"><span class="toc-text">3.4 SM 资源如何限制并发</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-5-code-block-size-code-wei-shi-yao-ying-xiang-zi-yuan-li-yong-he-diao-du-li-du"><span class="toc-text">3.5 block size 为什么影响资源利用和调度粒度</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-6-shi-yao-shi-code-register-pressure-code"><span class="toc-text">3.6 什么是 register pressure</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-7-shi-yao-shi-code-spilling-code-ta-wei-shi-yao-hui-shang-xing-neng"><span class="toc-text">3.7 什么是 spilling，它为什么会伤性能</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-8-code-shared-memory-code-wei-shi-yao-ye-hui-ya-di-code-occupancy-code"><span class="toc-text">3.8 shared memory 为什么也会压低 occupancy</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-9-launch-can-shu-diao-you-de-ping-heng-luo-ji"><span class="toc-text">3.9 Launch 参数调优的平衡逻辑</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-10-block-size-dao-di-zen-yao-xuan"><span class="toc-text">3.10 block size 到底怎么选</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-11-wei-shi-yao-gao-xing-neng-kernel-wang-wang-bu-zhui-zui-gao-code-occupancy-code"><span class="toc-text">3.11 为什么高性能 kernel 往往不追最高 occupancy</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-12-yi-ge-shi-yong-de-diao-you-liu-cheng"><span class="toc-text">3.12 一个实用的调优流程</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#4-he-ai-tui-li-de-guan-xi"><span class="toc-text">4. 和 AI 推理的关系</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#5-chang-jian-wu-qu"><span class="toc-text">5. 常见误区</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#6-fu-xi-zi-ce"><span class="toc-text">6. 复习自测</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xi-lie-dao-hang"><span class="toc-text">系列导航</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/15f00dc3/" title="CUDA系统拆解-18-NCCL、多GPU与通信隐藏：规模扩展怎么不被通信拖垮"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA系统拆解-18-NCCL、多GPU与通信隐藏：规模扩展怎么不被通信拖垮"/></a><div class="content"><a class="title" href="/posts/15f00dc3/" title="CUDA系统拆解-18-NCCL、多GPU与通信隐藏：规模扩展怎么不被通信拖垮">CUDA系统拆解-18-NCCL、多GPU与通信隐藏：规模扩展怎么不被通信拖垮</a><time datetime="2026-04-06T09:00:00.000Z" title="发表于 2026-04-06 17:00:00">2026-04-06</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/47afb486/" title="CUDA系统拆解-17-vLLM、TensorRT-LLM 与 Continuous Batching：CUDA 为什么最终连到推理系统"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA系统拆解-17-vLLM、TensorRT-LLM 与 Continuous Batching：CUDA 为什么最终连到推理系统"/></a><div class="content"><a class="title" href="/posts/47afb486/" title="CUDA系统拆解-17-vLLM、TensorRT-LLM 与 Continuous Batching：CUDA 为什么最终连到推理系统">CUDA系统拆解-17-vLLM、TensorRT-LLM 与 Continuous Batching：CUDA 为什么最终连到推理系统</a><time datetime="2026-04-06T08:30:00.000Z" title="发表于 2026-04-06 16:30:00">2026-04-06</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/7061c0d7/" title="CUDA系统拆解-16-CUTLASS、Triton、cuBLAS 与 FlashAttention：高性能实现都在做什么"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA系统拆解-16-CUTLASS、Triton、cuBLAS 与 FlashAttention：高性能实现都在做什么"/></a><div class="content"><a class="title" href="/posts/7061c0d7/" title="CUDA系统拆解-16-CUTLASS、Triton、cuBLAS 与 FlashAttention：高性能实现都在做什么">CUDA系统拆解-16-CUTLASS、Triton、cuBLAS 与 FlashAttention：高性能实现都在做什么</a><time datetime="2026-04-06T08:00:00.000Z" title="发表于 2026-04-06 16:00:00">2026-04-06</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/attentionisallyouneed.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">从 Self-Attention、位置编码到 Encoder-Decoder，系统梳理 Transformer 的核心结构、设计动机与理解路径</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/d6fa227a/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-16</span><a class="blog-slider__title" href="posts/d6fa227a/" alt="">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</a><div class="blog-slider__text">从访存优化到多卡通信，一篇看清 CUDA 实践系列的结构与学习路线</div><a class="blog-slider__button" href="posts/d6fa227a/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/43c4b52e/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/agent.webp" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-24</span><a class="blog-slider__title" href="posts/43c4b52e/" alt="">从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路</a><div class="blog-slider__text">使用飞书与本地 Agent 对话，远程也要让本地 Agent 干活，当一名狠狠的资本家</div><a class="blog-slider__button" href="posts/43c4b52e/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/92dc1028/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/CUDA_C.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-02-05</span><a class="blog-slider__title" href="posts/92dc1028/" alt="">CUDA C编程权威指南-导读</a><div class="blog-slider__text">从异构并行到多 GPU 实践，串起 CUDA C 权威指南的核心学习路线</div><a class="blog-slider__button" href="posts/92dc1028/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">从全书视角出发，一篇看清 PMPP 的章节结构、核心主题与学习主线</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/aac6e27d/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Computer_System.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/aac6e27d/" alt="">深入理解计算机系统知识点总结</a><div class="blog-slider__text">从程序员视角梳理 CSAPP 的知识脉络、系统抽象与性能理解</div><a class="blog-slider__button" href="posts/aac6e27d/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">围绕类型推导、移动语义与并发，提炼现代 C++ 的核心实践</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>

@@ -1,0 +1,611 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>CUDA系统拆解-02-第一个CUDA程序：最小闭环与代码执行路径 | Smarter's blog</title><meta name="author" content="Smarter"><meta name="copyright" content="Smarter"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="CUDA系统拆解-02-第一个CUDA程序：最小闭环与代码执行路径  本文是「CUDA系统拆解」系列第 02 篇。 系列导读：CUDA系统拆解-00-导读：从编程模型到 AI 推理系统的学习路线 上一篇：CUDA系统拆解-01-CUDA为什么存在：从计算负载到编程模型 下一篇：CUDA系统拆解-03-线程组织模型：grid、block、thread 到底在表达什么  1. 这篇解决什么问题  CU">
+<meta property="og:type" content="article">
+<meta property="og:title" content="CUDA系统拆解-02-第一个CUDA程序：最小闭环与代码执行路径">
+<meta property="og:url" content="https://smarter.xin/posts/ab45c244/">
+<meta property="og:site_name" content="Smarter&#39;s blog">
+<meta property="og:description" content="CUDA系统拆解-02-第一个CUDA程序：最小闭环与代码执行路径  本文是「CUDA系统拆解」系列第 02 篇。 系列导读：CUDA系统拆解-00-导读：从编程模型到 AI 推理系统的学习路线 上一篇：CUDA系统拆解-01-CUDA为什么存在：从计算负载到编程模型 下一篇：CUDA系统拆解-03-线程组织模型：grid、block、thread 到底在表达什么  1. 这篇解决什么问题  CU">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://smarter.xin/img/Nvidia_CUDA_Logo.jpg">
+<meta property="article:published_time" content="2026-04-06T01:00:00.000Z">
+<meta property="article:modified_time" content="2026-04-04T19:11:49.729Z">
+<meta property="article:author" content="Smarter">
+<meta property="article:tag" content="CUDA">
+<meta property="article:tag" content="CUDA入门">
+<meta property="article:tag" content="编程模型">
+<meta property="article:tag" content="执行模型">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://smarter.xin/img/Nvidia_CUDA_Logo.jpg"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "CUDA系统拆解-02-第一个CUDA程序：最小闭环与代码执行路径",
+  "url": "https://smarter.xin/posts/ab45c244/",
+  "image": "https://smarter.xin/img/Nvidia_CUDA_Logo.jpg",
+  "datePublished": "2026-04-06T01:00:00.000Z",
+  "dateModified": "2026-04-04T19:11:49.729Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "Smarter",
+      "url": "https://smarter.xin/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.svg"><link rel="canonical" href="https://smarter.xin/posts/ab45c244/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//www.google-analytics.com" crossorigin=""/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.min.css" media="print" onload="this.media='all'"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script async="async" src="https://www.googletagmanager.com/gtag/js?id=G-C3EHX75F81"></script><script>window.dataLayer = window.dataLayer || []
+function gtag(){dataLayer.push(arguments)}
+gtag('js', new Date())
+gtag('config', 'G-C3EHX75F81')
+btf.addGlobalFn('pjaxComplete', () => {
+  gtag('config', 'G-C3EHX75F81', {'page_path': window.location.pathname})
+}, 'google_analytics')
+</script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":true,"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":true},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '天',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'fancybox',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: true,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'CUDA系统拆解-02-第一个CUDA程序：最小闭环与代码执行路径',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/mainColor/heoMainColor.css"><link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/poem.css"><meta property="og:site_name" content="Smarter's blog"><meta name="application-name" content="Smarter's blog"><script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Smarter's blog",
+  "alternateName": ["Smarter", "smarter.xin"],
+  "url": "https://smarter.xin/"
+}
+</script>
+<!-- hexo injector head_end start --><link rel="stylesheet" href="/css/swiper.min.css" media="print" onload="this.media='all'"><link rel="stylesheet" href="/css/swiperstyle.css" media="print" onload="this.media='all'"><!-- hexo injector head_end end --><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="Smarter's blog" type="application/atom+xml">
+</head><body><div id="loading-box"><div class="loading-left-bg"></div><div class="loading-right-bg"></div><div class="spinner-box"><div class="configure-border-1"><div class="configure-core"></div></div><div class="configure-border-2"><div class="configure-core"></div></div><div class="loading-word">加载中...</div></div></div><script>(()=>{
+  const $loadingBox = document.getElementById('loading-box')
+  const $body = document.body
+  const preloader = {
+    endLoading: () => {
+      $body.style.overflow = ''
+      $loadingBox.classList.add('loaded')
+    },
+    initLoading: () => {
+      $body.style.overflow = 'hidden'
+      $loadingBox.classList.remove('loaded')
+    }
+  }
+
+  preloader.initLoading()
+  window.addEventListener('load', preloader.endLoading)
+
+  if (false) {
+    btf.addGlobalFn('pjaxSend', preloader.initLoading, 'preloader_init')
+    btf.addGlobalFn('pjaxComplete', preloader.endLoading, 'preloader_end')
+  }
+})()</script><div id="web_bg" style="background-image: url(/img/backup.jpg);"></div><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">207</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">307</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">29</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/Nvidia_CUDA_Logo.jpg);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><img class="site-icon" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/nav6.gif" alt="Logo"><span class="site-name">Smarter's blog</span></a><a class="nav-page-title" href="/"><span class="site-name">CUDA系统拆解-02-第一个CUDA程序：最小闭环与代码执行路径</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><a class="site-page" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 时间轴</span></a></div><div class="menus_item"><a class="site-page" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></div><div class="menus_item"><a class="site-page" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">CUDA系统拆解-02-第一个CUDA程序：最小闭环与代码执行路径</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-04-06T01:00:00.000Z" title="发表于 2026-04-06 09:00:00">2026-04-06</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-04-04T19:11:49.729Z" title="更新于 2026-04-05 03:11:49">2026-04-05</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/">AI Infra</a><i class="fas fa-angle-right post-meta-separator"></i><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/ai-infra/cuda/">CUDA</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-wordcount"><i class="far fa-file-word fa-fw post-meta-icon"></i><span class="post-meta-label">总字数:</span><span class="word-count">2.8k</span><span class="post-meta-separator">|</span><i class="far fa-clock fa-fw post-meta-icon"></i><span class="post-meta-label">阅读时长:</span><span>10分钟</span></span><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div><section class="main-hero-waves-area waves-area"><svg class="waves-svg" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 24 150 28" preserveAspectRatio="none" shape-rendering="auto"><defs><path id="gentle-wave" d="M -160 44 c 30 0 58 -18 88 -18 s 58 18 88 18 s 58 -18 88 -18 s 58 18 88 18 v 44 h -352 Z"></path></defs><g class="parallax"><use href="#gentle-wave" x="48" y="0"></use><use href="#gentle-wave" x="48" y="3"></use><use href="#gentle-wave" x="48" y="5"></use><use href="#gentle-wave" x="48" y="7"></use></g></svg></section></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="cuda-xi-tong-chai-jie-02-di-yi-ge-cuda-cheng-xu-zui-xiao-bi-huan-yu-dai-ma-zhi-xing-lu-jing" tabindex="-1">CUDA系统拆解-02-第一个CUDA程序：最小闭环与代码执行路径</h1>
+<blockquote>
+<p>本文是「CUDA系统拆解」系列第 02 篇。<br>
+系列导读：<a href="/posts/d134963b/">CUDA系统拆解-00-导读：从编程模型到 AI 推理系统的学习路线</a><br>
+上一篇：<a href="/posts/cf7051aa/">CUDA系统拆解-01-CUDA为什么存在：从计算负载到编程模型</a><br>
+下一篇：<a href="/posts/8f94f6de/">CUDA系统拆解-03-线程组织模型：grid、block、thread 到底在表达什么</a></p>
+</blockquote>
+<h2 id="1-zhe-pian-jie-jue-shi-yao-wen-ti" tabindex="-1" id="1-这篇解决什么问题">1. 这篇解决什么问题</h2>
+<ul>
+<li>CUDA 程序为什么天然分成 <code>host</code> 和 <code>device</code> 两部分。</li>
+<li><code>kernel</code> 和普通函数到底有什么区别。</li>
+<li><code>&lt;&lt;&lt;grid, block&gt;&gt;&gt;</code> 这套 launch 语法在表达什么。</li>
+<li><code>cudaMalloc</code>、<code>cudaMemcpy</code>、<code>cudaDeviceSynchronize</code>、<code>cudaFree</code> 分别在做什么。</li>
+<li>一个最小 CUDA 程序从 CPU 发起，到 GPU 执行，再把结果取回，完整链路到底怎么走。</li>
+</ul>
+<h2 id="2-xian-ji-zhu-de-he-xin-jie-lun" tabindex="-1" id="2-先记住的核心结论">2. 先记住的核心结论</h2>
+<ul>
+<li>CUDA 程序不是“整个程序都跑在 GPU 上”，而是 CPU 控制、GPU 计算。</li>
+<li><code>host</code> 负责准备数据、申请显存、提交任务、同步和取回结果；<code>device</code> 负责并行执行 <code>kernel</code>。</li>
+<li><code>kernel</code> 不是普通函数，它是 GPU 上的大规模并行执行入口。</li>
+<li><code>&lt;&lt;&lt;grid, block&gt;&gt;&gt;</code> 不是语法装饰，而是在定义线程组织方式。</li>
+<li>最小闭环就是：准备数据 -&gt; <code>cudaMalloc</code> -&gt; <code>cudaMemcpy(H2D)</code> -&gt; launch kernel -&gt; 同步 -&gt; <code>cudaMemcpy(D2H)</code> -&gt; 释放资源。</li>
+<li>理解这条最小执行链，后面学 <code>warp</code>、内存层级、stream、profiling、推理引擎才不会断层。</li>
+</ul>
+<h2 id="3-zheng-wen-jiang-jie" tabindex="-1" id="3-正文讲解">3. 正文讲解</h2>
+<h3 id="3-1-cuda-cheng-xu-bu-shi-pao-zai-gpu-shang-er-shi-cpu-kong-zhi-gpu-gan-huo" tabindex="-1" id="3-1-CUDA-程序不是“跑在-GPU-上”，而是“CPU-控制-GPU-干活”">3.1 CUDA 程序不是“跑在 GPU 上”，而是“CPU 控制 GPU 干活”</h3>
+<p>初学 CUDA 最容易犯的错，就是把 <code>.cu</code> 文件理解成“整段程序都在 GPU 上运行”。</p>
+<p>更准确的理解是：</p>
+<ul>
+<li>主控逻辑仍然在 CPU 上</li>
+<li>GPU 是被 CPU 调用的加速器</li>
+<li>CUDA 程序本质上是 <code>host code + device code</code></li>
+</ul>
+<p>其中：</p>
+<ul>
+<li><code>host code</code> 运行在 CPU 上，负责准备数据、申请 GPU 显存、数据拷贝、启动 kernel、同步和结果校验</li>
+<li><code>device code</code> 运行在 GPU 上，主要就是 <code>kernel</code></li>
+</ul>
+<p>你应该先建立下面这张脑图：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">CPU(host)</span><br><span class="line">  ├─ 准备数据</span><br><span class="line">  ├─ 申请 GPU 内存</span><br><span class="line">  ├─ 把输入拷到 GPU</span><br><span class="line">  ├─ 启动 kernel</span><br><span class="line">  ├─ 等待或同步</span><br><span class="line">  └─ 把结果取回</span><br><span class="line"></span><br><span class="line">GPU(device)</span><br><span class="line">  └─ 并行执行 kernel</span><br></pre></td></tr></table></figure>
+<p>这就是 CUDA 最小闭环的骨架。</p>
+<h3 id="3-2-wei-shi-yao-bi-xu-fen-host-he-device" tabindex="-1" id="3-2-为什么必须分-host-和-device">3.2 为什么必须分 host 和 device</h3>
+<p>这不是 CUDA 故意把编程搞复杂，而是硬件现实决定的。</p>
+<p>CPU 和 GPU 是两类不同处理器：</p>
+<ul>
+<li>执行模型不同</li>
+<li>擅长的问题不同</li>
+<li>内存空间通常不同</li>
+<li>调度方式不同</li>
+</ul>
+<p>CPU 更适合：</p>
+<ul>
+<li>复杂控制流</li>
+<li>分支和逻辑调度</li>
+<li>系统调用、文件、网络、IO</li>
+</ul>
+<p>GPU 更适合：</p>
+<ul>
+<li>大规模规则并行</li>
+<li>高吞吐张量计算</li>
+<li>很多线程做相似操作</li>
+</ul>
+<p>所以 CUDA 的设计很明确：</p>
+<blockquote>
+<p>CPU 负责控制和调度，GPU 负责高吞吐并行计算。</p>
+</blockquote>
+<p>这也是为什么推理框架看起来在 CPU 侧运行，但底层真正重计算的地方会落到 CUDA kernel 或 CUDA 库。</p>
+<h3 id="3-3-kernel-shi-shi-yao-he-pu-tong-han-shu-you-shi-yao-qu-bie" tabindex="-1" id="3-3-kernel-是什么，和普通函数有什么区别">3.3 kernel 是什么，和普通函数有什么区别</h3>
+<p>普通 C++ 函数的调用语义很简单：CPU 调，CPU 执行。</p>
+<p>CUDA <code>kernel</code> 不是这样。</p>
+<p>例如：</p>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="function">__global__ <span class="type">void</span> <span class="title">vecAdd</span><span class="params">(<span class="type">const</span> <span class="type">float</span>* A, <span class="type">const</span> <span class="type">float</span>* B, <span class="type">float</span>* C, <span class="type">int</span> N)</span> </span>&#123;</span><br><span class="line">    <span class="type">int</span> idx = blockIdx.x * blockDim.x + threadIdx.x;</span><br><span class="line">    <span class="keyword">if</span> (idx &lt; N) &#123;</span><br><span class="line">        C[idx] = A[idx] + B[idx];</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>这里的 <code>__global__</code> 表示：</p>
+<ul>
+<li>这是一个 <code>kernel</code></li>
+<li>从 <code>host</code> 侧发起</li>
+<li>在 <code>device</code> 上执行</li>
+</ul>
+<p>它和普通函数最大的区别，不在“写法长得不一样”，而在执行语义不一样：</p>
+<ul>
+<li>普通函数通常执行一次</li>
+<li>kernel 会被 GPU 扩展成大量线程并行执行</li>
+</ul>
+<p>所以你写 kernel 时，写的不是“整个任务如何串行做完”，而是：</p>
+<blockquote>
+<p>单个线程该做什么</p>
+</blockquote>
+<p>这就是 CUDA 思维和普通 C++ 思维的第一个分界线。</p>
+<h3 id="3-4-zui-xiao-dai-ma-gu-jia-chang-shi-yao-yang" tabindex="-1" id="3-4-最小代码骨架长什么样">3.4 最小代码骨架长什么样</h3>
+<p>下面是一个足够小、但已经完整体现执行链的例子：</p>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;cuda_runtime.h&gt;</span></span></span><br><span class="line"></span><br><span class="line"><span class="function">__global__ <span class="type">void</span> <span class="title">vecAdd</span><span class="params">(<span class="type">const</span> <span class="type">float</span>* A, <span class="type">const</span> <span class="type">float</span>* B, <span class="type">float</span>* C, <span class="type">int</span> N)</span> </span>&#123;</span><br><span class="line">    <span class="type">int</span> idx = blockIdx.x * blockDim.x + threadIdx.x;</span><br><span class="line">    <span class="keyword">if</span> (idx &lt; N) &#123;</span><br><span class="line">        C[idx] = A[idx] + B[idx];</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="function"><span class="type">int</span> <span class="title">main</span><span class="params">()</span> </span>&#123;</span><br><span class="line">    <span class="type">int</span> N = <span class="number">1024</span>;</span><br><span class="line">    <span class="type">size_t</span> bytes = N * <span class="built_in">sizeof</span>(<span class="type">float</span>);</span><br><span class="line"></span><br><span class="line">    <span class="type">float</span> *h_A, *h_B, *h_C;   <span class="comment">// host memory</span></span><br><span class="line">    <span class="type">float</span> *d_A, *d_B, *d_C;   <span class="comment">// device memory</span></span><br><span class="line"></span><br><span class="line">    <span class="built_in">cudaMalloc</span>(&amp;d_A, bytes);</span><br><span class="line">    <span class="built_in">cudaMalloc</span>(&amp;d_B, bytes);</span><br><span class="line">    <span class="built_in">cudaMalloc</span>(&amp;d_C, bytes);</span><br><span class="line"></span><br><span class="line">    <span class="built_in">cudaMemcpy</span>(d_A, h_A, bytes, cudaMemcpyHostToDevice);</span><br><span class="line">    <span class="built_in">cudaMemcpy</span>(d_B, h_B, bytes, cudaMemcpyHostToDevice);</span><br><span class="line"></span><br><span class="line">    <span class="type">int</span> blockSize = <span class="number">256</span>;</span><br><span class="line">    <span class="type">int</span> gridSize = (N + blockSize - <span class="number">1</span>) / blockSize;</span><br><span class="line">    vecAdd&lt;&lt;&lt;gridSize, blockSize&gt;&gt;&gt;(d_A, d_B, d_C, N);</span><br><span class="line"></span><br><span class="line">    <span class="built_in">cudaDeviceSynchronize</span>();</span><br><span class="line">    <span class="built_in">cudaMemcpy</span>(h_C, d_C, bytes, cudaMemcpyDeviceToHost);</span><br><span class="line"></span><br><span class="line">    <span class="built_in">cudaFree</span>(d_A);</span><br><span class="line">    <span class="built_in">cudaFree</span>(d_B);</span><br><span class="line">    <span class="built_in">cudaFree</span>(d_C);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>这段代码虽然简单，但已经包含了最核心的动作：</p>
+<ol>
+<li>分配 device memory</li>
+<li>把输入从 host 拷到 device</li>
+<li>用 <code>&lt;&lt;&lt;grid, block&gt;&gt;&gt;</code> 启动 kernel</li>
+<li>等待 GPU 完成</li>
+<li>把结果从 device 拷回 host</li>
+<li>释放 device memory</li>
+</ol>
+<p>你后面看到的大多数 CUDA 程序，骨架都还是这套流程，只是更复杂、更并发、或者做了更多优化。</p>
+<h3 id="3-5-code-lt-lt-lt-grid-block-gt-gt-gt-code-dao-di-zai-biao-da-shi-yao" tabindex="-1" id="3-5-grid-block-到底在表达什么">3.5 <code>&lt;&lt;&lt;grid, block&gt;&gt;&gt;</code> 到底在表达什么</h3>
+<p>这一行是 CUDA 最有辨识度的语法：</p>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">vecAdd&lt;&lt;&lt;gridSize, blockSize&gt;&gt;&gt;(d_A, d_B, d_C, N);</span><br></pre></td></tr></table></figure>
+<p>它表示：</p>
+<blockquote>
+<p>用某种线程组织方式去启动这个 kernel</p>
+</blockquote>
+<p>其中：</p>
+<ul>
+<li><code>blockSize</code>：每个 block 有多少线程</li>
+<li><code>gridSize</code>：总共有多少个 block</li>
+</ul>
+<p>所以总线程数大致是：</p>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">gridSize * blockSize</span><br></pre></td></tr></table></figure>
+<p>为什么 CUDA 不直接让你说“启动 N 个线程”，而是要分 <code>grid</code> 和 <code>block</code>？</p>
+<p>因为 <code>block</code> 不是单纯分组，它还是：</p>
+<ul>
+<li>调度单位</li>
+<li>协作单位</li>
+<li>后面 shared memory 和同步的基本作用范围</li>
+</ul>
+<p>所以 <code>grid / block</code> 是执行模型的一部分，不是装饰语法。</p>
+<h3 id="3-6-wei-shi-yao-yao-xian-suan-code-idx-code-huan-yao-xie-bian-jie-pan-duan" tabindex="-1" id="3-6-为什么要先算-idx，还要写边界判断">3.6 为什么要先算 <code>idx</code>，还要写边界判断</h3>
+<p>这两行在 CUDA 代码里极其常见：</p>
+<figure class="highlight cpp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">int</span> idx = blockIdx.x * blockDim.x + threadIdx.x;</span><br><span class="line"><span class="keyword">if</span> (idx &lt; N) &#123; ... &#125;</span><br></pre></td></tr></table></figure>
+<p>第一行的作用是算全局索引，也就是“当前线程该处理哪一份数据”。</p>
+<p>这里用到的几个量分别表示：</p>
+<ul>
+<li><code>threadIdx.x</code>：线程在 block 内的局部编号</li>
+<li><code>blockIdx.x</code>：block 在 grid 内的编号</li>
+<li><code>blockDim.x</code>：每个 block 的线程数</li>
+</ul>
+<p>第二行边界判断也几乎总是需要。</p>
+<p>原因很简单：线程组织通常按 block 对齐，而数据规模未必正好整除 block size。</p>
+<p>例如：</p>
+<ul>
+<li><code>N = 1000</code></li>
+<li><code>blockSize = 256</code></li>
+<li><code>gridSize = (1000 + 255) / 256 = 4</code></li>
+<li>总线程数 = <code>4 * 256 = 1024</code></li>
+</ul>
+<p>这时会多出 24 个线程。如果不写 <code>if (idx &lt; N)</code>，这些线程就会访问越界内存。</p>
+<p>所以这套写法不是模板习惯，而是 CUDA 执行模型的自然结果：</p>
+<ul>
+<li>先按硬件友好的方式组织线程</li>
+<li>再用边界判断裁掉多出来的尾巴</li>
+</ul>
+<h3 id="3-7-code-cuda-malloc-code-code-cuda-memcpy-code-code-cuda-device-synchronize-code-fen-bie-zai-zuo-shi-yao" tabindex="-1" id="3-7-cudaMalloc、cudaMemcpy、cudaDeviceSynchronize-分别在做什么">3.7 <code>cudaMalloc</code>、<code>cudaMemcpy</code>、<code>cudaDeviceSynchronize</code> 分别在做什么</h3>
+<p>这几个 API 是最小闭环里的关键节点。</p>
+<p><code>cudaMalloc</code></p>
+<ul>
+<li>在 GPU 的 global memory 上申请空间</li>
+<li>对应的是 <code>device memory</code></li>
+</ul>
+<p>这里必须明确：</p>
+<ul>
+<li><code>h_A / h_B / h_C</code> 在 host memory</li>
+<li><code>d_A / d_B / d_C</code> 在 device memory</li>
+</ul>
+<p>这两边默认不是同一块空间。</p>
+<p><code>cudaMemcpy</code></p>
+<ul>
+<li>负责在 host 和 device 之间搬数据</li>
+<li>常见方向是 <code>HostToDevice</code> 和 <code>DeviceToHost</code></li>
+</ul>
+<p>这一步非常重要，因为在很多真实系统里，搬数据本身就是性能成本。</p>
+<p><code>cudaDeviceSynchronize</code></p>
+<ul>
+<li>让 CPU 等待，直到 GPU 上之前提交的任务完成</li>
+</ul>
+<p>这也说明一个关键事实：</p>
+<blockquote>
+<p>CPU 提交 kernel，不等于 CPU 会自动等 GPU 算完</p>
+</blockquote>
+<p>理解这点，后面才能继续理解 <code>stream</code>、异步执行和 overlap。</p>
+<h3 id="3-8-cong-code-cu-code-dao-shi-ji-zhi-xing-dao-di-fa-sheng-liao-shi-yao" tabindex="-1" id="3-8-从-cu-到实际执行，到底发生了什么">3.8 从 <code>.cu</code> 到实际执行，到底发生了什么</h3>
+<p>这一层先建立高层直觉，不展开到编译细节。</p>
+<p>一个最小 CUDA 程序的大致路径是：</p>
+<ol>
+<li>你写 <code>.cu</code> 文件，里面同时包含 host 代码和 device 代码。</li>
+<li>编译阶段会把 host 部分处理成 CPU 可执行部分，把 device 部分处理成给 GPU 使用的代码。</li>
+<li>运行时由 CPU 执行主程序。</li>
+<li>CPU 通过 Runtime API 申请 device memory、搬数据、提交 kernel。</li>
+<li>GPU 接到 launch 请求后，按 <code>grid / block / thread</code> 组织并行执行。</li>
+<li>结果写回 device memory。</li>
+<li>CPU 同步后，再把结果取回 host。</li>
+</ol>
+<p>这就是“从 <code>.cu</code> 到实际执行”的最小直觉版路径。后面讲 PTX / SASS / 编译链路时，会把这一层再展开。</p>
+<h3 id="3-9-yong-yi-tiao-zhi-xing-shi-jian-xian-ba-zhe-pian-chuan-qi-lai" tabindex="-1" id="3-9-用一条执行时间线把这篇串起来">3.9 用一条执行时间线把这篇串起来</h3>
+<p>把上面的内容连成时间线，会更清楚：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">CPU(host)</span><br><span class="line">  1. 准备输入数据</span><br><span class="line">  2. cudaMalloc 申请 d_A, d_B, d_C</span><br><span class="line">  3. cudaMemcpy: h_A -&gt; d_A</span><br><span class="line">  4. cudaMemcpy: h_B -&gt; d_B</span><br><span class="line">  5. launch vecAdd&lt;&lt;&lt;grid, block&gt;&gt;&gt;</span><br><span class="line">  6. cudaDeviceSynchronize</span><br><span class="line">  7. cudaMemcpy: d_C -&gt; h_C</span><br><span class="line">  8. 检查结果并释放资源</span><br><span class="line"></span><br><span class="line">GPU(device)</span><br><span class="line">  1. 接收输入数据</span><br><span class="line">  2. 接收 kernel launch 请求</span><br><span class="line">  3. 创建 grid / block / thread</span><br><span class="line">  4. 每个线程计算自己的 idx</span><br><span class="line">  5. 满足 idx &lt; N 的线程执行计算</span><br><span class="line">  6. 结果写回 d_C</span><br></pre></td></tr></table></figure>
+<p>这条时间线很重要。因为后面所有复杂 CUDA 程序，本质上都是把这条链：</p>
+<ul>
+<li>拉长</li>
+<li>并发</li>
+<li>重叠</li>
+<li>做更精细的资源管理</li>
+</ul>
+<p>但骨架不会变。</p>
+<h2 id="4-he-ai-tui-li-de-guan-xi" tabindex="-1" id="4-和-AI-推理的关系">4. 和 AI 推理的关系</h2>
+<p>这篇虽然很基础，但它和 AI 推理的关系很直接。</p>
+<p>推理框架表面上可能在做：</p>
+<ul>
+<li>请求处理</li>
+<li>batching</li>
+<li>cache 管理</li>
+<li>调度</li>
+</ul>
+<p>但底层仍然要重复执行同一套最小闭环：</p>
+<ul>
+<li>准备输入 tensor</li>
+<li>管理显存</li>
+<li>启动 CUDA kernel 或 CUDA 库</li>
+<li>同步或继续推进下一步</li>
+</ul>
+<p>所以后面你会看到很多推理优化，其实都在压这条链上的某个成本：</p>
+<ul>
+<li>减少 <code>cudaMemcpy</code></li>
+<li>减少 kernel 次数</li>
+<li>降低 launch overhead</li>
+<li>让多个阶段重叠执行</li>
+<li>让数据尽量长时间留在 GPU 上</li>
+</ul>
+<p>也就是说，这篇讲的不是“教学玩具”，而是所有推理执行链的最小骨架。</p>
+<h2 id="5-chang-jian-wu-qu" tabindex="-1" id="5-常见误区">5. 常见误区</h2>
+<ul>
+<li><code>kernel 就是普通函数</code>。不对，普通函数通常是 CPU 调 CPU 执行；kernel 是 host 发起、device 并行执行。</li>
+<li><code>写了 CUDA 代码，数据就自动在 GPU 上</code>。不对，host memory 和 device memory 通常需要显式管理和拷贝。</li>
+<li><code>&lt;&lt;&lt;grid, block&gt;&gt;&gt;</code> 只是语法装饰。不对，它决定了线程组织方式，也是后续性能分析的入口。</li>
+<li><code>launch 之后 CPU 一定会等 GPU 算完</code>。不对，提交和完成通常不是同一件事。</li>
+<li><code>会写一个向量加法就等于懂 CUDA</code>。不对，真正重要的是能解释这条执行链为什么这样设计、代价在哪、以后怎么优化。</li>
+</ul>
+<h2 id="6-fu-xi-zi-ce" tabindex="-1" id="6-复习自测">6. 复习自测</h2>
+<ul>
+<li>为什么 CUDA 程序天然要分成 <code>host</code> 和 <code>device</code>？</li>
+<li><code>kernel</code> 和普通函数最本质的区别是什么？</li>
+<li><code>&lt;&lt;&lt;grid, block&gt;&gt;&gt;</code> 到底在表达什么？</li>
+<li>为什么几乎总要写 <code>idx</code> 计算和 <code>if (idx &lt; N)</code>？</li>
+<li><code>cudaMalloc</code>、<code>cudaMemcpy</code>、<code>cudaDeviceSynchronize</code> 分别在解决什么问题？</li>
+<li>一个最小 CUDA 程序从 CPU 发起到 GPU 执行再返回结果，完整路径是什么？</li>
+<li>为什么说推理系统的很多优化，本质上都是在压这条最小执行链上的某个成本？</li>
+</ul>
+<hr>
+<h2 id="xi-lie-dao-hang" tabindex="-1" id="系列导航">系列导航</h2>
+<ul>
+<li>导读：<a href="/posts/d134963b/">CUDA系统拆解-00-导读：从编程模型到 AI 推理系统的学习路线</a></li>
+<li>上一篇：<a href="/posts/cf7051aa/">CUDA系统拆解-01-CUDA为什么存在：从计算负载到编程模型</a></li>
+<li>下一篇：<a href="/posts/8f94f6de/">CUDA系统拆解-03-线程组织模型：grid、block、thread 到底在表达什么</a></li>
+<li>延伸阅读：<a href="/posts/492fe17c/">GPU系统拆解-05-CUDA 执行映射：抽象模型如何落到真实硬件</a></li>
+<li>延伸阅读：<a href="/posts/7608f1b0/">CUDA实践-01-基础概念与分块</a></li>
+</ul>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://smarter.xin">Smarter</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://smarter.xin/posts/ab45c244/">https://smarter.xin/posts/ab45c244/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://smarter.xin" target="_blank">Smarter's blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/cuda/">CUDA</a><a class="post-meta__tags" href="/tags/cuda-basics/">CUDA入门</a><a class="post-meta__tags" href="/tags/programming-model/">编程模型</a><a class="post-meta__tags" href="/tags/execution-model/">执行模型</a></div><div class="post-share"><div class="social-share" data-image="/img/Nvidia_CUDA_Logo.jpg" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related  no-desc" href="/posts/8f94f6de/" title="CUDA系统拆解-03-线程组织模型：grid、block、thread 到底在表达什么"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">CUDA系统拆解-03-线程组织模型：grid、block、thread 到底在表达什么</div></div></div></a><a class="pagination-related  no-desc" href="/posts/cf7051aa/" title="CUDA系统拆解-01-CUDA为什么存在：从计算负载到编程模型"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">CUDA系统拆解-01-CUDA为什么存在：从计算负载到编程模型</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related no-desc" href="/posts/8f94f6de/" title="CUDA系统拆解-03-线程组织模型：grid、block、thread 到底在表达什么"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-04-06</div><div class="info-item-2">CUDA系统拆解-03-线程组织模型：grid、block、thread 到底在表达什么</div></div></div></a><a class="pagination-related no-desc" href="/posts/bdd22b42/" title="CUDA C编程权威指南-第二章：CUDA编程模型"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/CUDA_C.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-02-05</div><div class="info-item-2">CUDA C编程权威指南-第二章：CUDA编程模型</div></div></div></a><a class="pagination-related no-desc" href="/posts/bf3e0449/" title="CUDA C编程权威指南-第三章：CUDA执行模型"><img class="cover" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/CUDA_C.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-02-05</div><div class="info-item-2">CUDA C编程权威指南-第三章：CUDA执行模型</div></div></div></a></div></div><hr class="custom-hr"/><div id="post-comment"><div class="comment-head"><div class="comment-headline"><i class="fas fa-comments fa-fw"></i><span> 评论</span></div></div><div class="comment-wrap"><div><div id="twikoo-wrap"></div></div></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/avatar.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">Smarter</div><div class="author-info-description">我就是要爬这座山<br>再见少年拉满弓，不惧岁月不惧风</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">207</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">307</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">29</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/psmarter"><i class="fab fa-github"></i><span>Follow Me</span></a><div class="card-info-social-icons"><a class="social-icon" href="https://github.com/psmarter/" target="_blank" title="Github"><i class="fab fa-github" style="color: #24292e;"></i></a><a class="social-icon" href="mailto:smarter.shh1104@gmail.com" target="_blank" title="Email"><i class="fas fa-envelope" style="color: #4a7dbe;"></i></a></div></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">路虽远，行则将至；事虽难，做则可成。<br>不积跬步，无以至千里；不积小流，无以成江海。<br>漫漫长途，终有回转；余味苦涩，终有回甘。<br>天下大事，必作于细；天下难事，必作于易。<br>不经一番寒彻骨，怎得梅花扑鼻香。</div></div><div class="card-widget" id="card-poem"><div id="poem_sentence"></div><div id="poem_info"><div id="poem_dynasty"></div><div id="poem_author"></div></div></div><script src="https://cdn.jsdelivr.net/npm/js-heo@1.0.11/poem/jinrishici.js" charset="utf-8"></script><script type="text/javascript">jinrishici.load(function(result) {
+    var sentence = document.querySelector("#poem_sentence")
+    var author = document.querySelector("#poem_author")
+    var dynasty = document.querySelector("#poem_dynasty")
+
+    var sentenceText = result.data.content
+    sentenceText = sentenceText.substr(0, sentenceText.length - 1);
+    sentence.innerHTML = sentenceText
+    dynasty.innerHTML = result.data.origin.dynasty
+    author.innerHTML = result.data.origin.author + '《' + result.data.origin.title + '》'
+});</script><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#cuda-xi-tong-chai-jie-02-di-yi-ge-cuda-cheng-xu-zui-xiao-bi-huan-yu-dai-ma-zhi-xing-lu-jing"><span class="toc-text">CUDA系统拆解-02-第一个CUDA程序：最小闭环与代码执行路径</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#1-zhe-pian-jie-jue-shi-yao-wen-ti"><span class="toc-text">1. 这篇解决什么问题</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-xian-ji-zhu-de-he-xin-jie-lun"><span class="toc-text">2. 先记住的核心结论</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#3-zheng-wen-jiang-jie"><span class="toc-text">3. 正文讲解</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#3-1-cuda-cheng-xu-bu-shi-pao-zai-gpu-shang-er-shi-cpu-kong-zhi-gpu-gan-huo"><span class="toc-text">3.1 CUDA 程序不是“跑在 GPU 上”，而是“CPU 控制 GPU 干活”</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-2-wei-shi-yao-bi-xu-fen-host-he-device"><span class="toc-text">3.2 为什么必须分 host 和 device</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-3-kernel-shi-shi-yao-he-pu-tong-han-shu-you-shi-yao-qu-bie"><span class="toc-text">3.3 kernel 是什么，和普通函数有什么区别</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-4-zui-xiao-dai-ma-gu-jia-chang-shi-yao-yang"><span class="toc-text">3.4 最小代码骨架长什么样</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-5-code-lt-lt-lt-grid-block-gt-gt-gt-code-dao-di-zai-biao-da-shi-yao"><span class="toc-text">3.5 &lt;&lt;&lt;grid, block&gt;&gt;&gt; 到底在表达什么</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-6-wei-shi-yao-yao-xian-suan-code-idx-code-huan-yao-xie-bian-jie-pan-duan"><span class="toc-text">3.6 为什么要先算 idx，还要写边界判断</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-7-code-cuda-malloc-code-code-cuda-memcpy-code-code-cuda-device-synchronize-code-fen-bie-zai-zuo-shi-yao"><span class="toc-text">3.7 cudaMalloc、cudaMemcpy、cudaDeviceSynchronize 分别在做什么</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-8-cong-code-cu-code-dao-shi-ji-zhi-xing-dao-di-fa-sheng-liao-shi-yao"><span class="toc-text">3.8 从 .cu 到实际执行，到底发生了什么</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-9-yong-yi-tiao-zhi-xing-shi-jian-xian-ba-zhe-pian-chuan-qi-lai"><span class="toc-text">3.9 用一条执行时间线把这篇串起来</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#4-he-ai-tui-li-de-guan-xi"><span class="toc-text">4. 和 AI 推理的关系</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#5-chang-jian-wu-qu"><span class="toc-text">5. 常见误区</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#6-fu-xi-zi-ce"><span class="toc-text">6. 复习自测</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#xi-lie-dao-hang"><span class="toc-text">系列导航</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/posts/15f00dc3/" title="CUDA系统拆解-18-NCCL、多GPU与通信隐藏：规模扩展怎么不被通信拖垮"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA系统拆解-18-NCCL、多GPU与通信隐藏：规模扩展怎么不被通信拖垮"/></a><div class="content"><a class="title" href="/posts/15f00dc3/" title="CUDA系统拆解-18-NCCL、多GPU与通信隐藏：规模扩展怎么不被通信拖垮">CUDA系统拆解-18-NCCL、多GPU与通信隐藏：规模扩展怎么不被通信拖垮</a><time datetime="2026-04-06T09:00:00.000Z" title="发表于 2026-04-06 17:00:00">2026-04-06</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/47afb486/" title="CUDA系统拆解-17-vLLM、TensorRT-LLM 与 Continuous Batching：CUDA 为什么最终连到推理系统"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA系统拆解-17-vLLM、TensorRT-LLM 与 Continuous Batching：CUDA 为什么最终连到推理系统"/></a><div class="content"><a class="title" href="/posts/47afb486/" title="CUDA系统拆解-17-vLLM、TensorRT-LLM 与 Continuous Batching：CUDA 为什么最终连到推理系统">CUDA系统拆解-17-vLLM、TensorRT-LLM 与 Continuous Batching：CUDA 为什么最终连到推理系统</a><time datetime="2026-04-06T08:30:00.000Z" title="发表于 2026-04-06 16:30:00">2026-04-06</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/posts/7061c0d7/" title="CUDA系统拆解-16-CUTLASS、Triton、cuBLAS 与 FlashAttention：高性能实现都在做什么"><img src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CUDA系统拆解-16-CUTLASS、Triton、cuBLAS 与 FlashAttention：高性能实现都在做什么"/></a><div class="content"><a class="title" href="/posts/7061c0d7/" title="CUDA系统拆解-16-CUTLASS、Triton、cuBLAS 与 FlashAttention：高性能实现都在做什么">CUDA系统拆解-16-CUTLASS、Triton、cuBLAS 与 FlashAttention：高性能实现都在做什么</a><time datetime="2026-04-06T08:00:00.000Z" title="发表于 2026-04-06 16:00:00">2026-04-06</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2025 - 2026 By Smarter</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><a id="to_comment" href="#post-comment" title="前往评论"><i class="fas fa-comments"></i></a><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><script src="https://cdn.jsdelivr.net/npm/@fancyapps/ui/dist/fancybox/fancybox.umd.min.js"></script><script src="https://cdn.jsdelivr.net/npm/vanilla-lazyload/dist/lazyload.iife.min.js"></script><div class="js-pjax"><script>(async () => {
+  const showKatex = () => {
+    document.querySelectorAll('#article-container .katex').forEach(el => el.classList.add('katex-show'))
+  }
+
+  if (!window.katex_js_css) {
+    window.katex_js_css = true
+    await btf.getCSS('https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css')
+    if (true) {
+      await btf.getScript('https://cdn.jsdelivr.net/npm/katex/dist/contrib/copy-tex.min.js')
+    }
+  }
+
+  showKatex()
+})()</script><script>(() => {
+  const runMermaid = ele => {
+    window.loadMermaid = true
+    const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+
+    ele.forEach((item, index) => {
+      const mermaidSrc = item.firstElementChild
+      const mermaidThemeConfig = `%%{init:{ 'theme':'${theme}'}}%%\n`
+      const mermaidID = `mermaid-${index}`
+      const mermaidDefinition = mermaidThemeConfig + mermaidSrc.textContent
+
+      const renderFn = mermaid.render(mermaidID, mermaidDefinition)
+      const renderMermaid = svg => {
+        mermaidSrc.insertAdjacentHTML('afterend', svg)
+      }
+
+      // mermaid v9 and v10 compatibility
+      typeof renderFn === 'string' ? renderMermaid(renderFn) : renderFn.then(({ svg }) => renderMermaid(svg))
+    })
+  }
+
+  const codeToMermaid = () => {
+    const codeMermaidEle = document.querySelectorAll('pre > code.mermaid')
+    if (codeMermaidEle.length === 0) return
+
+    codeMermaidEle.forEach(ele => {
+      const preEle = document.createElement('pre')
+      preEle.className = 'mermaid-src'
+      preEle.hidden = true
+      preEle.textContent = ele.textContent
+      const newEle = document.createElement('div')
+      newEle.className = 'mermaid-wrap'
+      newEle.appendChild(preEle)
+      ele.parentNode.replaceWith(newEle)
+    })
+  }
+
+  const loadMermaid = () => {
+    if (true) codeToMermaid()
+    const $mermaid = document.querySelectorAll('#article-container .mermaid-wrap')
+    if ($mermaid.length === 0) return
+
+    const runMermaidFn = () => runMermaid($mermaid)
+    btf.addGlobalFn('themeChange', runMermaidFn, 'mermaid')
+    window.loadMermaid ? runMermaidFn() : btf.getScript('https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js').then(runMermaidFn)
+  }
+
+  btf.addGlobalFn('encrypt', loadMermaid, 'mermaid')
+  window.pjax ? loadMermaid() : document.addEventListener('DOMContentLoaded', loadMermaid)
+})()</script><script>(() => {
+  const isShuoshuo = GLOBAL_CONFIG_SITE.pageType === 'shuoshuo'
+  const option = null
+
+  const getCount = () => {
+    const countELement = document.getElementById('twikoo-count')
+    if(!countELement) return
+    twikoo.getCommentsCount({
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      urls: [window.location.pathname],
+      includeReply: false
+    }).then(res => {
+      countELement.textContent = res[0].count
+    }).catch(err => {
+      console.error(err)
+    })
+  }
+
+  const init = (el = document, path = location.pathname) => {
+    twikoo.init({
+      el: el.querySelector('#twikoo-wrap'),
+      envId: 'https://twikoo.smarter.xin',
+      region: '',
+      onCommentLoaded: () => {
+        btf.loadLightbox(document.querySelectorAll('#twikoo .tk-content img:not(.tk-owo-emotion)'))
+      },
+      ...option,
+      path: isShuoshuo ? path : (option && option.path) || path
+    })
+
+    
+
+    isShuoshuo && (window.shuoshuoComment.destroyTwikoo = () => {
+      if (el.children.length) {
+        el.innerHTML = ''
+        el.classList.add('no-comment')
+      }
+    })
+  }
+
+  const loadTwikoo = (el, path) => {
+    if (typeof twikoo === 'object') setTimeout(() => init(el, path), 0)
+    else btf.getScript('https://cdn.jsdelivr.net/npm/twikoo/dist/twikoo.all.min.js').then(() => init(el, path))
+  }
+
+  if (isShuoshuo) {
+    'Twikoo' === 'Twikoo'
+      ? window.shuoshuoComment = { loadComment: loadTwikoo }
+      : window.loadOtherComment = loadTwikoo
+    return
+  }
+
+  if ('Twikoo' === 'Twikoo' || !true) {
+    if (true) btf.loadComment(document.getElementById('twikoo-wrap'), loadTwikoo)
+    else loadTwikoo()
+  } else {
+    window.loadOtherComment = loadTwikoo
+  }
+})()</script></div><script defer="defer" id="fluttering_ribbon" mobile="false" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-fluttering-ribbon.min.js"></script><script id="canvas_nest" defer="defer" color="0,0,255" opacity="0.7" zIndex="-1" count="99" mobile="true" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-nest.min.js"></script><script id="click-heart" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/click-heart.min.js" async="async" mobile="true"></script><!--script(async data-pjax src= theme.asset.busuanzi || '//npm.elemecdn.com/penndu@1.0.0/bsz.js')--><script async data-pjax src="https://events.vercount.one/js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="搜索文章" type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div><!-- hexo injector body_end start --><script data-pjax>
+  function butterfly_swiper_injector_config(){
+    var parent_div_git = document.getElementById('recent-posts');
+    var item_html = '<div class="recent-post-item" style="height: auto;width: 100%"><div class="blog-slider swiper-container-fade swiper-container-horizontal" id="swiper_container"><div class="blog-slider__wrp swiper-wrapper" style="transition-duration: 0ms;"><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/db1cf321/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/attentionisallyouneed.png" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-04</span><a class="blog-slider__title" href="posts/db1cf321/" alt="">AI Infra学习之旅-Transformer详解</a><div class="blog-slider__text">从 Self-Attention、位置编码到 Encoder-Decoder，系统梳理 Transformer 的核心结构、设计动机与理解路径</div><a class="blog-slider__button" href="posts/db1cf321/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/d6fa227a/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Nvidia_CUDA_Logo.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-16</span><a class="blog-slider__title" href="posts/d6fa227a/" alt="">CUDA-Practice：00 系列导读——从带宽墙到多卡通信的学习路线</a><div class="blog-slider__text">从访存优化到多卡通信，一篇看清 CUDA 实践系列的结构与学习路线</div><a class="blog-slider__button" href="posts/d6fa227a/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/43c4b52e/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/agent.webp" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-03-24</span><a class="blog-slider__title" href="posts/43c4b52e/" alt="">从 Claude Code 通知到 Codex 飞书交互：本地 Agent 接入飞书的两条链路</a><div class="blog-slider__text">使用飞书与本地 Agent 对话，远程也要让本地 Agent 干活，当一名狠狠的资本家</div><a class="blog-slider__button" href="posts/43c4b52e/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/92dc1028/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/CUDA_C.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-02-05</span><a class="blog-slider__title" href="posts/92dc1028/" alt="">CUDA C编程权威指南-导读</a><div class="blog-slider__text">从异构并行到多 GPU 实践，串起 CUDA C 权威指南的核心学习路线</div><a class="blog-slider__button" href="posts/92dc1028/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/30730973/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/PMPP.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2026-01-24</span><a class="blog-slider__title" href="posts/30730973/" alt="">PMPP-大规模并行处理器程序设计：导读</a><div class="blog-slider__text">从全书视角出发，一篇看清 PMPP 的章节结构、核心主题与学习主线</div><a class="blog-slider__button" href="posts/30730973/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/aac6e27d/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/Computer_System.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/aac6e27d/" alt="">深入理解计算机系统知识点总结</a><div class="blog-slider__text">从程序员视角梳理 CSAPP 的知识脉络、系统抽象与性能理解</div><a class="blog-slider__button" href="posts/aac6e27d/" alt="">详情   </a></div></div><div class="blog-slider__item swiper-slide" style="width: 750px; opacity: 1; transform: translate3d(0px, 0px, 0px); transition-duration: 0ms;"><a class="blog-slider__img" href="posts/162e86b7/" alt=""><img width="48" height="48" src= "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-lazy-src="/img/C++.jpg" alt="" onerror="this.src=https://unpkg.zhimg.com/akilar-candyassets/image/loading.gif; this.onerror = null;"/></a><div class="blog-slider__content"><span class="blog-slider__code">2025-12-22</span><a class="blog-slider__title" href="posts/162e86b7/" alt="">Effective Modern C++</a><div class="blog-slider__text">围绕类型推导、移动语义与并发，提炼现代 C++ 的核心实践</div><a class="blog-slider__button" href="posts/162e86b7/" alt="">详情   </a></div></div></div><div class="blog-slider__pagination swiper-pagination-clickable swiper-pagination-bullets"></div></div></div>';
+    console.log('已挂载butterfly_swiper')
+    parent_div_git.insertAdjacentHTML("afterbegin",item_html)
+    }
+  var elist = 'undefined'.split(',');
+  var cpage = location.pathname;
+  var epage = '/';
+  var flag = 0;
+
+  for (var i=0;i<elist.length;i++){
+    if (cpage.includes(elist[i])){
+      flag++;
+    }
+  }
+
+  if ((epage ==='all')&&(flag == 0)){
+    butterfly_swiper_injector_config();
+  }
+  else if (epage === cpage){
+    butterfly_swiper_injector_config();
+  }
+  </script><script defer src="/js/swiper.min.js"></script><script defer data-pjax src="/js/swiper_init.js"></script><!-- hexo injector body_end end --></body></html>
